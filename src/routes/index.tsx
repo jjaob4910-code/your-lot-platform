@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/")({
   head: () => ({ meta: [
     { title: "Your Lot — Owners corporation software" },
-    { name: "description", content: "A refined operating system for self-managed Australian owners corporations." },
+    { name: "description", content: "Run your own owners corporation. Tools for levies, compliance and paperwork — at a fraction of what you pay a manager." },
     { property: "og:title", content: "Your Lot — Owners corporation software" },
-    { property: "og:description", content: "Levies, compliance and maintenance in one clear workspace." },
+    { property: "og:description", content: "Take back control: run your own owners corporation with tools for levies, compliance and paperwork." },
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
   ]}),
