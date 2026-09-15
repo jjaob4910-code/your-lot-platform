@@ -1,6 +1,6 @@
 # Roadmap
 
-- [ ] Review the Quanta reference and capture its defining visual patterns.
-- [ ] Present three Your Lot design previews adapted from that reference.
-- [ ] Implement the selected landing, dashboard, and pricing direction.
-- [ ] Verify desktop and mobile layouts and dashboard navigation.
+- [x] Review the Quanta reference and capture its defining visual patterns.
+- [x] Present three Your Lot design previews adapted from that reference.
+- [x] Implement the selected landing, dashboard, and pricing direction.
+- [x] Verify desktop and mobile layouts and dashboard navigation.
