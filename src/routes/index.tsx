@@ -30,19 +30,20 @@ function HomePage() {
       <section className="mx-auto max-w-6xl px-5 pb-16 pt-20 sm:px-8 sm:pt-28">
         <div className="max-w-4xl">
           <p className="mb-7 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">For self-managed owners corporations</p>
-          <h1 className="max-w-4xl text-5xl font-medium leading-[1.02] sm:text-7xl lg:text-[5.4rem]">Strata management,<br/>refined for small schemes.</h1>
+          <h1 className="max-w-4xl text-5xl font-medium leading-[1.02] sm:text-6xl lg:text-7xl">You&rsquo;ve paid a levy every year. Have you ever seen the manager?</h1>
           <div className="mt-8 flex max-w-2xl flex-col items-start gap-6">
-            <p className="max-w-xl text-base font-light leading-7 text-muted-foreground sm:text-lg">A single operating system for Australian owners corporations. Clear levy records, recurring compliance and transparent maintenance.</p>
-            <Button asChild className="rounded-sm"><Link to="/dashboard">Get Started <ArrowRight /></Link></Button>
+            <p className="max-w-xl text-base font-light leading-7 text-muted-foreground sm:text-lg">Take back control. Run your own owners corporation with tools that handle the levies, compliance and paperwork for you — instead of paying someone else to do less than you could do yourself.</p>
+            <Button asChild className="rounded-sm"><Link to="/dashboard">Take Control <ArrowRight /></Link></Button>
           </div>
         </div>
-        <div className="cream-grid relative mt-20 py-8 sm:px-8 sm:py-14"><DashboardPreview /></div>
+        <p className="mt-20 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Here&rsquo;s what the software looks like</p>
+        <div className="cream-grid relative mt-6 py-8 sm:px-8 sm:py-14"><DashboardPreview /></div>
       </section>
 
       <section className="border-y border-border py-10"><div className="mx-auto flex max-w-6xl flex-col gap-7 px-5 sm:px-8 md:flex-row md:items-center md:justify-between"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Designed around Australian OC requirements</p><div className="flex flex-wrap gap-x-10 gap-y-3 font-display text-xs font-medium text-muted-foreground"><span>Levy records</span><span>Annual meetings</span><span>Insurance</span><span>Owner register</span></div></div></section>
 
       <section className="mx-auto max-w-6xl px-5 py-24 sm:px-8 sm:py-32">
-        <div className="grid gap-12 lg:grid-cols-[.75fr_1.25fr]"><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">One clear workspace</p><h2 className="mt-5 max-w-sm text-4xl font-medium leading-tight sm:text-5xl">Built for capable committees.</h2></div><p className="max-w-lg self-end text-base leading-7 text-muted-foreground">Enough structure to run the scheme properly. None of the complexity designed for large strata portfolios.</p></div>
+        <div className="grid gap-12 lg:grid-cols-[.75fr_1.25fr]"><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">How we solve it</p><h2 className="mt-5 max-w-md text-4xl font-medium leading-tight sm:text-5xl">Built to be easy. Priced to be fair.</h2></div><p className="max-w-lg self-end text-base leading-7 text-muted-foreground">Running your own owners corporation shouldn&rsquo;t require a manager, a degree or a mystery invoice. Your Lot gives you the tools to do it yourself, at a fraction of what you&rsquo;re paying now.</p></div>
         <div className="mt-16 grid border-y border-border md:grid-cols-3">{features.map(({icon:Icon,title,text},i)=><article key={title} className={`py-8 md:px-8 ${i>0?"border-t border-border md:border-l md:border-t-0":""}`}><span className="grid size-9 place-items-center rounded-md border border-border"><Icon className="size-4"/></span><h3 className="mt-12 text-lg font-medium">{title}</h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{text}</p></article>)}</div>
       </section>
 
