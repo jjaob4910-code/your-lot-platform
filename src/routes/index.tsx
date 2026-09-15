@@ -34,7 +34,7 @@ function ServiceBento() {
             </div>
           ))}
         </div>
-        <div className="relative z-10 flex h-full min-h-[250px] flex-col justify-end">
+        <div className="relative z-10 mt-44 flex flex-col bg-card pt-4">
           <Landmark className="mb-4 size-5 text-primary" />
           <h3 className="text-xl font-medium">Levies without the spreadsheet chase</h3>
           <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">Prepare notices, see what has been paid and keep clean records in one place. You know where your property stands without rebuilding the numbers every month.</p>
