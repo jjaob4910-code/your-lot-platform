@@ -158,7 +158,7 @@ function DashboardOverview() {
           ["Your savings for big repairs", "Roofs, driveways, paint — money set aside before you need it."],
           ["Your paperwork", "Certificates, minutes and invoices, filed by year."],
           ["Your neighbours", "Owners, tenants and how to reach them."],
-        ].map(([label, body])=>
+        ] as [string, string][]).map(([label, body])=>
           <AccordionItem key={label} value={label}>
             <AccordionTrigger className="py-5 text-left hover:no-underline"><span className="flex items-center gap-3">{label}<span className="font-normal text-muted-foreground">—</span></span></AccordionTrigger>
             <AccordionContent><p className="pb-4 text-muted-foreground">{body} Nothing added yet.</p></AccordionContent>
