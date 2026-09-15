@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, FileCheck2, Landmark, Wrench } from "lucide-react";
+import { ArrowRight, BellRing, Building2, Check, FileText, Landmark, UsersRound, Wrench } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { DashboardPreview } from "@/components/dashboard-preview";
 import { PlanCard } from "@/components/plan-card";
@@ -17,11 +17,89 @@ export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
-const features = [
-  { icon: Landmark, title: "Levy records", text: "Issue levies, record payments and keep trust records ready for review." },
-  { icon: FileCheck2, title: "Compliance", text: "See what is required and keep every recurring obligation in view." },
-  { icon: Wrench, title: "Maintenance", text: "Move requests from first report to a clear committee decision." },
-];
+function ServiceBento() {
+  return (
+    <div className="mt-16 grid gap-3 md:grid-cols-6">
+      <article className="relative min-h-[310px] overflow-hidden rounded-2xl border border-border bg-card p-6 md:col-span-4 sm:p-8">
+        <div className="absolute inset-x-0 top-10 -z-0 flex flex-col gap-4 opacity-80" aria-hidden="true">
+          {["Levy notice ready", "Payment recorded", "Records up to date"].map((label, index) => (
+            <div key={label} className="flex items-center gap-3 border-y border-border/70 bg-background/70 px-7 py-3" style={{ marginLeft: `${index * 7}%`, marginRight: `${14 - index * 4}%` }}>
+              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><Check className="size-3.5" /></span>
+              <span className="text-xs font-medium text-foreground">{label}</span>
+              <span className="ml-auto h-1.5 w-16 rounded-full bg-muted" />
+            </div>
+          ))}
+        </div>
+        <div className="relative z-10 flex h-full min-h-[250px] flex-col justify-end">
+          <Landmark className="mb-4 size-5 text-primary" />
+          <h3 className="text-xl font-medium">Levies without the spreadsheet chase</h3>
+          <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">Prepare notices, see what has been paid and keep clean records in one place. You know where your property stands without rebuilding the numbers every month.</p>
+        </div>
+      </article>
+
+      <article className="flex min-h-[310px] flex-col rounded-2xl border border-border bg-secondary/55 p-6 md:col-span-2 sm:p-8">
+        <div className="flex flex-1 items-center justify-center" aria-hidden="true">
+          <div className="relative grid size-36 place-items-center rounded-full border-[12px] border-muted bg-card">
+            <BellRing className="size-7 text-primary" />
+            <span className="absolute -right-2 top-3 grid size-8 place-items-center rounded-full bg-primary text-primary-foreground"><Check className="size-4" /></span>
+          </div>
+        </div>
+        <h3 className="mt-8 text-xl font-medium">Deadlines that come to you</h3>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">Insurance, meetings and recurring obligations stay visible, with a clear next step before anything becomes urgent.</p>
+      </article>
+
+      <article className="flex min-h-[280px] flex-col rounded-2xl border border-border bg-card p-6 md:col-span-2 sm:p-8">
+        <div className="flex flex-1 flex-col justify-center gap-2" aria-hidden="true">
+          {["Owner", "Committee", "Adviser"].map((role, index) => (
+            <div key={role} className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${index === 1 ? "border-primary bg-secondary" : "border-border bg-background"}`}>
+              <UsersRound className="size-4 text-muted-foreground" />
+              <span className="text-xs font-medium">{role}</span>
+              <span className="ml-auto text-[10px] text-muted-foreground">Right access</span>
+            </div>
+          ))}
+        </div>
+        <h3 className="mt-7 text-lg font-medium">The right people stay in the loop</h3>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">Give each owner the information they need, without forwarding long email chains or exposing private records.</p>
+      </article>
+
+      <article className="flex min-h-[280px] flex-col rounded-2xl border border-border bg-primary p-6 text-primary-foreground md:col-span-2 sm:p-8">
+        <div className="flex flex-1 items-center justify-center gap-3" aria-hidden="true">
+          {[Wrench, FileText, Landmark].map((Icon, index) => (
+            <span key={index} className="grid size-14 place-items-center rounded-2xl border border-primary-foreground/20 bg-primary-foreground/10"><Icon className="size-5" /></span>
+          ))}
+        </div>
+        <h3 className="mt-7 text-lg font-medium">One home for every job and document</h3>
+        <p className="mt-2 text-sm leading-6 text-primary-foreground/70">Maintenance decisions, quotes and records remain connected, so anyone can understand what happened and what comes next.</p>
+      </article>
+
+      <article className="flex min-h-[280px] flex-col rounded-2xl border border-border bg-card p-6 md:col-span-2 sm:p-8">
+        <div className="flex flex-1 items-center justify-center" aria-hidden="true">
+          <div className="w-full max-w-[220px] space-y-3 rounded-xl border border-border bg-background p-4">
+            <div className="flex items-center gap-2"><Building2 className="size-4 text-primary" /><span className="h-2 w-24 rounded-full bg-muted" /></div>
+            <div className="grid grid-cols-2 gap-2"><span className="h-14 rounded-lg bg-secondary" /><span className="h-14 rounded-lg bg-muted" /></div>
+            <span className="block h-2 w-full rounded-full bg-muted" />
+          </div>
+        </div>
+        <h3 className="mt-7 text-lg font-medium">Your property at a glance</h3>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">Open one clear view and know what needs attention. No hunting through folders, inboxes or someone else&rsquo;s filing system.</p>
+      </article>
+
+      <article className="relative min-h-[250px] overflow-hidden rounded-2xl border border-border bg-secondary/55 p-6 md:col-span-6 sm:p-8">
+        <div className="grid h-full items-end gap-8 md:grid-cols-[.8fr_1.2fr]">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Less administration, more certainty</p>
+            <h3 className="mt-4 max-w-md text-2xl font-medium sm:text-3xl">Pick up where you left off. Everything is already in context.</h3>
+            <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">Your records, decisions and next actions stay together, giving your committee a repeatable way to run the property in minutes—not another evening.</p>
+          </div>
+          <div className="grid grid-cols-[120px_1fr] gap-3 rounded-2xl border border-border bg-card p-4" aria-hidden="true">
+            <div className="space-y-3 border-r border-border pr-3"><span className="block h-2 w-16 rounded-full bg-primary" />{[1,2,3,4].map(i=><span key={i} className="block h-2 rounded-full bg-muted" />)}</div>
+            <div className="grid grid-cols-2 gap-3"><span className="h-16 rounded-xl bg-muted" /><span className="h-16 rounded-xl bg-secondary" /><span className="col-span-2 h-10 rounded-xl border border-border" /></div>
+          </div>
+        </div>
+      </article>
+    </div>
+  );
+}
 
 function HomePage() {
   return <div className="min-h-screen bg-background">
@@ -44,7 +122,7 @@ function HomePage() {
 
       <section className="mx-auto max-w-6xl px-5 py-24 sm:px-8 sm:py-32">
         <div className="grid gap-12 lg:grid-cols-[.75fr_1.25fr]"><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">How we solve it</p><h2 className="mt-5 max-w-md text-4xl font-medium leading-tight sm:text-5xl">Built to be easy. Priced to be fair.</h2></div><p className="max-w-lg self-end text-base leading-7 text-muted-foreground">Running your own owners corporation shouldn&rsquo;t require a manager, a degree or a mystery invoice. Your Lot gives you the tools to do it yourself, at a fraction of what you&rsquo;re paying now.</p></div>
-        <div className="mt-16 grid border-y border-border md:grid-cols-3">{features.map(({icon:Icon,title,text},i)=><article key={title} className={`py-8 md:px-8 ${i>0?"border-t border-border md:border-l md:border-t-0":""}`}><span className="grid size-9 place-items-center rounded-md border border-border"><Icon className="size-4"/></span><h3 className="mt-12 text-lg font-medium">{title}</h3><p className="mt-3 text-sm leading-6 text-muted-foreground">{text}</p></article>)}</div>
+        <ServiceBento />
       </section>
 
       <section className="bg-primary py-24 text-primary-foreground sm:py-32"><div className="mx-auto grid max-w-6xl gap-12 px-5 sm:px-8 lg:grid-cols-2"><h2 className="text-4xl font-medium leading-tight sm:text-6xl">Offload the busy work.<br/>Keep the control.</h2><div className="max-w-lg self-end"><p className="text-base font-light leading-7 text-primary-foreground/65">Your Lot gives committees a repeatable way to handle obligations, decisions and records—without handing the scheme to a manager.</p><Button asChild variant="secondary" className="mt-8 rounded-sm"><Link to="/dashboard">Explore the workspace <ArrowRight /></Link></Button></div></div></section>
