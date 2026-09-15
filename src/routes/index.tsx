@@ -31,9 +31,9 @@ function HomePage() {
         <div className="max-w-4xl">
           <p className="mb-7 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">For self-managed owners corporations</p>
           <h1 className="max-w-4xl text-5xl font-medium leading-[1.02] sm:text-7xl lg:text-[5.4rem]">Strata management,<br/>refined for small schemes.</h1>
-          <div className="mt-8 flex max-w-2xl flex-col items-start gap-7 sm:flex-row sm:items-end sm:justify-between">
+          <div className="mt-8 flex max-w-2xl flex-col items-start gap-6">
             <p className="max-w-xl text-base font-light leading-7 text-muted-foreground sm:text-lg">A single operating system for Australian owners corporations. Clear levy records, recurring compliance and transparent maintenance.</p>
-            <Button asChild className="shrink-0 rounded-sm"><Link to="/dashboard">View platform <ArrowRight /></Link></Button>
+            <Button asChild className="rounded-sm"><Link to="/dashboard">Get Started <ArrowRight /></Link></Button>
           </div>
         </div>
         <div className="cream-grid relative mt-20 py-8 sm:px-8 sm:py-14"><DashboardPreview /></div>
