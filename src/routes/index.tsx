@@ -21,9 +21,13 @@ function ServiceBento() {
   return (
     <div className="mt-16 grid gap-3 md:grid-cols-6">
       <article className="relative min-h-[310px] overflow-hidden rounded-2xl border border-border bg-card p-6 md:col-span-4 sm:p-8">
-        <div className="absolute inset-x-0 top-10 -z-0 flex flex-col gap-4 opacity-80" aria-hidden="true">
-          {["Levy notice ready", "Payment recorded", "Records up to date"].map((label, index) => (
-            <div key={label} className="flex items-center gap-3 border-y border-border/70 bg-background/70 px-7 py-3" style={{ marginLeft: `${index * 7}%`, marginRight: `${14 - index * 4}%` }}>
+        <div className="absolute inset-x-0 top-10 z-0 flex flex-col gap-4 opacity-80" aria-hidden="true">
+          {[
+            { label: "Levy notice ready", position: "mr-12" },
+            { label: "Payment recorded", position: "ml-8 mr-8" },
+            { label: "Records up to date", position: "ml-14" },
+          ].map(({ label, position }) => (
+            <div key={label} className={`flex items-center gap-3 border-y border-border/70 bg-background/70 px-7 py-3 ${position}`}>
               <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><Check className="size-3.5" /></span>
               <span className="text-xs font-medium text-foreground">{label}</span>
               <span className="ml-auto h-1.5 w-16 rounded-full bg-muted" />
