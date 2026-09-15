@@ -154,7 +154,7 @@ function DashboardOverview() {
       </section>
 
       <section className="soft-shadow rounded-3xl border border-border/70 bg-card px-7 xl:col-span-5">
-        <Accordion type="single" collapsible>{[
+        <Accordion type="single" collapsible>{([
           ["Your savings for big repairs", "Roofs, driveways, paint — money set aside before you need it."],
           ["Your paperwork", "Certificates, minutes and invoices, filed by year."],
           ["Your neighbours", "Owners, tenants and how to reach them."],
