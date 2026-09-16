@@ -245,31 +245,58 @@ export type Database = {
       }
       maintenance_requests: {
         Row: {
+          approval_required: boolean
+          closed_at: string | null
           created_at: string
           description: string | null
+          estimated_cost: number | null
           id: string
+          kind: string
+          location: string | null
+          outcome: string | null
+          priority: string
           scheme_id: string
           status: Database["public"]["Enums"]["maintenance_status"]
           submitted_by_lot_id: string | null
+          target_date: string | null
           title: string
+          updated_at: string
         }
         Insert: {
+          approval_required?: boolean
+          closed_at?: string | null
           created_at?: string
           description?: string | null
+          estimated_cost?: number | null
           id?: string
+          kind?: string
+          location?: string | null
+          outcome?: string | null
+          priority?: string
           scheme_id: string
           status?: Database["public"]["Enums"]["maintenance_status"]
           submitted_by_lot_id?: string | null
+          target_date?: string | null
           title: string
+          updated_at?: string
         }
         Update: {
+          approval_required?: boolean
+          closed_at?: string | null
           created_at?: string
           description?: string | null
+          estimated_cost?: number | null
           id?: string
+          kind?: string
+          location?: string | null
+          outcome?: string | null
+          priority?: string
           scheme_id?: string
           status?: Database["public"]["Enums"]["maintenance_status"]
           submitted_by_lot_id?: string | null
+          target_date?: string | null
           title?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -357,6 +384,118 @@ export type Database = {
         }
         Relationships: []
       }
+      work_order_approvals: {
+        Row: {
+          comment: string | null
+          created_at: string
+          decided_at: string | null
+          decision: string
+          id: string
+          lot_id: string
+          work_order_id: string
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decision?: string
+          id?: string
+          lot_id: string
+          work_order_id: string
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          decided_at?: string | null
+          decision?: string
+          id?: string
+          lot_id?: string
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_approvals_lot_id_fkey"
+            columns: ["lot_id"]
+            isOneToOne: false
+            referencedRelation: "lots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_approvals_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_order_photos: {
+        Row: {
+          caption: string | null
+          created_at: string
+          id: string
+          storage_path: string
+          work_order_id: string
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          id?: string
+          storage_path: string
+          work_order_id: string
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          id?: string
+          storage_path?: string
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_photos_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_order_updates: {
+        Row: {
+          author_label: string | null
+          created_at: string
+          id: string
+          note: string
+          status_at_time: string | null
+          work_order_id: string
+        }
+        Insert: {
+          author_label?: string | null
+          created_at?: string
+          id?: string
+          note: string
+          status_at_time?: string | null
+          work_order_id: string
+        }
+        Update: {
+          author_label?: string | null
+          created_at?: string
+          id?: string
+          note?: string
+          status_at_time?: string | null
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_updates_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -375,7 +514,14 @@ export type Database = {
       app_role: "Owner" | "Committee"
       compliance_status: "Not Started" | "In Progress" | "Complete"
       levy_status: "Pending" | "Paid" | "Overdue"
-      maintenance_status: "Requested" | "Quoted" | "Approved" | "Complete"
+      maintenance_status:
+        | "Requested"
+        | "Awaiting approval"
+        | "Quoted"
+        | "Approved"
+        | "In progress"
+        | "Complete"
+        | "Closed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -506,7 +652,15 @@ export const Constants = {
       app_role: ["Owner", "Committee"],
       compliance_status: ["Not Started", "In Progress", "Complete"],
       levy_status: ["Pending", "Paid", "Overdue"],
-      maintenance_status: ["Requested", "Quoted", "Approved", "Complete"],
+      maintenance_status: [
+        "Requested",
+        "Awaiting approval",
+        "Quoted",
+        "Approved",
+        "In progress",
+        "Complete",
+        "Closed",
+      ],
     },
   },
 } as const
