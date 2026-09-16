@@ -326,10 +326,11 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
           </div>
         </div>)}
         {visibleFiles.length === 0 && <p className="px-7 py-12 text-center text-sm text-muted-foreground">
-          {searching ? "Nothing matches that search." : "Nothing filed here yet. Upload a file or make a folder to get started."}
+          {searching ? "Nothing matches that search." : "Nothing filed here yet. Drag files in from your computer, or use Upload to get started."}
         </p>}
       </div>
     </Card>
+    </div>
 
     {folderDialog.open && <FolderDialog key={folderDialog.editing?.id ?? "new"} state={folderDialog} onClose={() => setFolderDialog({ open: false, editing: null })} onSubmit={saveFolder} parentName={current?.name ?? null}/>}
   </div>;
