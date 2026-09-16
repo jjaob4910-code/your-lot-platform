@@ -109,7 +109,7 @@ function ServiceBento() {
 const benefits = ["Easy to use", "Fair price", "More control", "Streamlined", "Everything in one place", "Set up in minutes", "No spreadsheets", "Made for 6 to 10 lots"];
 
 function HomePage() {
-  return <div className="relative isolate min-h-screen bg-background">
+  return <div className="backdrop-dots relative isolate min-h-screen bg-background">
     
     <SiteHeader />
     <main>

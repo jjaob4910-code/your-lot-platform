@@ -34,7 +34,7 @@ const sectionBlurb: Record<string, string> = {
 
 function DashboardPage() {
   const [active, setActive] = useState("Dashboard");
-  return <div className="relative isolate min-h-screen bg-background">
+  return <div className="backdrop-dots relative isolate min-h-screen bg-background">
     
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-[68px] max-w-[1500px] items-center gap-4 px-4 sm:px-7">
