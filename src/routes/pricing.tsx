@@ -5,9 +5,9 @@ import { PlanCard } from "@/components/plan-card";
 
 export const Route = createFileRoute("/pricing")({
   head: () => ({ meta: [
-    { title: "Pricing | Your Lot" },
+    { title: "Pricing | Loty" },
     { name: "description", content: "Simple annual pricing for self-managed owners corporations with 6 to 10 lots." },
-    { property: "og:title", content: "Your Lot pricing" },
+    { property: "og:title", content: "Loty pricing" },
     { property: "og:description", content: "Choose Self-Serve or Managed-Lite support for your owners corporation." },
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
