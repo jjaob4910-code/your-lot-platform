@@ -186,23 +186,7 @@
   button, a { -webkit-tap-highlight-color: transparent; }
 }
 
-@utility cream-grid {
-  background-image:
-    radial-gradient(circle, color-mix(in oklab, var(--foreground) 12%, transparent) 0.8px, transparent 0.8px);
-  background-size: 22px 22px;
-}
 
-@utility backdrop-grid {
-  background-image:
-    linear-gradient(to right, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px);
-  background-size: 88px 88px;
-  mask-image: linear-gradient(to bottom, black 0%, black 42%, transparent 88%);
-}
-
-@utility backdrop-glow {
-  background: radial-gradient(closest-side, color-mix(in oklab, var(--primary) 9%, transparent), transparent 72%);
-}
 
 @utility soft-shadow {
   box-shadow: 0 28px 80px -42px color-mix(in oklab, var(--foreground) 26%, transparent);
