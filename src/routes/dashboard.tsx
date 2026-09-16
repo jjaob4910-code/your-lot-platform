@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
+import { WorkOrdersSection, WorkOrderTable, type WorkOrder } from "@/components/work-orders";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
@@ -34,15 +35,14 @@ type Levy = {
   budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number; allocation_method: string | null } | null;
 };
 type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
-type Repair = { id: string; title: string; description: string | null; status: string; created_at: string; submitted_by_lot_id: string | null; lots: { lot_number: number } | null };
+type Repair = WorkOrder;
 type Doc = { id: string; name: string; category: string | null; uploaded_at: string };
 
 const sections = [
-  ["Dashboard", LayoutDashboard], ["Lots", Building2], ["Levies", WalletCards], ["Maintenance", Wrench],
+  ["Dashboard", LayoutDashboard], ["Lots", Building2], ["Levies", WalletCards], ["Work orders", Wrench],
   ["Insurance", ShieldCheck], ["Compliance", FileCheck2], ["Calendar", CalendarDays], ["Documents", Files],
 ] as const;
 
-const repairFlow = ["Requested", "Quoted", "Approved", "Complete"] as const;
 const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 const effectiveLevyStatus = (levy: Levy) => (levy.status === "Pending" && daysUntil(levy.due_date) < 0 ? "Overdue" : levy.status);
@@ -161,8 +161,8 @@ function DashboardPage() {
       {active === "Levies" && <LeviesSection levies={levies.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
         onPaid={(id)=>markLevyPaid.mutate(id)} onBudget={()=>refresh(["levies"])}/>}
 
-      {active === "Maintenance" && <MaintenanceSection repairs={repairs.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
-        onStatus={(id,status)=>setRepairStatus.mutate({id,status})} onChanged={()=>refresh(["repairs"])}/>}
+      {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
+        onChanged={()=>refresh(["repairs"])}/>}
 
       {active === "Compliance" && <ComplianceSection tasks={tasks.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
         onStatus={(id,status)=>setTaskStatus.mutate({id,status})} onChanged={()=>refresh(["tasks"])}/>}
@@ -286,10 +286,10 @@ function Overview({ scheme, levies, tasks, repairs, isCommittee, myLot, onTaskSt
 
       <Card className="overflow-hidden xl:col-span-12">
         <div className="flex items-center justify-between border-b border-border/70 px-7 py-5">
-          <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Repairs</p><h2 className="mt-1 text-lg font-medium tracking-[-0.02em]">{openRepairs ? `${openRepairs} open` : "Nothing open"}</h2></div>
-          <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>goTo("Maintenance")}>Open repairs <ChevronRight/></Button>
+          <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Work orders</p><h2 className="mt-1 text-lg font-medium tracking-[-0.02em]">{openRepairs ? `${openRepairs} open` : "Nothing open"}</h2></div>
+          <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>goTo("Work orders")}>Open work orders <ChevronRight/></Button>
         </div>
-        <RepairTable repairs={repairs.slice(0, 5)} isCommittee={isCommittee} onStatus={onRepairStatus}/>
+        <WorkOrderTable orders={repairs.slice(0, 5)} onOpen={()=>goTo("Work orders")}/>
       </Card>
 
       {!isCommittee && <Card className="p-7 xl:col-span-12">
@@ -301,22 +301,6 @@ function Overview({ scheme, levies, tasks, repairs, isCommittee, myLot, onTaskSt
   </>;
 }
 
-function RepairTable({ repairs, isCommittee, onStatus }: { repairs: Repair[]; isCommittee: boolean; onStatus: (id: string, status: string) => void }) {
-  if (repairs.length === 0) return <p className="px-7 py-10 text-center text-sm text-muted-foreground">Nothing logged yet.</p>;
-  return <div className="divide-y divide-border/70">{repairs.map(repair => {
-    const next = repairFlow[repairFlow.indexOf(repair.status as typeof repairFlow[number]) + 1];
-    return <div key={repair.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{repair.title}</p>
-        <p className="mt-1 text-[12px] text-muted-foreground">{repair.lots ? `Lot ${repair.lots.lot_number} · ` : ""}Logged {niceDate(repair.created_at)}</p>
-      </div>
-      <div className="flex items-center gap-3">
-        <StatusPill status={repair.status}/>
-        {isCommittee && next && <Button size="sm" variant="outline" className="rounded-full" onClick={()=>onStatus(repair.id, next)}>Move to {next}</Button>}
-      </div>
-    </div>;})}
-  </div>;
-}
 
 function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
@@ -564,41 +548,6 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
   </div>;
 }
 
-function MaintenanceSection({ repairs, isCommittee, myLot, schemeId, onStatus, onChanged }: {
-  repairs: Repair[]; isCommittee: boolean; myLot: Lot | null; schemeId?: string | undefined;
-  onStatus: (id: string, status: string) => void; onChanged: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const submit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!schemeId) return;
-    const form = new FormData(e.currentTarget);
-    const { error } = await supabase.from("maintenance_requests").insert({
-      scheme_id: schemeId,
-      submitted_by_lot_id: myLot?.id ?? null,
-      title: String(form.get("title") ?? ""),
-      description: String(form.get("description") ?? ""),
-      status: "Requested",
-    });
-    if (error) { toast("Could not log the repair", { description: error.message }); return; }
-    setOpen(false); onChanged(); toast("Repair logged");
-  };
-  return <div>
-    <PageHead eyebrow="Your property" title="Maintenance" blurb="Log a leak, get quotes and keep a dated trail of every repair on your building."
-      action={<Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild><Button className="rounded-full"><Plus/> Log a repair</Button></DialogTrigger>
-        <DialogContent>
-          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Log a repair</DialogTitle><DialogDescription>Describe what needs fixing and where.</DialogDescription></DialogHeader>
-          <form onSubmit={submit} className="space-y-4">
-            <div className="space-y-2"><Label htmlFor="title">What needs fixing</Label><Input id="title" name="title" placeholder="Leaking gutter, block B" required autoFocus/></div>
-            <div className="space-y-2"><Label htmlFor="description">Details</Label><Textarea id="description" name="description" placeholder="Where it is and when you noticed it"/></div>
-            <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>setOpen(false)}>Cancel</Button><Button type="submit" className="rounded-full">Save repair</Button></div>
-          </form>
-        </DialogContent>
-      </Dialog>}/>
-    <Card className="mt-10 overflow-hidden"><RepairTable repairs={repairs} isCommittee={isCommittee} onStatus={onStatus}/></Card>
-  </div>;
-}
 
 function ComplianceSection({ tasks, isCommittee, schemeId, onStatus, onChanged }: {
   tasks: Task[]; isCommittee: boolean; schemeId?: string | undefined; onStatus: (id: string, status: string) => void; onChanged: () => void;
