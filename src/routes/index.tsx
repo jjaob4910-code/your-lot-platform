@@ -4,6 +4,7 @@ import { SiteHeader } from "@/components/site-header";
 import { DashboardPreview } from "@/components/dashboard-preview";
 import { PlanCard } from "@/components/plan-card";
 import { Button } from "@/components/ui/button";
+import { BackdropTexture } from "@/components/backdrop-texture";
 
 export const Route = createFileRoute("/")({
   head: () => ({ meta: [
@@ -108,7 +109,8 @@ function ServiceBento() {
 const benefits = ["Easy to use", "Fair price", "More control", "Streamlined", "Everything in one place", "Set up in minutes", "No spreadsheets", "Made for 6–10 lots"];
 
 function HomePage() {
-  return <div className="min-h-screen bg-background">
+  return <div className="relative isolate min-h-screen bg-background">
+    <BackdropTexture />
     <SiteHeader />
     <main>
       <section className="mx-auto max-w-6xl px-5 pb-16 pt-20 sm:px-8 sm:pt-28">
