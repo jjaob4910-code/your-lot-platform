@@ -548,41 +548,6 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
   </div>;
 }
 
-function MaintenanceSection({ repairs, isCommittee, myLot, schemeId, onStatus, onChanged }: {
-  repairs: Repair[]; isCommittee: boolean; myLot: Lot | null; schemeId?: string | undefined;
-  onStatus: (id: string, status: string) => void; onChanged: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const submit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!schemeId) return;
-    const form = new FormData(e.currentTarget);
-    const { error } = await supabase.from("maintenance_requests").insert({
-      scheme_id: schemeId,
-      submitted_by_lot_id: myLot?.id ?? null,
-      title: String(form.get("title") ?? ""),
-      description: String(form.get("description") ?? ""),
-      status: "Requested",
-    });
-    if (error) { toast("Could not log the repair", { description: error.message }); return; }
-    setOpen(false); onChanged(); toast("Repair logged");
-  };
-  return <div>
-    <PageHead eyebrow="Your property" title="Maintenance" blurb="Log a leak, get quotes and keep a dated trail of every repair on your building."
-      action={<Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild><Button className="rounded-full"><Plus/> Log a repair</Button></DialogTrigger>
-        <DialogContent>
-          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Log a repair</DialogTitle><DialogDescription>Describe what needs fixing and where.</DialogDescription></DialogHeader>
-          <form onSubmit={submit} className="space-y-4">
-            <div className="space-y-2"><Label htmlFor="title">What needs fixing</Label><Input id="title" name="title" placeholder="Leaking gutter, block B" required autoFocus/></div>
-            <div className="space-y-2"><Label htmlFor="description">Details</Label><Textarea id="description" name="description" placeholder="Where it is and when you noticed it"/></div>
-            <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>setOpen(false)}>Cancel</Button><Button type="submit" className="rounded-full">Save repair</Button></div>
-          </form>
-        </DialogContent>
-      </Dialog>}/>
-    <Card className="mt-10 overflow-hidden"><RepairTable repairs={repairs} isCommittee={isCommittee} onStatus={onStatus}/></Card>
-  </div>;
-}
 
 function ComplianceSection({ tasks, isCommittee, schemeId, onStatus, onChanged }: {
   tasks: Task[]; isCommittee: boolean; schemeId?: string | undefined; onStatus: (id: string, status: string) => void; onChanged: () => void;
