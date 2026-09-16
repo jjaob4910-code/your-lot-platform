@@ -316,6 +316,7 @@ function RepairTable({ repairs, isCommittee, onStatus }: { repairs: Repair[]; is
 
 function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
+  const [viewing, setViewing] = useState<Lot | null>(null);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!schemeId) return;
@@ -325,24 +326,19 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
       lot_number: Number(form.get("lot_number")),
       owner_name: String(form.get("owner_name") ?? ""),
       owner_email: String(form.get("owner_email") ?? ""),
-      entitlement_percent: Number(form.get("entitlement_percent")),
       occupied_status: String(form.get("occupied_status") ?? "Owner occupied"),
     });
     if (error) { toast("Could not add the lot", { description: error.message }); return; }
     setOpen(false); onChanged(); toast("Lot added");
   };
-  const total = lots.reduce((sum, lot) => sum + Number(lot.entitlement_percent), 0);
   return <div>
-    <PageHead eyebrow="Your property" title="Lots" blurb="Who owns what, who lives there, and how each owner's share of costs is worked out."
+    <PageHead eyebrow="Your property" title="Lots" blurb="Who owns what and who lives there. Open a lot to see that owner's details."
       action={isCommittee ? <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild><Button className="rounded-full"><Plus/> Add a lot</Button></DialogTrigger>
         <DialogContent>
-          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Add a lot</DialogTitle><DialogDescription>Entitlements across all lots should add up to 100%.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Add a lot</DialogTitle><DialogDescription>Add the lot number and who owns it.</DialogDescription></DialogHeader>
           <form onSubmit={submit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input id="lot_number" name="lot_number" type="number" min="1" required/></div>
-              <div className="space-y-2"><Label htmlFor="entitlement_percent">Entitlement %</Label><Input id="entitlement_percent" name="entitlement_percent" type="number" step="0.001" required/></div>
-            </div>
+            <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input id="lot_number" name="lot_number" type="number" min="1" required/></div>
             <div className="space-y-2"><Label htmlFor="owner_name">Owner name</Label><Input id="owner_name" name="owner_name"/></div>
             <div className="space-y-2"><Label htmlFor="owner_email">Owner email</Label><Input id="owner_email" name="owner_email" type="email"/></div>
             <div className="space-y-2"><Label>Occupancy</Label><Select name="occupied_status" defaultValue="Owner occupied"><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="Owner occupied">Owner occupied</SelectItem><SelectItem value="Tenanted">Tenanted</SelectItem><SelectItem value="Vacant">Vacant</SelectItem></SelectContent></Select></div>
@@ -352,14 +348,33 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
       </Dialog> : undefined}/>
     <Card className="mt-10 overflow-hidden">
       <div className="divide-y divide-border/70">{lots.map(lot =>
-        <div key={lot.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
+        <button type="button" key={lot.id} onClick={()=>setViewing(lot)}
+          className="flex w-full flex-wrap items-center justify-between gap-4 px-7 py-5 text-left transition-colors hover:bg-muted/40">
           <div><p className="text-sm font-medium">Lot {lot.lot_number}{lot.owner_name ? ` · ${lot.owner_name}` : ""}</p><p className="mt-1 text-[12px] text-muted-foreground">{lot.owner_email ?? "No email on file"}</p></div>
-          <div className="flex items-center gap-4 text-[12px] text-muted-foreground"><span>{lot.occupied_status}</span><span className="font-display text-base text-foreground">{lot.entitlement_percent}%</span></div>
-        </div>)}
+          <div className="flex items-center gap-4 text-[12px] text-muted-foreground"><span>{lot.occupied_status}</span><span className="text-foreground">View details</span></div>
+        </button>)}
         {lots.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">No lots visible to you yet.</p>}
       </div>
-      {lots.length > 0 && <div className="border-t border-border/70 px-7 py-4 text-[12px] text-muted-foreground">Entitlements total {total.toFixed(2)}%</div>}
     </Card>
+    <Dialog open={!!viewing} onOpenChange={(o)=>{ if (!o) setViewing(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="font-display tracking-[-0.02em]">Lot {viewing?.lot_number}</DialogTitle>
+          <DialogDescription>Owner details on file for this lot.</DialogDescription>
+        </DialogHeader>
+        <div className="divide-y divide-border/70 text-sm">
+          {[["Owner", viewing?.owner_name || "Not recorded"],
+            ["Email", viewing?.owner_email || "No email on file"],
+            ["Occupancy", viewing?.occupied_status || "Not recorded"],
+            ["Linked account", viewing?.owner_user_id ? "Yes" : "Not linked yet"]].map(([label, value]) =>
+            <div key={label} className="flex items-center justify-between gap-6 py-3">
+              <span className="text-[12px] uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
+              <span className="text-right font-medium">{value}</span>
+            </div>)}
+        </div>
+        <div className="flex justify-end pt-2"><Button className="rounded-full" onClick={()=>setViewing(null)}>Close</Button></div>
+      </DialogContent>
+    </Dialog>
   </div>;
 }
 
