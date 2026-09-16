@@ -4,6 +4,7 @@ import { ArrowUpRight, Bell, Building2, CalendarDays, ChevronRight, FileCheck2, 
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { BackdropTexture } from "@/components/backdrop-texture";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
@@ -33,7 +34,8 @@ const sectionBlurb: Record<string, string> = {
 
 function DashboardPage() {
   const [active, setActive] = useState("Dashboard");
-  return <div className="min-h-screen bg-background">
+  return <div className="relative isolate min-h-screen bg-background">
+    <BackdropTexture />
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-[68px] max-w-[1500px] items-center gap-4 px-4 sm:px-7">
         <Link to="/" className="mr-2 flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0,1,2,3].map(i=><span key={i} className="rounded-[2px] bg-primary"/>)}</span><span className="hidden sm:inline">Your Lot</span></Link>
