@@ -231,7 +231,13 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
 
     <div className="mt-10 flex flex-wrap items-center gap-3">
       <div className="flex flex-wrap items-center gap-1 text-[13px]">
-        <button className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium hover:bg-secondary" onClick={() => setPath([])}>
+        <button
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium hover:bg-secondary ${dropRing("root")}`}
+          onClick={() => setPath([])}
+          onDragOver={dragOver("root")}
+          onDragLeave={() => setDropTarget(null)}
+          onDrop={dropOn("root", null)}
+        >
           <Home className="h-3.5 w-3.5"/> All documents
         </button>
         {path.map((folder, index) => <span key={folder.id} className="flex items-center gap-1">
