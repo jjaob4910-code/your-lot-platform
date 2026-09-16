@@ -276,15 +276,27 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
       </Card></div>)}
     </div>}
 
-    <Card className="mt-6 overflow-hidden">
+    <div
+      className={`mt-6 rounded-3xl transition ${dropTarget === "list" ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
+      onDragOver={searching ? undefined : dragOver("list")}
+      onDragLeave={() => setDropTarget(prev => (prev === "list" ? null : prev))}
+      onDrop={searching ? undefined : dropOn("list", currentId)}
+    >
+    <Card className="overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b border-border/70 px-7 py-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          {searching ? "Matching files" : current ? current.name : "Files at the top level"}
+          {searching ? "Matching files" : current ? current.name : "Main documents"}
         </p>
         <p className="text-[12px] text-muted-foreground">{visibleFiles.length} {visibleFiles.length === 1 ? "file" : "files"}</p>
       </div>
       <div className="divide-y divide-border/70">
-        {visibleFiles.map(doc => <div key={doc.id} className="flex flex-wrap items-center gap-4 px-7 py-4">
+        {visibleFiles.map(doc => <div
+          key={doc.id}
+          draggable={isCommittee}
+          onDragStart={() => setDragDoc(doc)}
+          onDragEnd={() => { setDragDoc(null); setDropTarget(null); }}
+          className={`flex flex-wrap items-center gap-4 px-7 py-4 ${isCommittee ? "cursor-grab active:cursor-grabbing" : ""} ${dragDoc?.id === doc.id ? "opacity-50" : ""}`}
+        >
           <FolderIcon icon="FileText" color="slate" size="sm"/>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{doc.name}</p>
