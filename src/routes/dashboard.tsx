@@ -74,7 +74,7 @@ function DashboardPage() {
   const levies = useQuery({
     queryKey: ["levies"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("levies").select("*, lots(lot_number, owner_name, owner_email, entitlement_percent), budgets(financial_year, admin_fund_total, maintenance_fund_total)").order("due_date");
+      const { data, error } = await supabase.from("levies").select("*, lots(lot_number, owner_name, owner_email, entitlement_percent), budgets(financial_year, admin_fund_total, maintenance_fund_total, allocation_method)").order("due_date");
       if (error) throw error;
       return (data ?? []) as unknown as Levy[];
     },
