@@ -294,7 +294,8 @@ export function WorkOrderDetail({ order, lots, isCommittee, onChanged }: {
   const rows = approvals.data ?? [];
   const approved = rows.filter(r => r.decision === "Approved").length;
   const declined = rows.filter(r => r.decision === "Declined").length;
-  const blocked = order.approval_required && rows.length > 0 && approved < rows.length && order.status === "Awaiting approval";
+  const majorityNeeded = rows.length > 0 ? Math.floor(rows.length / 2) + 1 : 0;
+  const blocked = order.approval_required && rows.length > 0 && approved < majorityNeeded && order.status === "Awaiting approval";
 
   return <div>
     <DialogHeader>
