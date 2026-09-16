@@ -225,12 +225,7 @@ function Overview({ scheme, levies, tasks, repairs, isCommittee, myLot, onTaskSt
   return <>
     <div className="max-w-2xl">
       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{scheme ? scheme.address : "Your building"}</p>
-      <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">Hello{email ? `, ${email.split("@")[0]}` : ""}.<br/>Here's what's happening at your property.</h1>
-      <p className="mt-5 text-[15px] leading-7 text-muted-foreground">
-        {isCommittee
-          ? "You can see every lot, every levy and every repair. Loty keeps an eye on the dates so you can get on with your week."
-          : "Your levies and your repair requests, in one place. Loty keeps an eye on the dates so you can get on with your week."}
-      </p>
+      <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">Hi there, Here's what's happening.</h1>
     </div>
 
     <div className="mt-10 flex gap-3 overflow-x-auto pb-2">{stats.map(([label, value, hint]) =>
