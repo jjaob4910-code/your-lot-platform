@@ -97,6 +97,7 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
   const allFolders = folders.data ?? [];
   const refreshFolders = () => queryClient.invalidateQueries({ queryKey: ["document-folders"] });
 
+  const [preview, setPreview] = useState<{ doc: DocFile; url: string | null; loading: boolean } | null>(null);
   const searching = query.trim().length > 0;
   const visibleFolders = useMemo(() => searching
     ? allFolders.filter(f => f.name.toLowerCase().includes(query.toLowerCase()))
@@ -162,6 +163,14 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
     } catch (err) {
       toast("Upload failed", { description: (err as Error).message });
     } finally { setUploading(false); }
+  };
+
+  const openPreview = async (doc: DocFile) => {
+    setPreview({ doc, url: null, loading: true });
+    if (!doc.storage_path) { setPreview({ doc, url: null, loading: false }); return; }
+    const { data, error } = await supabase.storage.from("documents").createSignedUrl(doc.storage_path, 600);
+    if (error || !data) { toast("Could not open the file", { description: error?.message }); setPreview({ doc, url: null, loading: false }); return; }
+    setPreview({ doc, url: data.signedUrl, loading: false });
   };
 
   const download = async (doc: DocFile) => {
@@ -298,12 +307,12 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
           className={`flex flex-wrap items-center gap-4 px-7 py-4 ${isCommittee ? "cursor-grab active:cursor-grabbing" : ""} ${dragDoc?.id === doc.id ? "opacity-50" : ""}`}
         >
           <FolderIcon icon="FileText" color="slate" size="sm"/>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{doc.name}</p>
+          <button type="button" className="min-w-0 flex-1 text-left" onClick={() => { void openPreview(doc); }}>
+            <p className="truncate text-sm font-medium underline-offset-4 hover:underline">{doc.name}</p>
             <p className="mt-1 text-[12px] text-muted-foreground">
               Added {niceDate(doc.uploaded_at)} · Edited {niceDate(doc.updated_at)}{doc.file_size ? ` · ${niceSize(doc.file_size)}` : ""}
             </p>
-          </div>
+          </button>
           <div className="flex items-center gap-2">
             {doc.shared_with_owners && <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">Shared with owners</span>}
             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => { void download(doc); }} aria-label={`Download ${doc.name}`}><Download className="h-4 w-4"/></Button>
@@ -331,6 +340,28 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
       </div>
     </Card>
     </div>
+
+    <Dialog open={preview !== null} onOpenChange={open => { if (!open) setPreview(null); }}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="font-display tracking-[-0.02em]">{preview?.doc.name}</DialogTitle>
+          <DialogDescription>
+            {preview ? `Added ${niceDate(preview.doc.uploaded_at)}${preview.doc.file_size ? ` · ${niceSize(preview.doc.file_size)}` : ""}${preview.doc.shared_with_owners ? " · Shared with owners" : ""}` : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-hidden rounded-2xl border border-border/70 bg-secondary/40">
+          {preview?.loading && <p className="p-12 text-center text-sm text-muted-foreground">Opening the file</p>}
+          {preview && !preview.loading && !preview.url && <p className="p-12 text-center text-sm text-muted-foreground">There is no file attached to this record yet.</p>}
+          {preview?.url && (preview.doc.mime_type?.startsWith("image/")
+            ? <img src={preview.url} alt={preview.doc.name} className="max-h-[65vh] w-full object-contain"/>
+            : <iframe src={preview.url} title={preview.doc.name} className="h-[65vh] w-full bg-background"/>)}
+        </div>
+        <DialogFooter>
+          {preview?.url && <Button variant="outline" className="rounded-full" onClick={() => window.open(preview.url!, "_blank")}>Open in new tab</Button>}
+          {preview && <Button className="rounded-full" onClick={() => { void download(preview.doc); }}><Download/> Download</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     {folderDialog.open && <FolderDialog key={folderDialog.editing?.id ?? "new"} state={folderDialog} onClose={() => setFolderDialog({ open: false, editing: null })} onSubmit={saveFolder} parentName={current?.name ?? null}/>}
   </div>;
