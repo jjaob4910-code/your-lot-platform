@@ -34,7 +34,7 @@ type Levy = {
   budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number; allocation_method: string | null } | null;
 };
 type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
-type Repair = { id: string; title: string; description: string | null; status: string; created_at: string; submitted_by_lot_id: string | null; lots: { lot_number: number } | null };
+type Repair = WorkOrder;
 type Doc = { id: string; name: string; category: string | null; uploaded_at: string };
 
 const sections = [
