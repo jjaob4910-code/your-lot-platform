@@ -28,7 +28,11 @@ export const Route = createFileRoute("/dashboard")({
 
 type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null };
 type Lot = { id: string; lot_number: number; owner_name: string | null; owner_email: string | null; owner_user_id: string | null; entitlement_percent: number; occupied_status: string };
-type Levy = { id: string; lot_id: string; amount: number; due_date: string; status: string; paid_at: string | null; lots: { lot_number: number; owner_name: string | null } | null };
+type Levy = {
+  id: string; lot_id: string; amount: number; due_date: string; status: string; paid_at: string | null;
+  lots: { lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number } | null;
+  budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number } | null;
+};
 type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
 type Repair = { id: string; title: string; description: string | null; status: string; created_at: string; submitted_by_lot_id: string | null; lots: { lot_number: number } | null };
 type Doc = { id: string; name: string; category: string | null; uploaded_at: string };
