@@ -127,15 +127,9 @@ function DashboardPage() {
     onError: (e: Error) => toast("Could not update", { description: e.message }),
   });
 
-  const isCommittee = me?.isCommittee ?? false;
-  const myLot = lots.data?.find(lot => lot.owner_user_id === me?.id) ?? null;
+  const isCommittee = true;
+  const myLot = null;
 
-  const signOut = async () => {
-    await queryClient.cancelQueries();
-    queryClient.clear();
-    await supabase.auth.signOut();
-    navigate({ to: "/auth", replace: true });
-  };
 
   return <div className="relative isolate min-h-screen bg-background">
     <Toaster />
