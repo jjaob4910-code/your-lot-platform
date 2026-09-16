@@ -301,22 +301,6 @@ function Overview({ scheme, levies, tasks, repairs, isCommittee, myLot, onTaskSt
   </>;
 }
 
-function RepairTable({ repairs, isCommittee, onStatus }: { repairs: Repair[]; isCommittee: boolean; onStatus: (id: string, status: string) => void }) {
-  if (repairs.length === 0) return <p className="px-7 py-10 text-center text-sm text-muted-foreground">Nothing logged yet.</p>;
-  return <div className="divide-y divide-border/70">{repairs.map(repair => {
-    const next = repairFlow[repairFlow.indexOf(repair.status as typeof repairFlow[number]) + 1];
-    return <div key={repair.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{repair.title}</p>
-        <p className="mt-1 text-[12px] text-muted-foreground">{repair.lots ? `Lot ${repair.lots.lot_number} · ` : ""}Logged {niceDate(repair.created_at)}</p>
-      </div>
-      <div className="flex items-center gap-3">
-        <StatusPill status={repair.status}/>
-        {isCommittee && next && <Button size="sm" variant="outline" className="rounded-full" onClick={()=>onStatus(repair.id, next)}>Move to {next}</Button>}
-      </div>
-    </div>;})}
-  </div>;
-}
 
 function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
