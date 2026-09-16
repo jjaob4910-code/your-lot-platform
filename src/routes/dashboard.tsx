@@ -15,6 +15,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { WorkOrdersSection, WorkOrderTable, type WorkOrder } from "@/components/work-orders";
 import { CalendarSection } from "@/components/calendar-view";
+import { DocumentsSection, type DocFile } from "@/components/documents";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
@@ -37,7 +38,7 @@ type Levy = {
 };
 type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
 type Repair = WorkOrder;
-type Doc = { id: string; name: string; category: string | null; uploaded_at: string };
+type Doc = DocFile;
 
 const sections = [
   ["Dashboard", LayoutDashboard], ["Lots", Building2], ["Levies", WalletCards], ["Work orders", Wrench],
@@ -616,42 +617,3 @@ function InsuranceSection({ tasks }: { tasks: Task[] }) {
   </div>;
 }
 
-
-function DocumentsSection({ documents, isCommittee, schemeId, onChanged }: { documents: Doc[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
-  const submit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!schemeId) return;
-    const form = new FormData(e.currentTarget);
-    const { error } = await supabase.from("documents").insert({
-      scheme_id: schemeId,
-      name: String(form.get("name") ?? ""),
-      category: String(form.get("category") ?? "Other"),
-    });
-    if (error) { toast("Could not add the record", { description: error.message }); return; }
-    setOpen(false); onChanged(); toast("Record added");
-  };
-  return <div>
-    <PageHead eyebrow="Your property" title="Documents" blurb="Minutes, certificates, invoices and plans, filed once, findable forever."
-      action={isCommittee ? <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild><Button className="rounded-full"><Plus/> Add a record</Button></DialogTrigger>
-        <DialogContent>
-          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Add a record</DialogTitle><DialogDescription>Name it so the next committee can find it.</DialogDescription></DialogHeader>
-          <form onSubmit={submit} className="space-y-4">
-            <div className="space-y-2"><Label htmlFor="name">Document name</Label><Input id="name" name="name" placeholder="AGM minutes 2026" required autoFocus/></div>
-            <div className="space-y-2"><Label>Category</Label><Select name="category" defaultValue="Minutes"><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent>{["Minutes","Insurance","Plans","Invoices","Other"].map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
-            <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>setOpen(false)}>Cancel</Button><Button type="submit" className="rounded-full">Save</Button></div>
-          </form>
-        </DialogContent>
-      </Dialog> : undefined}/>
-    <Card className="mt-10 overflow-hidden">
-      <div className="divide-y divide-border/70">{documents.map(doc =>
-        <div key={doc.id} className="flex items-center justify-between gap-4 px-7 py-5">
-          <div><p className="text-sm font-medium">{doc.name}</p><p className="mt-1 text-[12px] text-muted-foreground">{doc.category ?? "Other"}</p></div>
-          <p className="text-[12px] text-muted-foreground">{niceDate(doc.uploaded_at)}</p>
-        </div>)}
-        {documents.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">Nothing filed yet.</p>}
-      </div>
-    </Card>
-  </div>;
-}
