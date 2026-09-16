@@ -286,10 +286,10 @@ function Overview({ scheme, levies, tasks, repairs, isCommittee, myLot, onTaskSt
 
       <Card className="overflow-hidden xl:col-span-12">
         <div className="flex items-center justify-between border-b border-border/70 px-7 py-5">
-          <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Repairs</p><h2 className="mt-1 text-lg font-medium tracking-[-0.02em]">{openRepairs ? `${openRepairs} open` : "Nothing open"}</h2></div>
-          <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>goTo("Maintenance")}>Open repairs <ChevronRight/></Button>
+          <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Work orders</p><h2 className="mt-1 text-lg font-medium tracking-[-0.02em]">{openRepairs ? `${openRepairs} open` : "Nothing open"}</h2></div>
+          <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>goTo("Work orders")}>Open work orders <ChevronRight/></Button>
         </div>
-        <RepairTable repairs={repairs.slice(0, 5)} isCommittee={isCommittee} onStatus={onRepairStatus}/>
+        <WorkOrderTable orders={repairs.slice(0, 5)} onOpen={()=>goTo("Work orders")}/>
       </Card>
 
       {!isCommittee && <Card className="p-7 xl:col-span-12">
