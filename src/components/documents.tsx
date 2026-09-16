@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type DragEvent, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight, Download, FileText, Folder, FolderOpen, FolderPlus, Gavel, Home, Image as ImageIcon,
