@@ -164,6 +164,14 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
     } finally { setUploading(false); }
   };
 
+  const openPreview = async (doc: DocFile) => {
+    setPreview({ doc, url: null, loading: true });
+    if (!doc.storage_path) { setPreview({ doc, url: null, loading: false }); return; }
+    const { data, error } = await supabase.storage.from("documents").createSignedUrl(doc.storage_path, 600);
+    if (error || !data) { toast("Could not open the file", { description: error?.message }); setPreview({ doc, url: null, loading: false }); return; }
+    setPreview({ doc, url: data.signedUrl, loading: false });
+  };
+
   const download = async (doc: DocFile) => {
     if (!doc.storage_path) { toast("No file attached to this record"); return; }
     const { data, error } = await supabase.storage.from("documents").createSignedUrl(doc.storage_path, 60, { download: doc.name });
