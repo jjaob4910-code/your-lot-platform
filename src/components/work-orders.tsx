@@ -312,7 +312,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, onChanged }: {
           <Button size="sm" className="rounded-full" disabled={blocked || advance.isPending} onClick={()=>advance.mutate(next)}>Move to {next}</Button>
           {order.status !== "Complete" && <Button size="sm" variant="outline" className="rounded-full" disabled={advance.isPending} onClick={()=>advance.mutate("Complete")}><Check/> Close it off</Button>}
         </div>}
-        {blocked && <p className="mt-3 text-[12px] text-muted-foreground">Waiting on {rows.length - approved} of {rows.length} lots to decide before this can move on.</p>}
+        {blocked && <p className="mt-3 text-[12px] text-muted-foreground">{approved} of {majorityNeeded} approvals needed for a majority. It moves on by itself once that is reached.</p>}
       </div>
 
       {order.description && <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Details</p>
