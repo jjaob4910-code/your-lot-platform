@@ -28,7 +28,11 @@ export const Route = createFileRoute("/dashboard")({
 
 type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null };
 type Lot = { id: string; lot_number: number; owner_name: string | null; owner_email: string | null; owner_user_id: string | null; entitlement_percent: number; occupied_status: string };
-type Levy = { id: string; lot_id: string; amount: number; due_date: string; status: string; paid_at: string | null; lots: { lot_number: number; owner_name: string | null } | null };
+type Levy = {
+  id: string; lot_id: string; amount: number; due_date: string; status: string; paid_at: string | null;
+  lots: { lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number } | null;
+  budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number } | null;
+};
 type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
 type Repair = { id: string; title: string; description: string | null; status: string; created_at: string; submitted_by_lot_id: string | null; lots: { lot_number: number } | null };
 type Doc = { id: string; name: string; category: string | null; uploaded_at: string };
@@ -70,7 +74,7 @@ function DashboardPage() {
   const levies = useQuery({
     queryKey: ["levies"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("levies").select("*, lots(lot_number, owner_name)").order("due_date");
+      const { data, error } = await supabase.from("levies").select("*, lots(lot_number, owner_name, owner_email, entitlement_percent), budgets(financial_year, admin_fund_total, maintenance_fund_total)").order("due_date");
       if (error) throw error;
       return (data ?? []) as unknown as Levy[];
     },
@@ -377,8 +381,28 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
   </div>;
 }
 
+function reminderText(levy: Levy, status: string) {
+  const who = levy.lots?.owner_name ?? "there";
+  const year = levy.budgets?.financial_year ? ` for ${levy.budgets.financial_year}` : "";
+  return status === "Overdue"
+    ? `Hi ${who},\n\nA quick friendly note: the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} was due on ${niceDate(levy.due_date)} and is still showing as unpaid on our records.\n\nIf you have already paid, please ignore this and let us know so we can update the books. Otherwise, whenever you get a chance is fine.\n\nThanks,\nYour owners corporation committee`
+    : `Hi ${who},\n\nJust a friendly reminder that the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} is due on ${niceDate(levy.due_date)}.\n\nNo action needed if it is already on its way.\n\nThanks,\nYour owners corporation committee`;
+}
+
 function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { levies: Levy[]; isCommittee: boolean; schemeId?: string | undefined; onPaid: (id: string) => void; onBudget: () => void }) {
   const [open, setOpen] = useState(false);
+  const [invoice, setInvoice] = useState<Levy | null>(null);
+  const [reminder, setReminder] = useState<Levy | null>(null);
+
+  const years = Array.from(new Set(levies.map(l => l.budgets?.financial_year ?? "Unallocated")));
+  const [year, setYear] = useState("All years");
+  const shown = year === "All years" ? levies : levies.filter(l => (l.budgets?.financial_year ?? "Unallocated") === year);
+
+  const paid = shown.filter(l => l.status === "Paid");
+  const unpaid = shown.filter(l => l.status !== "Paid");
+  const collected = paid.reduce((s, l) => s + Number(l.amount), 0);
+  const owing = unpaid.reduce((s, l) => s + Number(l.amount), 0);
+
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!schemeId) return;
@@ -393,8 +417,13 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
     if (error) { toast("Could not create the budget", { description: error.message }); return; }
     setOpen(false); onBudget(); toast("Budget created", { description: "Levy notices were calculated for every lot." });
   };
+
+  const share = (levy: Levy) => Number(levy.lots?.entitlement_percent ?? 0) / 100;
+  const adminShare = (levy: Levy) => Number(levy.budgets?.admin_fund_total ?? 0) * share(levy);
+  const maintShare = (levy: Levy) => Number(levy.budgets?.maintenance_fund_total ?? 0) * share(levy);
+
   return <div>
-    <PageHead eyebrow="Your property" title="Levies" blurb="Raise a levy, see who has paid, and chase the ones who haven't, without an awkward phone call."
+    <PageHead eyebrow="Your property" title="Levies" blurb="See who has paid and for which year, open an invoice with the full breakdown, and send a friendly reminder to anyone still owing."
       action={isCommittee ? <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild><Button className="rounded-full"><Plus/> Create a budget</Button></DialogTrigger>
         <DialogContent>
@@ -410,20 +439,96 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
           </form>
         </DialogContent>
       </Dialog> : undefined}/>
-    <Card className="mt-10 overflow-hidden">
-      <div className="divide-y divide-border/70">{levies.map(levy => {
+
+    <div className="mt-10 flex flex-wrap items-center gap-2">
+      {["All years", ...years].map(option =>
+        <button key={option} type="button" onClick={()=>setYear(option)}
+          className={`rounded-full px-4 py-2 text-[12px] font-medium transition ${year===option?"bg-primary text-primary-foreground":"border border-border/70 bg-card text-muted-foreground hover:text-foreground"}`}>{option}</button>)}
+    </div>
+
+    <div className="mt-5 grid gap-3 sm:grid-cols-3">
+      {[["Paid", `${paid.length} of ${shown.length} lots`, money(collected)],
+        ["Still owing", `${unpaid.length} lot${unpaid.length===1?"":"s"} to chase`, money(owing)],
+        ["Raised in total", year === "All years" ? "Across every year" : year, money(collected + owing)]].map(([label, hint, value]) =>
+        <div key={label} className="rounded-3xl border border-border/70 bg-card p-5">
+          <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+          <p className="mt-3 font-display text-2xl tracking-[-0.03em]">{value}</p>
+          <p className="mt-2 text-[11px] text-muted-foreground/80">{hint}</p>
+        </div>)}
+    </div>
+
+    <Card className="mt-5 overflow-hidden">
+      <div className="divide-y divide-border/70">{shown.map(levy => {
         const status = effectiveLevyStatus(levy);
         return <div key={levy.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
-          <div><p className="text-sm font-medium">{levy.lots ? `Lot ${levy.lots.lot_number}${levy.lots.owner_name ? ` · ${levy.lots.owner_name}` : ""}` : "Your levy"}</p><p className="mt-1 text-[12px] text-muted-foreground">Due {niceDate(levy.due_date)}</p></div>
-          <div className="flex items-center gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{levy.lots ? `Lot ${levy.lots.lot_number}${levy.lots.owner_name ? ` · ${levy.lots.owner_name}` : ""}` : "Your levy"}</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              {levy.budgets?.financial_year ? `${levy.budgets.financial_year} · ` : ""}Due {niceDate(levy.due_date)}
+              {levy.status === "Paid" && levy.paid_at ? ` · Paid ${niceDate(levy.paid_at)}` : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
             <span className="font-display text-lg">{money(Number(levy.amount))}</span>
             <StatusPill status={status}/>
+            <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>setInvoice(levy)}>Invoice</Button>
+            {isCommittee && status !== "Paid" && <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>setReminder(levy)}>Send a reminder</Button>}
             {isCommittee && status !== "Paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={()=>onPaid(levy.id)}>Mark paid</Button>}
           </div>
         </div>;})}
-        {levies.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">No levies raised yet.</p>}
+        {shown.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">No levies raised yet.</p>}
       </div>
     </Card>
+
+    <Dialog open={!!invoice} onOpenChange={(o)=>{ if (!o) setInvoice(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="font-display tracking-[-0.02em]">Levy invoice</DialogTitle>
+          <DialogDescription>{invoice?.budgets?.financial_year ? `Financial year ${invoice.budgets.financial_year}` : "How this amount was worked out."}</DialogDescription>
+        </DialogHeader>
+        {invoice && <div className="space-y-4 text-sm">
+          <div className="rounded-2xl border border-border/70 p-4">
+            <p className="font-medium">Lot {invoice.lots?.lot_number ?? ""}{invoice.lots?.owner_name ? ` · ${invoice.lots.owner_name}` : ""}</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">{invoice.lots?.owner_email ?? "No email on file"}</p>
+          </div>
+          <div className="space-y-2">
+            {[["Lot entitlement", `${Number(invoice.lots?.entitlement_percent ?? 0)}%`],
+              ["Admin fund share", money(adminShare(invoice))],
+              ["Maintenance fund share", money(maintShare(invoice))],
+              ["Due date", niceDate(invoice.due_date)],
+              ["Status", effectiveLevyStatus(invoice)]].map(([k, v]) =>
+              <div key={k} className="flex justify-between border-b border-border/60 pb-2 text-[13px]"><span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span></div>)}
+            <div className="flex justify-between pt-2"><span className="font-medium">Total payable</span><span className="font-display text-xl">{money(Number(invoice.amount))}</span></div>
+          </div>
+          <p className="text-[11px] leading-5 text-muted-foreground">Each lot pays its entitlement share of the admin fund and the maintenance fund for the year.</p>
+        </div>}
+      </DialogContent>
+    </Dialog>
+
+    <Dialog open={!!reminder} onOpenChange={(o)=>{ if (!o) setReminder(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="font-display tracking-[-0.02em]">Send a friendly reminder</DialogTitle>
+          <DialogDescription>A polite note, ready to send to the owner.</DialogDescription>
+        </DialogHeader>
+        {reminder && <div className="space-y-4">
+          <p className="text-[12px] text-muted-foreground">To {reminder.lots?.owner_email ?? "no email on file for this lot"}</p>
+          <Textarea readOnly rows={10} className="text-[13px]" value={reminderText(reminder, effectiveLevyStatus(reminder))}/>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="ghost" className="rounded-full" onClick={()=>{
+              void navigator.clipboard.writeText(reminderText(reminder, effectiveLevyStatus(reminder)));
+              toast("Reminder copied", { description: "Paste it wherever you like." });
+            }}>Copy the message</Button>
+            <Button type="button" className="rounded-full" disabled={!reminder.lots?.owner_email} onClick={()=>{
+              const subject = `Levy reminder for Lot ${reminder.lots?.lot_number ?? ""}`;
+              window.location.href = `mailto:${reminder.lots?.owner_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(reminderText(reminder, effectiveLevyStatus(reminder)))}`;
+              setReminder(null);
+              toast("Reminder ready", { description: "Your email app has it open." });
+            }}>Open in email</Button>
+          </div>
+        </div>}
+      </DialogContent>
+    </Dialog>
   </div>;
 }
 
