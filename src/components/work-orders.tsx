@@ -243,8 +243,32 @@ export function WorkOrderDetail({ order, lots, isCommittee, onChanged }: {
     mutationFn: async ({ id, decision }: { id: string; decision: string }) => {
       const { error } = await supabase.from("work_order_approvals").update({ decision, decided_at: new Date().toISOString() }).eq("id", id);
       if (error) throw error;
+
+      // Majority rule: once more than half the lots have approved, the work order moves on by itself.
+      const { data } = await supabase.from("work_order_approvals").select("decision").eq("work_order_id", order.id);
+      const all = (data ?? []) as { decision: string }[];
+      const yes = all.filter(r => r.decision === "Approved").length;
+      const no = all.filter(r => r.decision === "Declined").length;
+      const majority = Math.floor(all.length / 2) + 1;
+      if (order.status !== "Awaiting approval" || all.length === 0) return null;
+      if (yes >= majority) {
+        const { error: moveError } = await supabase.from("maintenance_requests").update({ status: "Approved" } as never).eq("id", order.id);
+        if (moveError) throw moveError;
+        await logUpdate(`Majority reached: ${yes} of ${all.length} lots approved. Moved to Approved automatically.`, "Approved");
+        return "approved" as const;
+      }
+      if (no >= majority) {
+        await logUpdate(`Majority declined: ${no} of ${all.length} lots said no. This one stays on hold.`, "Awaiting approval");
+        return "declined" as const;
+      }
+      return null;
     },
-    onSuccess: () => { refreshAll(); toast("Decision recorded"); },
+    onSuccess: (outcome) => {
+      refreshAll();
+      if (outcome === "approved") toast("Majority approved, moved to Approved");
+      else if (outcome === "declined") toast("Majority declined, this one stays on hold");
+      else toast("Decision recorded");
+    },
     onError: (e: Error) => toast("Could not record that", { description: e.message }),
   });
 
@@ -270,7 +294,8 @@ export function WorkOrderDetail({ order, lots, isCommittee, onChanged }: {
   const rows = approvals.data ?? [];
   const approved = rows.filter(r => r.decision === "Approved").length;
   const declined = rows.filter(r => r.decision === "Declined").length;
-  const blocked = order.approval_required && rows.length > 0 && approved < rows.length && order.status === "Awaiting approval";
+  const majorityNeeded = rows.length > 0 ? Math.floor(rows.length / 2) + 1 : 0;
+  const blocked = order.approval_required && rows.length > 0 && approved < majorityNeeded && order.status === "Awaiting approval";
 
   return <div>
     <DialogHeader>
@@ -287,7 +312,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, onChanged }: {
           <Button size="sm" className="rounded-full" disabled={blocked || advance.isPending} onClick={()=>advance.mutate(next)}>Move to {next}</Button>
           {order.status !== "Complete" && <Button size="sm" variant="outline" className="rounded-full" disabled={advance.isPending} onClick={()=>advance.mutate("Complete")}><Check/> Close it off</Button>}
         </div>}
-        {blocked && <p className="mt-3 text-[12px] text-muted-foreground">Waiting on {rows.length - approved} of {rows.length} lots to decide before this can move on.</p>}
+        {blocked && <p className="mt-3 text-[12px] text-muted-foreground">{approved} of {majorityNeeded} approvals needed for a majority. It moves on by itself once that is reached.</p>}
       </div>
 
       {order.description && <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Details</p>
