@@ -90,12 +90,10 @@ function DashboardOverview() {
   ];
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   return <>
-    <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Monday morning, your building</p>
-        <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">Good morning.<br/>Nothing needs you today.</h1>
-      </div>
-      <p className="max-w-sm text-[15px] leading-7 text-muted-foreground">This is your property, not a scheme number in someone else's filing cabinet. As you add owners, money and dates, this page tells you exactly what's due and what you can ignore.</p>
+    <div className="max-w-2xl">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Monday morning, your building</p>
+      <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">Good morning.<br/>Here's what's happening at your property.</h1>
+      <p className="mt-5 text-[15px] leading-7 text-muted-foreground">Levies, repairs and deadlines, all in one place. Loty keeps an eye on the details so you can get on with your week.</p>
     </div>
 
     <div className="mt-10 flex gap-3 overflow-x-auto pb-2">{stats.map(([label, hint])=>
