@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { WorkOrdersSection, WorkOrderTable, type WorkOrder } from "@/components/work-orders";
+import { CalendarSection } from "@/components/calendar-view";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
