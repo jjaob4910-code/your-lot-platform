@@ -37,7 +37,7 @@ type Levy = {
 };
 type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
 type Repair = WorkOrder;
-type Doc = { id: string; name: string; category: string | null; uploaded_at: string };
+type Doc = DocFile;
 
 const sections = [
   ["Dashboard", LayoutDashboard], ["Lots", Building2], ["Levies", WalletCards], ["Work orders", Wrench],
