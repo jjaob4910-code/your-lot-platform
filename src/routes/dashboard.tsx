@@ -365,8 +365,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
         <div className="divide-y divide-border/70 text-sm">
           {[["Owner", viewing?.owner_name || "Not recorded"],
             ["Email", viewing?.owner_email || "No email on file"],
-            ["Occupancy", viewing?.occupied_status || "Not recorded"],
-            ["Linked account", viewing?.owner_user_id ? "Yes" : "Not linked yet"]].map(([label, value]) =>
+            ["Occupancy", viewing?.occupied_status || "Not recorded"]].map(([label, value]) =>
             <div key={label} className="flex items-center justify-between gap-6 py-3">
               <span className="text-[12px] uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
               <span className="text-right font-medium">{value}</span>
