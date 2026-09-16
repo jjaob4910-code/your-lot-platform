@@ -8,9 +8,9 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
-    { title: "Your property dashboard — Your Lot" },
-    { name: "description", content: "One calm place to run your building: levies, compliance, repairs, insurance and records — without a manager." },
-    { property: "og:title", content: "Your property dashboard — Your Lot" },
+    { title: "Your property dashboard | Your Lot" },
+    { name: "description", content: "One calm place to run your building: levies, compliance, repairs, insurance and records, without a manager." },
+    { property: "og:title", content: "Your property dashboard | Your Lot" },
     { property: "og:description", content: "One calm place to run your building: levies, compliance, repairs and records." },
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
@@ -24,12 +24,12 @@ const sections = [
 
 const sectionBlurb: Record<string, string> = {
   Lots: "Who owns what, who lives there, and how each owner's share of costs is worked out.",
-  Levies: "Raise a levy, see who has paid, and chase the ones who haven't — without an awkward phone call.",
+  Levies: "Raise a levy, see who has paid, and chase the ones who haven't, without an awkward phone call.",
   Maintenance: "Log a leak, get quotes and keep a dated trail of every repair on your building.",
   Insurance: "Your policy, your sum insured and your renewal date, where you can actually find them.",
   Compliance: "The things the law expects each year, in plain English, with dates attached.",
   Calendar: "Meetings, renewals and deadlines for your property in one timeline.",
-  Documents: "Minutes, certificates, invoices and plans — filed once, findable forever.",
+  Documents: "Minutes, certificates, invoices and plans, filed once, findable forever.",
 };
 
 function DashboardPage() {
@@ -63,7 +63,7 @@ function EmptySection({title}:{title:string}) {
     <p className="mt-5 max-w-xl text-[15px] leading-7 text-muted-foreground">{sectionBlurb[title] ?? "Everything for your building, in one place."}</p>
     <div className="soft-shadow mt-12 flex min-h-[420px] flex-col items-center justify-center rounded-3xl border border-border/70 bg-card px-6 text-center">
       <span className="grid size-12 place-items-center rounded-2xl bg-secondary"><Sparkles className="size-5 text-muted-foreground"/></span>
-      <h2 className="mt-6 text-xl font-medium tracking-[-0.02em]">Nothing here yet — and that's fine</h2>
+      <h2 className="mt-6 text-xl font-medium tracking-[-0.02em]">Nothing here yet, and that's fine</h2>
       <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">Add your first entry and this page starts doing the remembering for you.</p>
       <Button className="mt-7 rounded-full px-5"><Plus/> Add your first {title.toLowerCase().replace(/s$/, "")}</Button>
     </div>
@@ -95,7 +95,7 @@ function DashboardOverview() {
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Monday morning, your building</p>
         <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">Good morning.<br/>Nothing needs you today.</h1>
       </div>
-      <p className="max-w-sm text-[15px] leading-7 text-muted-foreground">This is your property — not a scheme number in someone else's filing cabinet. As you add owners, money and dates, this page tells you exactly what's due and what you can ignore.</p>
+      <p className="max-w-sm text-[15px] leading-7 text-muted-foreground">This is your property, not a scheme number in someone else's filing cabinet. As you add owners, money and dates, this page tells you exactly what's due and what you can ignore.</p>
     </div>
 
     <div className="mt-10 flex gap-3 overflow-x-auto pb-2">{stats.map(([label, hint])=>
@@ -114,7 +114,7 @@ function DashboardOverview() {
             <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Your building</p><h2 className="mt-2 text-2xl font-medium tracking-[-0.03em]">Add your address</h2></div>
             <Button size="sm" variant="outline" className="rounded-full"><Plus/> Set up</Button>
           </div>
-          <p className="mt-3 text-[13px] leading-6 text-muted-foreground">Your plan number, your lots and your state rules — entered once, used everywhere else.</p>
+          <p className="mt-3 text-[13px] leading-6 text-muted-foreground">Your plan number, your lots and your state rules, entered once, used everywhere else.</p>
           <div className="mt-7 grid grid-cols-3 border-t border-border/70 pt-5 text-xs">
             <div><p className="text-muted-foreground">Homes</p><p className="mt-2 font-medium">—</p></div>
             <div><p className="text-muted-foreground">Plan no.</p><p className="mt-2 font-medium">—</p></div>
@@ -157,7 +157,7 @@ function DashboardOverview() {
 
       <section className="soft-shadow rounded-3xl border border-border/70 bg-card px-7 xl:col-span-5">
         <Accordion type="single" collapsible>{([
-          ["Your savings for big repairs", "Roofs, driveways, paint — money set aside before you need it."],
+          ["Your savings for big repairs", "Roofs, driveways, paint. Money set aside before you need it."],
           ["Your paperwork", "Certificates, minutes and invoices, filed by year."],
           ["Your neighbours", "Owners, tenants and how to reach them."],
         ] as [string, string][]).map(([label, body])=>
