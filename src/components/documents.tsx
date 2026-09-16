@@ -80,6 +80,8 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
   const [folderDialog, setFolderDialog] = useState<{ open: boolean; editing: DocFolder | null }>({ open: false, editing: null });
   const [uploading, setUploading] = useState(false);
   const [query, setQuery] = useState("");
+  const [dragDoc, setDragDoc] = useState<DocFile | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const current = path.length ? path[path.length - 1]! : null;
   const currentId = current?.id ?? null;
