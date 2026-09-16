@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({
   head: () => ({ meta: [
-    { title: "Your Lot — Owners corporation software" },
-    { name: "description", content: "Run your own owners corporation. Tools for levies, compliance and paperwork — at a fraction of what you pay a manager." },
-    { property: "og:title", content: "Your Lot — Owners corporation software" },
+    { title: "Your Lot | Owners corporation software" },
+    { name: "description", content: "Run your own owners corporation. Tools for levies, compliance and paperwork, at a fraction of what you pay a manager." },
+    { property: "og:title", content: "Your Lot | Owners corporation software" },
     { property: "og:description", content: "Take back control: run your own owners corporation with tools for levies, compliance and paperwork." },
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
@@ -94,7 +94,7 @@ function ServiceBento() {
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Less administration, more certainty</p>
             <h3 className="mt-4 max-w-md text-2xl font-medium sm:text-3xl">Pick up where you left off. Everything is already in context.</h3>
-            <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">Your records, decisions and next actions stay together, giving your committee a repeatable way to run the property in minutes—not another evening.</p>
+            <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">Your records, decisions and next actions stay together, giving your committee a repeatable way to run the property in minutes, not another evening.</p>
           </div>
           <div className="grid grid-cols-[120px_1fr] gap-3 rounded-2xl border border-border bg-card p-4" aria-hidden="true">
             <div className="space-y-3 border-r border-border pr-3"><span className="block h-2 w-16 rounded-full bg-primary" />{[1,2,3,4].map(i=><span key={i} className="block h-2 rounded-full bg-muted" />)}</div>
@@ -106,7 +106,7 @@ function ServiceBento() {
   );
 }
 
-const benefits = ["Easy to use", "Fair price", "More control", "Streamlined", "Everything in one place", "Set up in minutes", "No spreadsheets", "Made for 6–10 lots"];
+const benefits = ["Easy to use", "Fair price", "More control", "Streamlined", "Everything in one place", "Set up in minutes", "No spreadsheets", "Made for 6 to 10 lots"];
 
 function HomePage() {
   return <div className="relative isolate min-h-screen bg-background">
@@ -118,7 +118,7 @@ function HomePage() {
           <p className="mb-7 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">For self-managed owners corporations</p>
           <h1 className="max-w-4xl text-5xl font-medium leading-[1.02] sm:text-6xl lg:text-7xl">You&rsquo;ve paid a levy every year. Have you ever seen the manager?</h1>
           <div className="mt-8 flex max-w-2xl flex-col items-start gap-6">
-            <p className="max-w-xl text-base font-light leading-7 text-muted-foreground sm:text-lg">Take back control. Run your own owners corporation with tools that handle the levies, compliance and paperwork for you — instead of paying someone else to do less than you could do yourself.</p>
+            <p className="max-w-xl text-base font-light leading-7 text-muted-foreground sm:text-lg">Take back control. Run your own owners corporation with tools that handle the levies, compliance and paperwork for you, instead of paying someone else to do less than you could do yourself.</p>
             <Button asChild className="rounded-sm"><Link to="/dashboard">Take Control <ArrowRight /></Link></Button>
           </div>
         </div>
@@ -133,7 +133,7 @@ function HomePage() {
         <ServiceBento />
       </section>
 
-      <section className="bg-primary py-24 text-primary-foreground sm:py-32"><div className="mx-auto grid max-w-6xl items-center gap-12 px-5 sm:px-8 lg:grid-cols-[1.1fr_1fr] lg:gap-20"><div><h2 className="text-4xl font-medium leading-[1.05] tracking-tight sm:text-6xl">Offload the busy work.<br/>Keep the control.</h2></div><div className="lg:border-l lg:border-primary-foreground/15 lg:pl-14"><p className="max-w-md text-lg leading-8 text-primary-foreground/80">Your Lot gives committees a repeatable way to handle obligations, decisions and records — without handing the scheme to a manager.</p><div className="mt-9 flex flex-col items-start gap-3"><Button asChild size="lg" variant="secondary" className="rounded-sm font-medium"><Link to="/dashboard">Try Now <ArrowRight /></Link></Button><p className="text-xs text-primary-foreground/60">Set up in minutes · No manager required</p></div></div></div></section>
+      <section className="bg-primary py-24 text-primary-foreground sm:py-32"><div className="mx-auto grid max-w-6xl items-center gap-12 px-5 sm:px-8 lg:grid-cols-[1.1fr_1fr] lg:gap-20"><div><h2 className="text-4xl font-medium leading-[1.05] tracking-tight sm:text-6xl">Offload the busy work.<br/>Keep the control.</h2></div><div className="lg:border-l lg:border-primary-foreground/15 lg:pl-14"><p className="max-w-md text-lg leading-8 text-primary-foreground/80">Your Lot gives committees a repeatable way to handle obligations, decisions and records, without handing the scheme to a manager.</p><div className="mt-9 flex flex-col items-start gap-3"><Button asChild size="lg" variant="secondary" className="rounded-sm font-medium"><Link to="/dashboard">Try Now <ArrowRight /></Link></Button><p className="text-xs text-primary-foreground/60">Set up in minutes · No manager required</p></div></div></div></section>
 
       <section className="mx-auto max-w-6xl px-5 py-24 sm:px-8 sm:py-32"><div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-end"><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Annual pricing</p><h2 className="mt-5 text-4xl font-medium sm:text-5xl">Choose your level of support.</h2></div><Button asChild variant="link"><Link to="/pricing">Full comparison <ArrowRight /></Link></Button></div><div className="mt-14 grid gap-5 md:grid-cols-2"><PlanCard compact name="Self-Serve" price="$149" detail="For committees ready to run the scheme." features={["Levy and trust records","Compliance calendar","Maintenance requests"]}/><PlanCard compact featured name="Managed-Lite" price="$249" detail="For committees wanting an expert safety net." features={["Everything in Self-Serve","Annual records review","Priority support"]}/></div></section>
 
