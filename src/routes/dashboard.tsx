@@ -140,7 +140,7 @@ function DashboardPage() {
         <div className="ml-auto flex items-center gap-1">
           <span className="mr-1 hidden rounded-full border border-border bg-secondary px-3 py-1 text-[10px] font-medium sm:inline">{isCommittee ? "Committee" : "Owner"}</span>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Notifications" onClick={()=>setActive("Compliance")}><Bell /></Button>
-          <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={signOut}><LogOut /></Button>
+          <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Back to home"><Link to="/"><LogOut /></Link></Button>
           <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav></SheetContent></Sheet>
         </div>
       </div>
@@ -150,7 +150,7 @@ function DashboardPage() {
       {active === "Dashboard" && <Overview
         scheme={scheme.data ?? null} levies={levies.data ?? []} tasks={tasks.data ?? []} repairs={repairs.data ?? []}
         isCommittee={isCommittee} myLot={myLot} onTaskStatus={(id,status)=>setTaskStatus.mutate({id,status})}
-        onRepairStatus={(id,status)=>setRepairStatus.mutate({id,status})} goTo={setActive} email={me?.email ?? ""}/>}
+        onRepairStatus={(id,status)=>setRepairStatus.mutate({id,status})} goTo={setActive} email=""/>}
 
       {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots"])}/>}
 
