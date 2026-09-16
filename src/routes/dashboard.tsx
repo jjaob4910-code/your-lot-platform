@@ -31,7 +31,7 @@ type Lot = { id: string; lot_number: number; owner_name: string | null; owner_em
 type Levy = {
   id: string; lot_id: string; amount: number; due_date: string; status: string; paid_at: string | null;
   lots: { lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number } | null;
-  budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number } | null;
+  budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number; allocation_method: string | null } | null;
 };
 type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
 type Repair = { id: string; title: string; description: string | null; status: string; created_at: string; submitted_by_lot_id: string | null; lots: { lot_number: number } | null };
