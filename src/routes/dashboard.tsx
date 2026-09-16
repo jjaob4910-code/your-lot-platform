@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_authenticated/dashboard")({
+export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
     { title: "Your property dashboard | Loty" },
     { name: "description", content: "One calm place to run your building: levies, compliance, repairs, insurance and records, without a manager." },
@@ -45,20 +45,9 @@ const effectiveLevyStatus = (levy: Levy) => (levy.status === "Pending" && daysUn
 const niceDate = (value: string) => new Date(value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 
 function DashboardPage() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [active, setActive] = useState("Dashboard");
 
-  const { data: me } = useQuery({
-    queryKey: ["me"],
-    queryFn: async () => {
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData.user;
-      if (!user) return null;
-      const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-      return { id: user.id, email: user.email ?? "", isCommittee: (roles ?? []).some(r => r.role === "Committee") };
-    },
-  });
 
   const scheme = useQuery({
     queryKey: ["scheme"],
@@ -138,15 +127,9 @@ function DashboardPage() {
     onError: (e: Error) => toast("Could not update", { description: e.message }),
   });
 
-  const isCommittee = me?.isCommittee ?? false;
-  const myLot = lots.data?.find(lot => lot.owner_user_id === me?.id) ?? null;
+  const isCommittee = true;
+  const myLot = null;
 
-  const signOut = async () => {
-    await queryClient.cancelQueries();
-    queryClient.clear();
-    await supabase.auth.signOut();
-    navigate({ to: "/auth", replace: true });
-  };
 
   return <div className="relative isolate min-h-screen bg-background">
     <Toaster />
@@ -157,7 +140,7 @@ function DashboardPage() {
         <div className="ml-auto flex items-center gap-1">
           <span className="mr-1 hidden rounded-full border border-border bg-secondary px-3 py-1 text-[10px] font-medium sm:inline">{isCommittee ? "Committee" : "Owner"}</span>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Notifications" onClick={()=>setActive("Compliance")}><Bell /></Button>
-          <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={signOut}><LogOut /></Button>
+          <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Back to home"><Link to="/"><LogOut /></Link></Button>
           <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav></SheetContent></Sheet>
         </div>
       </div>
@@ -167,7 +150,7 @@ function DashboardPage() {
       {active === "Dashboard" && <Overview
         scheme={scheme.data ?? null} levies={levies.data ?? []} tasks={tasks.data ?? []} repairs={repairs.data ?? []}
         isCommittee={isCommittee} myLot={myLot} onTaskStatus={(id,status)=>setTaskStatus.mutate({id,status})}
-        onRepairStatus={(id,status)=>setRepairStatus.mutate({id,status})} goTo={setActive} email={me?.email ?? ""}/>}
+        onRepairStatus={(id,status)=>setRepairStatus.mutate({id,status})} goTo={setActive} email=""/>}
 
       {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots"])}/>}
 
