@@ -615,25 +615,6 @@ function InsuranceSection({ tasks }: { tasks: Task[] }) {
   </div>;
 }
 
-function CalendarSection({ scheme, tasks, levies }: { scheme: Scheme | null; tasks: Task[]; levies: Levy[] }) {
-  const items = [
-    ...(scheme?.next_agm_date ? [{ label: "Annual general meeting", date: scheme.next_agm_date }] : []),
-    ...tasks.map(task => ({ label: task.task_name, date: task.due_date })),
-    ...[...new Set(levies.map(levy => levy.due_date))].map(date => ({ label: "Levies due", date })),
-  ].sort((a, b) => a.date.localeCompare(b.date));
-  return <div>
-    <PageHead eyebrow="Your property" title="Calendar" blurb="Meetings, renewals and deadlines for your property in one timeline."/>
-    <Card className="mt-10 overflow-hidden">
-      <div className="divide-y divide-border/70">{items.map((item, i) =>
-        <div key={`${item.label}-${i}`} className="flex items-center justify-between gap-4 px-7 py-5">
-          <p className="text-sm font-medium">{item.label}</p>
-          <div className="text-right"><p className="text-[13px]">{niceDate(item.date)}</p><p className="text-[11px] text-muted-foreground">{daysUntil(item.date) < 0 ? `${Math.abs(daysUntil(item.date))} days ago` : `in ${daysUntil(item.date)} days`}</p></div>
-        </div>)}
-        {items.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">Nothing scheduled yet.</p>}
-      </div>
-    </Card>
-  </div>;
-}
 
 function DocumentsSection({ documents, isCommittee, schemeId, onChanged }: { documents: Doc[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
