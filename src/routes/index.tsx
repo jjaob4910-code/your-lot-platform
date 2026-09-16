@@ -105,6 +105,8 @@ function ServiceBento() {
   );
 }
 
+const benefits = ["Easy to use", "Fair price", "More control", "Streamlined", "Everything in one place", "Set up in minutes", "No spreadsheets", "Made for 6–10 lots"];
+
 function HomePage() {
   return <div className="min-h-screen bg-background">
     <SiteHeader />
@@ -122,7 +124,7 @@ function HomePage() {
         <div className="cream-grid relative mt-6 py-8 sm:px-8 sm:py-14"><DashboardPreview /></div>
       </section>
 
-      <section className="border-y border-border py-10"><div className="mx-auto flex max-w-6xl flex-col gap-7 px-5 sm:px-8 md:flex-row md:items-center md:justify-between"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Designed around Australian OC requirements</p><div className="flex flex-wrap gap-x-10 gap-y-3 font-display text-xs font-medium text-muted-foreground"><span>Levy records</span><span>Annual meetings</span><span>Insurance</span><span>Owner register</span></div></div></section>
+      <section className="overflow-hidden border-y border-border py-8"><div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 sm:px-8 md:flex-row md:items-center md:gap-12"><p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Designed around Australian OC requirements</p><div className="marquee-mask min-w-0 flex-1 overflow-hidden"><div className="marquee-track items-center" aria-hidden="true">{[...benefits, ...benefits].map((benefit, index) => (<span key={index} className="flex items-center whitespace-nowrap pr-12 font-display text-sm font-medium text-foreground/80">{benefit}<span className="ml-12 size-1.5 rounded-full bg-primary/50" /></span>))}</div></div></div></section>
 
       <section className="mx-auto max-w-6xl px-5 py-24 sm:px-8 sm:py-32">
         <div className="grid gap-12 lg:grid-cols-[.75fr_1.25fr]"><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">How we solve it</p><h2 className="mt-5 max-w-md text-4xl font-medium leading-tight sm:text-5xl">Built to be easy. Priced to be fair.</h2></div><p className="max-w-lg self-end text-base leading-7 text-muted-foreground">Running your own owners corporation shouldn&rsquo;t require a manager, a degree or a mystery invoice. Your Lot gives you the tools to do it yourself, at a fraction of what you&rsquo;re paying now.</p></div>
