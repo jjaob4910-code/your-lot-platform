@@ -169,9 +169,9 @@ function DashboardOverview({building, setBuilding, doneTasks, toggleTask, meetin
     ["Owners paid up", "—", "No levies raised"],
     ["Repairs waiting on you", repairCount > 0 ? String(repairCount) : "—", repairCount > 0 ? "Logged by you" : "All quiet"],
     ["Insurance renews", "—", "Not added"],
-    ["Next meeting", meetings.length > 0 ? meetings[0].title : "—", meetings.length > 0 ? "Scheduled by you" : "None scheduled"],
+    ["Next meeting", meetings.length > 0 ? (meetings[0]?.title ?? "—") : "—", meetings.length > 0 ? "Scheduled by you" : "None scheduled"],
   ];
-  const tasks = [
+  const tasks: [string, string][] = [
     ["Call your AGM", "Every owner needs notice in writing"],
     ["Renew building insurance", "Cover must never lapse"],
     ["Prepare the annual accounts", "What came in, what went out"],
@@ -233,7 +233,7 @@ function DashboardOverview({building, setBuilding, doneTasks, toggleTask, meetin
                     <div className="space-y-2"><Label htmlFor="planNo">Plan number</Label><Input id="planNo" name="planNo" placeholder="e.g. SP 12345" defaultValue={building?.planNo}/></div>
                     <div className="space-y-2"><Label htmlFor="homes">Number of homes</Label><Input id="homes" name="homes" type="number" min="1" placeholder="e.g. 8" defaultValue={building?.homes}/></div>
                   </div>
-                  <div className="space-y-2"><Label>State</Label><Select name="state" defaultValue={building?.state}><SelectTrigger className="w-full"><SelectValue placeholder="Choose your state"/></SelectTrigger><SelectContent>{["NSW","VIC","QLD","SA","WA","TAS","ACT","NT"].map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="space-y-2"><Label>State</Label><Select name="state" defaultValue={building?.state ?? ""}><SelectTrigger className="w-full"><SelectValue placeholder="Choose your state"/></SelectTrigger><SelectContent>{["NSW","VIC","QLD","SA","WA","TAS","ACT","NT"].map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div>
                   <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>setSetupOpen(false)}>Cancel</Button><Button type="submit" className="rounded-full">Save building</Button></div>
                 </form>
               </DialogContent>
