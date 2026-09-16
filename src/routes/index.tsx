@@ -113,17 +113,20 @@ function HomePage() {
     
     <SiteHeader />
     <main>
-      <section className="mx-auto max-w-6xl px-5 pb-16 pt-20 sm:px-8 sm:pt-28">
-        <div className="max-w-4xl">
-          <p className="mb-7 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">For self-managed owners corporations</p>
-          <h1 className="max-w-4xl text-5xl font-medium leading-[1.02] sm:text-6xl lg:text-7xl">You&rsquo;ve paid a levy every year. Have you ever seen the manager?</h1>
-          <div className="mt-8 flex max-w-2xl flex-col items-start gap-6">
-            <p className="max-w-xl text-base font-light leading-7 text-muted-foreground sm:text-lg">Take back control. Run your own owners corporation with tools that handle the levies, compliance and paperwork for you, instead of paying someone else to do less than you could do yourself.</p>
-            <Button asChild className="rounded-sm"><Link to="/dashboard">Take Control <ArrowRight /></Link></Button>
+      <section className="mx-auto max-w-7xl px-5 pb-16 pt-20 sm:px-8 sm:pt-24">
+        <div className="grid items-center gap-10 lg:grid-cols-[1fr_0.95fr] lg:gap-14">
+          <div>
+            <p className="mb-6 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">For self-managed owners corporations</p>
+            <h1 className="text-5xl font-medium leading-[1.03] tracking-[-0.02em] sm:text-6xl">You&rsquo;ve paid a levy every year. Have you ever seen the manager?</h1>
+            <div className="mt-7 flex max-w-xl flex-col items-start gap-6">
+              <p className="text-base font-light leading-7 text-muted-foreground sm:text-lg">Take back control. Run your own owners corporation with tools that handle the levies, compliance and paperwork for you, instead of paying someone else to do less than you could do yourself.</p>
+              <Button asChild className="rounded-sm"><Link to="/dashboard">Take Control <ArrowRight /></Link></Button>
+            </div>
+          </div>
+          <div className="backdrop-dots relative rounded-3xl py-6 sm:px-6 lg:py-10">
+            <DashboardPreview />
           </div>
         </div>
-        
-        <div className="mt-20 backdrop-dots relative py-8 sm:px-8 sm:py-14"><DashboardPreview /></div>
       </section>
 
       <section className="overflow-hidden border-y border-border py-8"><div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 sm:px-8 md:flex-row md:items-center md:gap-12"><p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Designed around Australian OC requirements</p><div className="marquee-mask min-w-0 flex-1 overflow-hidden"><div className="marquee-track items-center" aria-hidden="true">{[...benefits, ...benefits].map((benefit, index) => (<span key={index} className="flex items-center whitespace-nowrap pr-12 font-display text-sm font-medium text-foreground/80">{benefit}<span className="ml-12 size-1.5 rounded-full bg-primary/50" /></span>))}</div></div></div></section>
