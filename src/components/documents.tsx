@@ -196,6 +196,25 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
     onChanged(); toast("Moved");
   };
 
+  const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
+  const canDrop = (e: DragEvent) => isCommittee && (hasFiles(e) || dragDoc !== null);
+  const dragOver = (key: string) => (e: DragEvent) => {
+    if (!canDrop(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = hasFiles(e) ? "copy" : "move";
+    setDropTarget(key);
+  };
+  const dropOn = (key: string, folderId: string | null) => (e: DragEvent) => {
+    if (!canDrop(e)) return;
+    e.preventDefault();
+    setDropTarget(null);
+    if (hasFiles(e)) { void upload(e.dataTransfer.files, folderId); return; }
+    const doc = dragDoc;
+    setDragDoc(null);
+    if (doc && (doc.folder_id ?? null) !== folderId) void moveDoc(doc, folderId);
+  };
+  const dropRing = (key: string) => (dropTarget === key ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "");
+
   return <div>
     <PageHead eyebrow="Your property" title="Documents" blurb="Minutes, certificates, invoices and plans, filed in folders you name yourself, ready to share with owners or download any time."
       action={isCommittee ? <div className="flex flex-wrap gap-2">
