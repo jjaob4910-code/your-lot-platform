@@ -161,8 +161,8 @@ function DashboardPage() {
       {active === "Levies" && <LeviesSection levies={levies.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
         onPaid={(id)=>markLevyPaid.mutate(id)} onBudget={()=>refresh(["levies"])}/>}
 
-      {active === "Maintenance" && <MaintenanceSection repairs={repairs.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
-        onStatus={(id,status)=>setRepairStatus.mutate({id,status})} onChanged={()=>refresh(["repairs"])}/>}
+      {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
+        onChanged={()=>refresh(["repairs"])}/>}
 
       {active === "Compliance" && <ComplianceSection tasks={tasks.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
         onStatus={(id,status)=>setTaskStatus.mutate({id,status})} onChanged={()=>refresh(["tasks"])}/>}
