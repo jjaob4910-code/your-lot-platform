@@ -8,9 +8,9 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
-    { title: "Your property dashboard | Your Lot" },
+    { title: "Your property dashboard | Loty" },
     { name: "description", content: "One calm place to run your building: levies, compliance, repairs, insurance and records, without a manager." },
-    { property: "og:title", content: "Your property dashboard | Your Lot" },
+    { property: "og:title", content: "Your property dashboard | Loty" },
     { property: "og:description", content: "One calm place to run your building: levies, compliance, repairs and records." },
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
@@ -38,7 +38,7 @@ function DashboardPage() {
     
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-[68px] max-w-[1500px] items-center gap-4 px-4 sm:px-7">
-        <Link to="/" className="mr-2 flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0,1,2,3].map(i=><span key={i} className="rounded-[2px] bg-primary"/>)}</span><span className="hidden sm:inline">Your Lot</span></Link>
+        <Link to="/" className="mr-2 flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0,1,2,3].map(i=><span key={i} className="rounded-[2px] bg-primary"/>)}</span><span className="hidden sm:inline">Loty</span></Link>
         <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Dashboard sections">{sections.map(([label])=><Button key={label} size="sm" variant={active===label?"default":"ghost"} className="rounded-full px-3.5 text-xs font-medium transition-all duration-300" onClick={()=>setActive(label)}>{label}</Button>)}</nav>
         <div className="ml-auto flex items-center gap-1">
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings"><Settings /></Button>
