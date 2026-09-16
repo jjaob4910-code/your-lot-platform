@@ -22,6 +22,16 @@
   .marquee-track { animation: none; }
 }
 
+.backdrop-dots {
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--foreground) 11%, transparent) 1px,
+    transparent 1.5px
+  );
+  background-size: 22px 22px;
+  mask-image: radial-gradient(120% 90% at 50% 0%, black 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, black 40%, transparent 100%);
+}
+
 
 @custom-variant dark (&:is(.dark *));
 
