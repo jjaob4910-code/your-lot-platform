@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_authenticated/dashboard")({
+export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
     { title: "Your property dashboard | Loty" },
     { name: "description", content: "One calm place to run your building: levies, compliance, repairs, insurance and records, without a manager." },
@@ -45,20 +45,9 @@ const effectiveLevyStatus = (levy: Levy) => (levy.status === "Pending" && daysUn
 const niceDate = (value: string) => new Date(value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 
 function DashboardPage() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [active, setActive] = useState("Dashboard");
 
-  const { data: me } = useQuery({
-    queryKey: ["me"],
-    queryFn: async () => {
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData.user;
-      if (!user) return null;
-      const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
-      return { id: user.id, email: user.email ?? "", isCommittee: (roles ?? []).some(r => r.role === "Committee") };
-    },
-  });
 
   const scheme = useQuery({
     queryKey: ["scheme"],
