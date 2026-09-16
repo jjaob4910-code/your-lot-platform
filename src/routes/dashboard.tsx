@@ -128,7 +128,7 @@ function DashboardOverview() {
           <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">This quarter</p><h2 className="mt-2 text-lg font-medium tracking-[-0.02em]">Who has paid their levies</h2></div>
           <span className="font-display text-2xl">—</span>
         </div>
-        <p className="mt-3 text-[13px] leading-6 text-muted-foreground">You'll see each owner, what they owe, and who needs a reminder — no spreadsheet required.</p>
+        <p className="mt-3 text-[13px] leading-6 text-muted-foreground">You'll see each owner, what they owe, and who needs a reminder. No spreadsheet required.</p>
         <div className="mt-10 flex h-36 items-end gap-3 border-b border-border/70 pb-1">{[1,2,3,4,5,6].map(item=><span key={item} className="h-1 flex-1 rounded-full bg-muted"/>)}</div>
         <div className="mt-4 flex justify-between text-[10px] text-muted-foreground"><span>No payments recorded yet</span><span>—</span></div>
       </section>
