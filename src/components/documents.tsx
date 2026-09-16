@@ -249,7 +249,13 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
     </div>
 
     {visibleFolders.length > 0 && <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {visibleFolders.map(folder => <Card key={folder.id} className="group p-5">
+      {visibleFolders.map(folder => <div
+        key={folder.id}
+        onDragOver={dragOver(folder.id)}
+        onDragLeave={() => setDropTarget(prev => (prev === folder.id ? null : prev))}
+        onDrop={dropOn(folder.id, folder.id)}
+        className={`rounded-3xl transition ${dropTarget === folder.id ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
+      ><Card className="group p-5">
         <div className="flex items-start gap-4">
           <button className="flex flex-1 items-start gap-4 text-left" onClick={() => { setQuery(""); setPath(p => (searching ? [folder] : [...p, folder])); }}>
             <FolderIcon icon={folder.icon} color={folder.color}/>
