@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type DragEvent, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight, Download, FileText, Folder, FolderOpen, FolderPlus, Gavel, Home, Image as ImageIcon,
@@ -80,6 +80,8 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
   const [folderDialog, setFolderDialog] = useState<{ open: boolean; editing: DocFolder | null }>({ open: false, editing: null });
   const [uploading, setUploading] = useState(false);
   const [query, setQuery] = useState("");
+  const [dragDoc, setDragDoc] = useState<DocFile | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const current = path.length ? path[path.length - 1]! : null;
   const currentId = current?.id ?? null;
@@ -140,7 +142,7 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
     refreshFolders(); onChanged(); toast("Folder removed");
   };
 
-  const upload = async (files: FileList | null) => {
+  const upload = async (files: FileList | File[] | null, folderId: string | null = currentId) => {
     if (!files?.length || !schemeId) return;
     setUploading(true);
     try {
@@ -149,8 +151,9 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
         const { error: upErr } = await supabase.storage.from("documents").upload(path, file);
         if (upErr) throw upErr;
         const { error } = await supabase.from("documents").insert({
-          scheme_id: schemeId, name: file.name, category: current?.name ?? "Other",
-          folder_id: currentId, storage_path: path, file_size: file.size, mime_type: file.type,
+          scheme_id: schemeId, name: file.name,
+          category: allFolders.find(f => f.id === folderId)?.name ?? "Other",
+          folder_id: folderId, storage_path: path, file_size: file.size, mime_type: file.type,
         });
         if (error) throw error;
       }
@@ -195,6 +198,25 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
     onChanged(); toast("Moved");
   };
 
+  const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
+  const canDrop = (e: DragEvent) => isCommittee && (hasFiles(e) || dragDoc !== null);
+  const dragOver = (key: string) => (e: DragEvent) => {
+    if (!canDrop(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = hasFiles(e) ? "copy" : "move";
+    setDropTarget(key);
+  };
+  const dropOn = (key: string, folderId: string | null) => (e: DragEvent) => {
+    if (!canDrop(e)) return;
+    e.preventDefault();
+    setDropTarget(null);
+    if (hasFiles(e)) { void upload(e.dataTransfer.files, folderId); return; }
+    const doc = dragDoc;
+    setDragDoc(null);
+    if (doc && (doc.folder_id ?? null) !== folderId) void moveDoc(doc, folderId);
+  };
+  const dropRing = (key: string) => (dropTarget === key ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "");
+
   return <div>
     <PageHead eyebrow="Your property" title="Documents" blurb="Minutes, certificates, invoices and plans, filed in folders you name yourself, ready to share with owners or download any time."
       action={isCommittee ? <div className="flex flex-wrap gap-2">
@@ -209,7 +231,13 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
 
     <div className="mt-10 flex flex-wrap items-center gap-3">
       <div className="flex flex-wrap items-center gap-1 text-[13px]">
-        <button className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium hover:bg-secondary" onClick={() => setPath([])}>
+        <button
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium hover:bg-secondary ${dropRing("root")}`}
+          onClick={() => setPath([])}
+          onDragOver={dragOver("root")}
+          onDragLeave={() => setDropTarget(null)}
+          onDrop={dropOn("root", null)}
+        >
           <Home className="h-3.5 w-3.5"/> All documents
         </button>
         {path.map((folder, index) => <span key={folder.id} className="flex items-center gap-1">
@@ -221,7 +249,13 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
     </div>
 
     {visibleFolders.length > 0 && <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {visibleFolders.map(folder => <Card key={folder.id} className="group p-5">
+      {visibleFolders.map(folder => <div
+        key={folder.id}
+        onDragOver={dragOver(folder.id)}
+        onDragLeave={() => setDropTarget(prev => (prev === folder.id ? null : prev))}
+        onDrop={dropOn(folder.id, folder.id)}
+        className={`rounded-3xl transition ${dropTarget === folder.id ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
+      ><Card className="group p-5">
         <div className="flex items-start gap-4">
           <button className="flex flex-1 items-start gap-4 text-left" onClick={() => { setQuery(""); setPath(p => (searching ? [folder] : [...p, folder])); }}>
             <FolderIcon icon={folder.icon} color={folder.color}/>
@@ -239,18 +273,30 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
             </DropdownMenuContent>
           </DropdownMenu>}
         </div>
-      </Card>)}
+      </Card></div>)}
     </div>}
 
-    <Card className="mt-6 overflow-hidden">
+    <div
+      className={`mt-6 rounded-3xl transition ${dropTarget === "list" ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
+      onDragOver={searching ? undefined : dragOver("list")}
+      onDragLeave={() => setDropTarget(prev => (prev === "list" ? null : prev))}
+      onDrop={searching ? undefined : dropOn("list", currentId)}
+    >
+    <Card className="overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b border-border/70 px-7 py-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          {searching ? "Matching files" : current ? current.name : "Files at the top level"}
+          {searching ? "Matching files" : current ? current.name : "Main documents"}
         </p>
         <p className="text-[12px] text-muted-foreground">{visibleFiles.length} {visibleFiles.length === 1 ? "file" : "files"}</p>
       </div>
       <div className="divide-y divide-border/70">
-        {visibleFiles.map(doc => <div key={doc.id} className="flex flex-wrap items-center gap-4 px-7 py-4">
+        {visibleFiles.map(doc => <div
+          key={doc.id}
+          draggable={isCommittee}
+          onDragStart={() => setDragDoc(doc)}
+          onDragEnd={() => { setDragDoc(null); setDropTarget(null); }}
+          className={`flex flex-wrap items-center gap-4 px-7 py-4 ${isCommittee ? "cursor-grab active:cursor-grabbing" : ""} ${dragDoc?.id === doc.id ? "opacity-50" : ""}`}
+        >
           <FolderIcon icon="FileText" color="slate" size="sm"/>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">{doc.name}</p>
@@ -280,10 +326,11 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
           </div>
         </div>)}
         {visibleFiles.length === 0 && <p className="px-7 py-12 text-center text-sm text-muted-foreground">
-          {searching ? "Nothing matches that search." : "Nothing filed here yet. Upload a file or make a folder to get started."}
+          {searching ? "Nothing matches that search." : "Nothing filed here yet. Drag files in from your computer, or use Upload to get started."}
         </p>}
       </div>
     </Card>
+    </div>
 
     {folderDialog.open && <FolderDialog key={folderDialog.editing?.id ?? "new"} state={folderDialog} onClose={() => setFolderDialog({ open: false, editing: null })} onSubmit={saveFolder} parentName={current?.name ?? null}/>}
   </div>;
