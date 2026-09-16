@@ -122,7 +122,7 @@ function HomePage() {
             <Button asChild className="rounded-sm"><Link to="/dashboard">Take Control <ArrowRight /></Link></Button>
           </div>
         </div>
-        <p className="mt-20 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Here&rsquo;s what the software looks like</p>
+        
         <div className="backdrop-dots relative mt-6 py-8 sm:px-8 sm:py-14"><DashboardPreview /></div>
       </section>
 
