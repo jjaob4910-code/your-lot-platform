@@ -115,7 +115,7 @@ function DashboardPage() {
 
   const setRepairStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase.from("maintenance_requests").update({ status }).eq("id", id);
+      const { error } = await supabase.from("maintenance_requests").update({ status: status as "Requested" | "Quoted" | "Approved" | "Complete" }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => { refresh(["repairs"]); toast("Repair updated"); },
@@ -123,7 +123,7 @@ function DashboardPage() {
   });
   const setTaskStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase.from("compliance_tasks").update({ status }).eq("id", id);
+      const { error } = await supabase.from("compliance_tasks").update({ status: status as "Not Started" | "In Progress" | "Complete" }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => { refresh(["tasks"]); toast("Compliance updated"); },
@@ -336,7 +336,7 @@ function RepairTable({ repairs, isCommittee, onStatus }: { repairs: Repair[]; is
   </div>;
 }
 
-function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; isCommittee: boolean; schemeId?: string; onChanged: () => void }) {
+function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -385,7 +385,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
   </div>;
 }
 
-function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { levies: Levy[]; isCommittee: boolean; schemeId?: string; onPaid: (id: string) => void; onBudget: () => void }) {
+function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { levies: Levy[]; isCommittee: boolean; schemeId?: string | undefined; onPaid: (id: string) => void; onBudget: () => void }) {
   const [open, setOpen] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -436,7 +436,7 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
 }
 
 function MaintenanceSection({ repairs, isCommittee, myLot, schemeId, onStatus, onChanged }: {
-  repairs: Repair[]; isCommittee: boolean; myLot: Lot | null; schemeId?: string;
+  repairs: Repair[]; isCommittee: boolean; myLot: Lot | null; schemeId?: string | undefined;
   onStatus: (id: string, status: string) => void; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -472,7 +472,7 @@ function MaintenanceSection({ repairs, isCommittee, myLot, schemeId, onStatus, o
 }
 
 function ComplianceSection({ tasks, isCommittee, schemeId, onStatus, onChanged }: {
-  tasks: Task[]; isCommittee: boolean; schemeId?: string; onStatus: (id: string, status: string) => void; onChanged: () => void;
+  tasks: Task[]; isCommittee: boolean; schemeId?: string | undefined; onStatus: (id: string, status: string) => void; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
@@ -556,7 +556,7 @@ function CalendarSection({ scheme, tasks, levies }: { scheme: Scheme | null; tas
   </div>;
 }
 
-function DocumentsSection({ documents, isCommittee, schemeId, onChanged }: { documents: Doc[]; isCommittee: boolean; schemeId?: string; onChanged: () => void }) {
+function DocumentsSection({ documents, isCommittee, schemeId, onChanged }: { documents: Doc[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
