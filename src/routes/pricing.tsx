@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SiteHeader } from "@/components/site-header";
 import { PlanCard } from "@/components/plan-card";
-import { BackdropTexture } from "@/components/backdrop-texture";
+
 
 export const Route = createFileRoute("/pricing")({
   head: () => ({ meta: [
