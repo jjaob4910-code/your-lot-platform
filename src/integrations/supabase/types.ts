@@ -160,29 +160,102 @@ export type Database = {
           },
         ]
       }
+      document_folders: {
+        Row: {
+          color: string
+          created_at: string
+          icon: string
+          id: string
+          name: string
+          parent_id: string | null
+          scheme_id: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          icon?: string
+          id?: string
+          name: string
+          parent_id?: string | null
+          scheme_id: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          icon?: string
+          id?: string
+          name?: string
+          parent_id?: string | null
+          scheme_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_folders_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "document_folders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_folders_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           category: string | null
+          file_size: number | null
+          folder_id: string | null
           id: string
+          mime_type: string | null
           name: string
           scheme_id: string
+          shared_with_owners: boolean
+          storage_path: string | null
+          updated_at: string
           uploaded_at: string
         }
         Insert: {
           category?: string | null
+          file_size?: number | null
+          folder_id?: string | null
           id?: string
+          mime_type?: string | null
           name: string
           scheme_id: string
+          shared_with_owners?: boolean
+          storage_path?: string | null
+          updated_at?: string
           uploaded_at?: string
         }
         Update: {
           category?: string | null
+          file_size?: number | null
+          folder_id?: string | null
           id?: string
+          mime_type?: string | null
           name?: string
           scheme_id?: string
+          shared_with_owners?: boolean
+          storage_path?: string | null
+          updated_at?: string
           uploaded_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "documents_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "document_folders"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "documents_scheme_id_fkey"
             columns: ["scheme_id"]
