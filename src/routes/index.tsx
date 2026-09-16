@@ -109,7 +109,7 @@ function ServiceBento() {
 const benefits = ["Easy to use", "Fair price", "More control", "Streamlined", "Everything in one place", "Set up in minutes", "No spreadsheets", "Made for 6 to 10 lots"];
 
 function HomePage() {
-  return <div className="backdrop-dots relative isolate min-h-screen bg-background">
+  return <div className="relative isolate min-h-screen bg-background">
     
     <SiteHeader />
     <main>
@@ -123,7 +123,7 @@ function HomePage() {
           </div>
         </div>
         <p className="mt-20 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Here&rsquo;s what the software looks like</p>
-        <div className="relative mt-6 py-8 sm:px-8 sm:py-14"><DashboardPreview /></div>
+        <div className="backdrop-dots relative mt-6 py-8 sm:px-8 sm:py-14"><DashboardPreview /></div>
       </section>
 
       <section className="overflow-hidden border-y border-border py-8"><div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 sm:px-8 md:flex-row md:items-center md:gap-12"><p className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Designed around Australian OC requirements</p><div className="marquee-mask min-w-0 flex-1 overflow-hidden"><div className="marquee-track items-center" aria-hidden="true">{[...benefits, ...benefits].map((benefit, index) => (<span key={index} className="flex items-center whitespace-nowrap pr-12 font-display text-sm font-medium text-foreground/80">{benefit}<span className="ml-12 size-1.5 rounded-full bg-primary/50" /></span>))}</div></div></div></section>
