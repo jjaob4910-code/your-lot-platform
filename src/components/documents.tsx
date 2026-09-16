@@ -97,6 +97,7 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
   const allFolders = folders.data ?? [];
   const refreshFolders = () => queryClient.invalidateQueries({ queryKey: ["document-folders"] });
 
+  const [preview, setPreview] = useState<{ doc: DocFile; url: string | null; loading: boolean } | null>(null);
   const searching = query.trim().length > 0;
   const visibleFolders = useMemo(() => searching
     ? allFolders.filter(f => f.name.toLowerCase().includes(query.toLowerCase()))
