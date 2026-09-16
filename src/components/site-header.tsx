@@ -21,7 +21,7 @@ export function SiteHeader() {
           {links.map(link => <Link key={link.label} to={link.to} className="transition-colors hover:text-foreground">{link.label}</Link>)}
         </nav>
         <div className="hidden items-center gap-5 md:flex">
-          <Button asChild variant="ghost" size="sm"><Link to="/dashboard">Log in</Link></Button>
+          <Button asChild variant="ghost" size="sm"><Link to="/dashboard">Dashboard</Link></Button>
           <Button asChild size="sm" className="rounded-sm"><Link to="/dashboard">Get started <ArrowUpRight /></Link></Button>
         </div>
         <Sheet>
