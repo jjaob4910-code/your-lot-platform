@@ -307,12 +307,12 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
           className={`flex flex-wrap items-center gap-4 px-7 py-4 ${isCommittee ? "cursor-grab active:cursor-grabbing" : ""} ${dragDoc?.id === doc.id ? "opacity-50" : ""}`}
         >
           <FolderIcon icon="FileText" color="slate" size="sm"/>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{doc.name}</p>
+          <button type="button" className="min-w-0 flex-1 text-left" onClick={() => { void openPreview(doc); }}>
+            <p className="truncate text-sm font-medium underline-offset-4 hover:underline">{doc.name}</p>
             <p className="mt-1 text-[12px] text-muted-foreground">
               Added {niceDate(doc.uploaded_at)} · Edited {niceDate(doc.updated_at)}{doc.file_size ? ` · ${niceSize(doc.file_size)}` : ""}
             </p>
-          </div>
+          </button>
           <div className="flex items-center gap-2">
             {doc.shared_with_owners && <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">Shared with owners</span>}
             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => { void download(doc); }} aria-label={`Download ${doc.name}`}><Download className="h-4 w-4"/></Button>
