@@ -31,7 +31,7 @@ type Lot = { id: string; lot_number: number; owner_name: string | null; owner_em
 type Levy = {
   id: string; lot_id: string; amount: number; due_date: string; status: string; paid_at: string | null;
   lots: { lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number } | null;
-  budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number } | null;
+  budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number; allocation_method: string | null } | null;
 };
 type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
 type Repair = { id: string; title: string; description: string | null; status: string; created_at: string; submitted_by_lot_id: string | null; lots: { lot_number: number } | null };
@@ -74,7 +74,7 @@ function DashboardPage() {
   const levies = useQuery({
     queryKey: ["levies"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("levies").select("*, lots(lot_number, owner_name, owner_email, entitlement_percent), budgets(financial_year, admin_fund_total, maintenance_fund_total)").order("due_date");
+      const { data, error } = await supabase.from("levies").select("*, lots(lot_number, owner_name, owner_email, entitlement_percent), budgets(financial_year, admin_fund_total, maintenance_fund_total, allocation_method)").order("due_date");
       if (error) throw error;
       return (data ?? []) as unknown as Levy[];
     },
@@ -393,15 +393,19 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
   const [open, setOpen] = useState(false);
   const [invoice, setInvoice] = useState<Levy | null>(null);
   const [reminder, setReminder] = useState<Levy | null>(null);
+  const [showPaid, setShowPaid] = useState(false);
+  const [method, setMethod] = useState("Entitlement");
 
   const years = Array.from(new Set(levies.map(l => l.budgets?.financial_year ?? "Unallocated")));
   const [year, setYear] = useState("All years");
-  const shown = year === "All years" ? levies : levies.filter(l => (l.budgets?.financial_year ?? "Unallocated") === year);
+  const inYear = year === "All years" ? levies : levies.filter(l => (l.budgets?.financial_year ?? "Unallocated") === year);
 
-  const paid = shown.filter(l => l.status === "Paid");
-  const unpaid = shown.filter(l => l.status !== "Paid");
+  const paid = inYear.filter(l => l.status === "Paid");
+  const unpaid = inYear.filter(l => l.status !== "Paid").sort((a, b) => a.due_date.localeCompare(b.due_date));
   const collected = paid.reduce((s, l) => s + Number(l.amount), 0);
   const owing = unpaid.reduce((s, l) => s + Number(l.amount), 0);
+  const overdueCount = unpaid.filter(l => daysUntil(l.due_date) < 0).length;
+  const soonCount = unpaid.filter(l => { const d = daysUntil(l.due_date); return d >= 0 && d <= 14; }).length;
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -412,27 +416,44 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
       financial_year: String(form.get("financial_year") ?? ""),
       admin_fund_total: Number(form.get("admin_fund_total")),
       maintenance_fund_total: Number(form.get("maintenance_fund_total")),
+      allocation_method: method,
       levy_due_date: String(form.get("levy_due_date") ?? ""),
     });
     if (error) { toast("Could not create the budget", { description: error.message }); return; }
-    setOpen(false); onBudget(); toast("Budget created", { description: "Levy notices were calculated for every lot." });
+    setOpen(false); onBudget();
+    toast("Budget created", { description: method === "Equal" ? "Every lot was billed an equal share." : "Every lot was billed its entitlement share." });
   };
 
-  const share = (levy: Levy) => Number(levy.lots?.entitlement_percent ?? 0) / 100;
+  const lotsInBudget = (levy: Levy) => levies.filter(l => l.budgets?.financial_year === levy.budgets?.financial_year).length || 1;
+  const isEqual = (levy: Levy) => levy.budgets?.allocation_method === "Equal";
+  const share = (levy: Levy) => isEqual(levy) ? 1 / lotsInBudget(levy) : Number(levy.lots?.entitlement_percent ?? 0) / 100;
   const adminShare = (levy: Levy) => Number(levy.budgets?.admin_fund_total ?? 0) * share(levy);
   const maintShare = (levy: Levy) => Number(levy.budgets?.maintenance_fund_total ?? 0) * share(levy);
 
+  const rows = showPaid ? [...unpaid, ...paid] : unpaid;
+
   return <div>
-    <PageHead eyebrow="Your property" title="Levies" blurb="See who has paid and for which year, open an invoice with the full breakdown, and send a friendly reminder to anyone still owing."
+    <PageHead eyebrow="Your property" title="Levies" blurb="Set what is to be paid and how it is split, then track exactly who still owes and how close they are to their due date."
       action={isCommittee ? <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild><Button className="rounded-full"><Plus/> Create a budget</Button></DialogTrigger>
         <DialogContent>
-          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Create a budget</DialogTitle><DialogDescription>Each lot is billed its share of the total, based on entitlement.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Create a budget</DialogTitle><DialogDescription>Choose the totals and how they are split, and Loty issues a notice to every lot.</DialogDescription></DialogHeader>
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2"><Label htmlFor="financial_year">Financial year</Label><Input id="financial_year" name="financial_year" placeholder="2026/27" required/></div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label htmlFor="admin_fund_total">Admin fund</Label><Input id="admin_fund_total" name="admin_fund_total" type="number" step="0.01" required/></div>
               <div className="space-y-2"><Label htmlFor="maintenance_fund_total">Maintenance fund</Label><Input id="maintenance_fund_total" name="maintenance_fund_total" type="number" step="0.01" required/></div>
+            </div>
+            <div className="space-y-2">
+              <Label>How it is split</Label>
+              <Select value={method} onValueChange={setMethod}>
+                <SelectTrigger><SelectValue/></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Entitlement">By lot entitlement</SelectItem>
+                  <SelectItem value="Equal">Equal share for every lot</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] leading-5 text-muted-foreground">{method === "Equal" ? "The total is divided evenly, so every lot pays the same amount." : "Each lot pays its entitlement percentage of the total."}</p>
             </div>
             <div className="space-y-2"><Label htmlFor="levy_due_date">Due date</Label><Input id="levy_due_date" name="levy_due_date" type="date" required/></div>
             <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>setOpen(false)}>Cancel</Button><Button type="submit" className="rounded-full">Create and issue notices</Button></div>
@@ -444,12 +465,16 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
       {["All years", ...years].map(option =>
         <button key={option} type="button" onClick={()=>setYear(option)}
           className={`rounded-full px-4 py-2 text-[12px] font-medium transition ${year===option?"bg-primary text-primary-foreground":"border border-border/70 bg-card text-muted-foreground hover:text-foreground"}`}>{option}</button>)}
+      <button type="button" onClick={()=>setShowPaid(v=>!v)}
+        className="ml-auto rounded-full border border-border/70 bg-card px-4 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground">
+        {showPaid ? "Hide the lots that have paid" : `Show the ${paid.length} lots that have paid`}
+      </button>
     </div>
 
     <div className="mt-5 grid gap-3 sm:grid-cols-3">
-      {[["Paid", `${paid.length} of ${shown.length} lots`, money(collected)],
-        ["Still owing", `${unpaid.length} lot${unpaid.length===1?"":"s"} to chase`, money(owing)],
-        ["Raised in total", year === "All years" ? "Across every year" : year, money(collected + owing)]].map(([label, hint, value]) =>
+      {[["Paid", `${paid.length} of ${inYear.length}`, money(collected)],
+        ["Still to pay", `${unpaid.length} of ${inYear.length}`, money(owing)],
+        ["Needs attention", overdueCount ? `${overdueCount} overdue` : soonCount ? `${soonCount} due within 14 days` : "Nothing pressing", String(overdueCount + soonCount)]].map(([label, hint, value]) =>
         <div key={label} className="rounded-3xl border border-border/70 bg-card p-5">
           <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
           <p className="mt-3 font-display text-2xl tracking-[-0.03em]">{value}</p>
@@ -458,8 +483,13 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
     </div>
 
     <Card className="mt-5 overflow-hidden">
-      <div className="divide-y divide-border/70">{shown.map(levy => {
+      <div className="divide-y divide-border/70">{rows.map(levy => {
         const status = effectiveLevyStatus(levy);
+        const left = daysUntil(levy.due_date);
+        const alert = status === "Paid" ? null
+          : left < 0 ? { tone: "bg-destructive/10 text-destructive", text: `${Math.abs(left)} days overdue` }
+          : left <= 14 ? { tone: "bg-primary text-primary-foreground", text: left === 0 ? "Due today" : `Due in ${left} days` }
+          : { tone: "bg-secondary text-muted-foreground", text: `Due in ${left} days` };
         return <div key={levy.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
           <div className="min-w-0">
             <p className="text-sm font-medium">{levy.lots ? `Lot ${levy.lots.lot_number}${levy.lots.owner_name ? ` · ${levy.lots.owner_name}` : ""}` : "Your levy"}</p>
@@ -470,13 +500,14 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="font-display text-lg">{money(Number(levy.amount))}</span>
+            {alert && <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${alert.tone}`}>{alert.text}</span>}
             <StatusPill status={status}/>
             <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>setInvoice(levy)}>Invoice</Button>
             {isCommittee && status !== "Paid" && <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>setReminder(levy)}>Send a reminder</Button>}
             {isCommittee && status !== "Paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={()=>onPaid(levy.id)}>Mark paid</Button>}
           </div>
         </div>;})}
-        {shown.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">No levies raised yet.</p>}
+        {rows.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">{inYear.length ? "Everyone has paid. Nothing to chase." : "No levies raised yet."}</p>}
       </div>
     </Card>
 
@@ -492,7 +523,8 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
             <p className="mt-1 text-[12px] text-muted-foreground">{invoice.lots?.owner_email ?? "No email on file"}</p>
           </div>
           <div className="space-y-2">
-            {[["Lot entitlement", `${Number(invoice.lots?.entitlement_percent ?? 0)}%`],
+            {[["How it is split", isEqual(invoice) ? "Equal share for every lot" : "By lot entitlement"],
+              [isEqual(invoice) ? "This lot's share" : "Lot entitlement", isEqual(invoice) ? `1 of ${lotsInBudget(invoice)} lots` : `${Number(invoice.lots?.entitlement_percent ?? 0)}%`],
               ["Admin fund share", money(adminShare(invoice))],
               ["Maintenance fund share", money(maintShare(invoice))],
               ["Due date", niceDate(invoice.due_date)],
@@ -500,7 +532,7 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
               <div key={k} className="flex justify-between border-b border-border/60 pb-2 text-[13px]"><span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span></div>)}
             <div className="flex justify-between pt-2"><span className="font-medium">Total payable</span><span className="font-display text-xl">{money(Number(invoice.amount))}</span></div>
           </div>
-          <p className="text-[11px] leading-5 text-muted-foreground">Each lot pays its entitlement share of the admin fund and the maintenance fund for the year.</p>
+          <p className="text-[11px] leading-5 text-muted-foreground">{isEqual(invoice) ? "The admin fund and the maintenance fund are divided evenly between every lot." : "Each lot pays its entitlement share of the admin fund and the maintenance fund for the year."}</p>
         </div>}
       </DialogContent>
     </Dialog>

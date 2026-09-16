@@ -17,6 +17,7 @@ export type Database = {
       budgets: {
         Row: {
           admin_fund_total: number
+          allocation_method: string
           created_at: string
           financial_year: string
           id: string
@@ -26,6 +27,7 @@ export type Database = {
         }
         Insert: {
           admin_fund_total?: number
+          allocation_method?: string
           created_at?: string
           financial_year: string
           id?: string
@@ -35,6 +37,7 @@ export type Database = {
         }
         Update: {
           admin_fund_total?: number
+          allocation_method?: string
           created_at?: string
           financial_year?: string
           id?: string
