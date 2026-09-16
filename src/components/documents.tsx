@@ -140,7 +140,7 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
     refreshFolders(); onChanged(); toast("Folder removed");
   };
 
-  const upload = async (files: FileList | null) => {
+  const upload = async (files: FileList | File[] | null, folderId: string | null = currentId) => {
     if (!files?.length || !schemeId) return;
     setUploading(true);
     try {
@@ -149,8 +149,9 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
         const { error: upErr } = await supabase.storage.from("documents").upload(path, file);
         if (upErr) throw upErr;
         const { error } = await supabase.from("documents").insert({
-          scheme_id: schemeId, name: file.name, category: current?.name ?? "Other",
-          folder_id: currentId, storage_path: path, file_size: file.size, mime_type: file.type,
+          scheme_id: schemeId, name: file.name,
+          category: allFolders.find(f => f.id === folderId)?.name ?? "Other",
+          folder_id: folderId, storage_path: path, file_size: file.size, mime_type: file.type,
         });
         if (error) throw error;
       }
