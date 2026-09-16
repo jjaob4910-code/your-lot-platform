@@ -273,7 +273,7 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
             </DropdownMenuContent>
           </DropdownMenu>}
         </div>
-      </Card>)}
+      </Card></div>)}
     </div>}
 
     <Card className="mt-6 overflow-hidden">
