@@ -168,7 +168,8 @@ function DashboardPage() {
         onStatus={(id,status)=>setTaskStatus.mutate({id,status})} onChanged={()=>refresh(["tasks"])}/>}
 
       {active === "Insurance" && <InsuranceSection tasks={tasks.data ?? []}/>}
-      {active === "Calendar" && <CalendarSection scheme={scheme.data ?? null} tasks={tasks.data ?? []} levies={levies.data ?? []}/>}
+      {active === "Calendar" && <CalendarSection scheme={scheme.data ?? null} tasks={tasks.data ?? []} levies={levies.data ?? []}
+        orders={repairs.data ?? []} goTo={setActive}/>}
       {active === "Documents" && <DocumentsSection documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["documents"])}/>}
     </main>
 
