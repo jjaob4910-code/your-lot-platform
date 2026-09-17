@@ -211,6 +211,7 @@ export type Database = {
       documents: {
         Row: {
           category: string | null
+          compliance_task_id: string | null
           file_size: number | null
           folder_id: string | null
           id: string
@@ -224,6 +225,7 @@ export type Database = {
         }
         Insert: {
           category?: string | null
+          compliance_task_id?: string | null
           file_size?: number | null
           folder_id?: string | null
           id?: string
@@ -237,6 +239,7 @@ export type Database = {
         }
         Update: {
           category?: string | null
+          compliance_task_id?: string | null
           file_size?: number | null
           folder_id?: string | null
           id?: string
@@ -249,6 +252,13 @@ export type Database = {
           uploaded_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "documents_compliance_task_id_fkey"
+            columns: ["compliance_task_id"]
+            isOneToOne: false
+            referencedRelation: "compliance_tasks"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "documents_folder_id_fkey"
             columns: ["folder_id"]
