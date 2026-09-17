@@ -215,6 +215,7 @@ export type Database = {
           file_size: number | null
           folder_id: string | null
           id: string
+          insurance_policy_id: string | null
           mime_type: string | null
           name: string
           scheme_id: string
@@ -229,6 +230,7 @@ export type Database = {
           file_size?: number | null
           folder_id?: string | null
           id?: string
+          insurance_policy_id?: string | null
           mime_type?: string | null
           name: string
           scheme_id: string
@@ -243,6 +245,7 @@ export type Database = {
           file_size?: number | null
           folder_id?: string | null
           id?: string
+          insurance_policy_id?: string | null
           mime_type?: string | null
           name?: string
           scheme_id?: string
@@ -267,7 +270,76 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "documents_insurance_policy_id_fkey"
+            columns: ["insurance_policy_id"]
+            isOneToOne: false
+            referencedRelation: "insurance_policies"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "documents_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insurance_policies: {
+        Row: {
+          broker: string | null
+          broker_contact: string | null
+          created_at: string
+          excess: number | null
+          id: string
+          insurer: string | null
+          notes: string | null
+          policy_number: string | null
+          policy_type: string
+          premium: number | null
+          renewal_date: string | null
+          scheme_id: string
+          start_date: string | null
+          sum_insured: number | null
+          updated_at: string
+        }
+        Insert: {
+          broker?: string | null
+          broker_contact?: string | null
+          created_at?: string
+          excess?: number | null
+          id?: string
+          insurer?: string | null
+          notes?: string | null
+          policy_number?: string | null
+          policy_type?: string
+          premium?: number | null
+          renewal_date?: string | null
+          scheme_id: string
+          start_date?: string | null
+          sum_insured?: number | null
+          updated_at?: string
+        }
+        Update: {
+          broker?: string | null
+          broker_contact?: string | null
+          created_at?: string
+          excess?: number | null
+          id?: string
+          insurer?: string | null
+          notes?: string | null
+          policy_number?: string | null
+          policy_type?: string
+          premium?: number | null
+          renewal_date?: string | null
+          scheme_id?: string
+          start_date?: string | null
+          sum_insured?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insurance_policies_scheme_id_fkey"
             columns: ["scheme_id"]
             isOneToOne: false
             referencedRelation: "schemes"
