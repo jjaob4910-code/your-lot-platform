@@ -107,6 +107,15 @@ function DashboardPage() {
     },
   });
 
+  const policies = useQuery({
+    queryKey: ["insurance"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("insurance_policies").select("*").order("renewal_date", { nullsFirst: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as Policy[];
+    },
+  });
+
   const refresh = (keys: string[]) => keys.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
 
   const setRepairStatus = useMutation({
@@ -170,7 +179,8 @@ function DashboardPage() {
       {active === "Compliance" && <ComplianceSection tasks={tasks.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
         onStatus={(id,status)=>setTaskStatus.mutate({id,status})} onChanged={()=>refresh(["tasks","documents","document-folders"])}/>}
 
-      {active === "Insurance" && <InsuranceSection tasks={tasks.data ?? []}/>}
+      {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
+        schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders"])}/>}
       {active === "Calendar" && <CalendarSection scheme={scheme.data ?? null} tasks={tasks.data ?? []} levies={levies.data ?? []}
         orders={repairs.data ?? []} goTo={setActive}/>}
       {active === "Documents" && <DocumentsSection documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["documents"])}/>}
@@ -670,18 +680,3 @@ function ComplianceSection({ tasks, documents, isCommittee, schemeId, onStatus, 
     </Card>
   </div>;
 }
-
-function InsuranceSection({ tasks }: { tasks: Task[] }) {
-  const policy = tasks.find(task => task.task_name.toLowerCase().includes("insurance"));
-  return <div>
-    <PageHead eyebrow="Your property" title="Insurance" blurb="Your policy, your sum insured and your renewal date, where you can actually find them."/>
-    <Card className="mt-10 p-7">
-      {policy
-        ? <><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Renewal</p>
-            <h2 className="mt-2 text-2xl font-medium tracking-[-0.03em]">{niceDate(policy.due_date)}</h2>
-            <p className="mt-3 text-[13px] text-muted-foreground">{policy.detail ?? "Cover must never lapse."} {daysUntil(policy.due_date)} days to go.</p></>
-        : <p className="text-sm text-muted-foreground">No insurance renewal recorded yet. Add it under Compliance and it will appear here.</p>}
-    </Card>
-  </div>;
-}
-
