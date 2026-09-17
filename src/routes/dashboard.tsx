@@ -166,8 +166,8 @@ function DashboardPage() {
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
         onChanged={()=>refresh(["repairs"])}/>}
 
-      {active === "Compliance" && <ComplianceSection tasks={tasks.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
-        onStatus={(id,status)=>setTaskStatus.mutate({id,status})} onChanged={()=>refresh(["tasks"])}/>}
+      {active === "Compliance" && <ComplianceSection tasks={tasks.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
+        onStatus={(id,status)=>setTaskStatus.mutate({id,status})} onChanged={()=>refresh(["tasks","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection tasks={tasks.data ?? []}/>}
       {active === "Calendar" && <CalendarSection scheme={scheme.data ?? null} tasks={tasks.data ?? []} levies={levies.data ?? []}
