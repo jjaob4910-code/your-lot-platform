@@ -552,10 +552,15 @@ function LeviesSection({ levies, isCommittee, schemeId, onPaid, onBudget }: { le
 }
 
 
-function ComplianceSection({ tasks, isCommittee, schemeId, onStatus, onChanged }: {
-  tasks: Task[]; isCommittee: boolean; schemeId?: string | undefined; onStatus: (id: string, status: string) => void; onChanged: () => void;
+const COMPLIANCE_FOLDER = "Compliance";
+
+function ComplianceSection({ tasks, documents, isCommittee, schemeId, onStatus, onChanged }: {
+  tasks: Task[]; documents: Doc[]; isCommittee: boolean; schemeId?: string | undefined;
+  onStatus: (id: string, status: string) => void; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!schemeId) return;
@@ -570,8 +575,55 @@ function ComplianceSection({ tasks, isCommittee, schemeId, onStatus, onChanged }
     if (error) { toast("Could not add the obligation", { description: error.message }); return; }
     setOpen(false); onChanged(); toast("Obligation added");
   };
+
+  const complianceFolderId = async () => {
+    if (!schemeId) return null;
+    const { data } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", COMPLIANCE_FOLDER).maybeSingle();
+    if (data?.id) return data.id as string;
+    const { data: made, error } = await supabase.from("document_folders")
+      .insert({ scheme_id: schemeId, name: COMPLIANCE_FOLDER, icon: "ShieldCheck", color: "green" }).select("id").single();
+    if (error) throw error;
+    return made.id as string;
+  };
+
+  const attach = async (task: Task, files: FileList | null) => {
+    if (!files?.length || !schemeId) return;
+    setBusy(task.id);
+    try {
+      const folderId = await complianceFolderId();
+      for (const file of Array.from(files)) {
+        const path = `${schemeId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
+        const { error: upErr } = await supabase.storage.from("documents").upload(path, file);
+        if (upErr) throw upErr;
+        const { error } = await supabase.from("documents").insert({
+          scheme_id: schemeId, name: file.name, category: task.task_name, folder_id: folderId,
+          compliance_task_id: task.id, storage_path: path, file_size: file.size, mime_type: file.type,
+        });
+        if (error) throw error;
+      }
+      onChanged();
+      toast("Filed under Compliance in your documents");
+    } catch (err) {
+      toast("Could not attach that", { description: (err as Error).message });
+    } finally { setBusy(null); }
+  };
+
+  const openDoc = async (doc: Doc) => {
+    if (!doc.storage_path) { toast("No file attached to this record"); return; }
+    const { data, error } = await supabase.storage.from("documents").createSignedUrl(doc.storage_path, 600);
+    if (error || !data) { toast("Could not open the file", { description: error?.message }); return; }
+    window.open(data.signedUrl, "_blank");
+  };
+
+  const removeDoc = async (doc: Doc) => {
+    if (doc.storage_path) await supabase.storage.from("documents").remove([doc.storage_path]);
+    const { error } = await supabase.from("documents").delete().eq("id", doc.id);
+    if (error) { toast("Could not remove it", { description: error.message }); return; }
+    onChanged(); toast("Removed");
+  };
+
   return <div>
-    <PageHead eyebrow="Your property" title="Compliance" blurb="The things the law expects each year, in plain English, with dates attached."
+    <PageHead eyebrow="Your property" title="Compliance" blurb="The things the law expects each year, in plain English, with dates attached. Attach the paperwork and it files itself under Compliance in your documents."
       action={isCommittee ? <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild><Button className="rounded-full"><Plus/> Add an obligation</Button></DialogTrigger>
         <DialogContent>
@@ -588,14 +640,29 @@ function ComplianceSection({ tasks, isCommittee, schemeId, onStatus, onChanged }
       <div className="divide-y divide-border/70">{tasks.map(task => {
         const left = daysUntil(task.due_date);
         const urgent = task.status !== "Complete" && left < 14;
-        return <div key={task.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
-          <div><p className="text-sm font-medium">{task.task_name}</p><p className="mt-1 text-[12px] text-muted-foreground">{task.detail ? `${task.detail} · ` : ""}Due {niceDate(task.due_date)}</p></div>
-          <div className="flex items-center gap-3">
-            <span className={`text-[12px] ${urgent ? "font-medium text-destructive" : "text-muted-foreground"}`}>{task.status === "Complete" ? "Done" : left < 0 ? `${Math.abs(left)} days overdue` : `${left} days left`}</span>
-            {isCommittee
-              ? <Select value={task.status} onValueChange={(value)=>onStatus(task.id, value)}><SelectTrigger className="w-[150px] rounded-full"><SelectValue/></SelectTrigger><SelectContent>{["Not Started","In Progress","Complete"].map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
-              : <StatusPill status={task.status}/>}
+        const files = documents.filter(d => d.compliance_task_id === task.id);
+        return <div key={task.id} className="px-7 py-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div><p className="text-sm font-medium">{task.task_name}</p><p className="mt-1 text-[12px] text-muted-foreground">{task.detail ? `${task.detail} · ` : ""}Due {niceDate(task.due_date)}</p></div>
+            <div className="flex items-center gap-3">
+              <span className={`text-[12px] ${urgent ? "font-medium text-destructive" : "text-muted-foreground"}`}>{task.status === "Complete" ? "Done" : left < 0 ? `${Math.abs(left)} days overdue` : `${left} days left`}</span>
+              {isCommittee && <Button asChild variant="outline" size="sm" className="rounded-full">
+                <label>{busy === task.id ? "Attaching" : "Attach document"}
+                  <input type="file" multiple className="sr-only" onChange={e => { void attach(task, e.target.files); e.target.value = ""; }}/>
+                </label>
+              </Button>}
+              {isCommittee
+                ? <Select value={task.status} onValueChange={(value)=>onStatus(task.id, value)}><SelectTrigger className="w-[150px] rounded-full"><SelectValue/></SelectTrigger><SelectContent>{["Not Started","In Progress","Complete"].map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
+                : <StatusPill status={task.status}/>}
+            </div>
           </div>
+          {files.length > 0 && <div className="mt-4 flex flex-wrap gap-2">
+            {files.map(doc => <span key={doc.id} className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-[12px]">
+              <Files className="h-3.5 w-3.5 text-muted-foreground"/>
+              <button type="button" className="underline-offset-4 hover:underline" onClick={()=>{ void openDoc(doc); }}>{doc.name}</button>
+              {isCommittee && <button type="button" aria-label={`Remove ${doc.name}`} className="text-muted-foreground hover:text-destructive" onClick={()=>{ void removeDoc(doc); }}>×</button>}
+            </span>)}
+          </div>}
         </div>;})}
         {tasks.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">Nothing recorded yet.</p>}
       </div>
