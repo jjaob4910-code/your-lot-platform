@@ -55,7 +55,7 @@ function RenewalNote({ date }: { date: string | null }) {
 }
 
 function PolicyDialog({ open, onOpenChange, schemeId, policy, onSaved }: {
-  open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string; policy: Policy | null; onSaved: () => void;
+  open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; policy: Policy | null; onSaved: () => void;
 }) {
   const [type, setType] = useState(policy?.policy_type ?? "Building");
 
@@ -114,7 +114,7 @@ function PolicyDialog({ open, onOpenChange, schemeId, policy, onSaved }: {
 }
 
 export function InsuranceSection({ policies, documents, isCommittee, schemeId, onChanged }: {
-  policies: Policy[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string; onChanged: () => void;
+  policies: Policy[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Policy | null>(null);
