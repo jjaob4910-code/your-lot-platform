@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { WorkOrdersSection, WorkOrderTable, type WorkOrder } from "@/components/work-orders";
 import { CalendarSection } from "@/components/calendar-view";
 import { DocumentsSection, type DocFile } from "@/components/documents";
+import { InsuranceSection, type Policy } from "@/components/insurance";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
