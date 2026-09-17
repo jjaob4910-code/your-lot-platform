@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
-import { ArrowDownRight, ArrowUpRight, Calculator, Coins, FileText, Paperclip, Plus, Send, Trash2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Calculator, Coins, FileText, Paperclip, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -19,6 +19,10 @@ export type FinanceTx = {
 export type FinanceBudget = {
   id: string; financial_year: string; admin_fund_total: number; maintenance_fund_total: number;
   allocation_method: string | null; levy_due_date: string;
+};
+export type ForecastLine = {
+  id: string; scheme_id: string; financial_year: string; direction: string; fund: string;
+  category: string | null; label: string; amount: number; expected_month: number; notes: string | null;
 };
 type FinLevy = {
   id: string; amount: number; due_date: string; status: string; paid_at: string | null;
@@ -39,6 +43,9 @@ const niceDate = (v: string) => new Date(v).toLocaleDateString("en-AU", { day: "
 const startYearOf = (iso: string) => { const d = new Date(iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
 const fyLabel = (startYear: number) => `${startYear}/${String(startYear + 1).slice(2)}`;
 const budgetStartYear = (fy: string) => { const m = fy.match(/\d{4}/); return m ? Number(m[0]) : new Date().getFullYear(); };
+const FY_MONTHS = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
+const monthName = (m: number) => new Date(2000, m - 1, 1).toLocaleDateString("en-AU", { month: "short" });
+const monthLabel = (m: number, startYear: number) => `${monthName(m)} ${m >= 7 ? startYear : startYear + 1}`;
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`rounded-[26px] border border-border/70 bg-card ${className}`}>{children}</div>;
@@ -60,11 +67,12 @@ function Row({ label, value, tone = "" }: { label: string; value: string; tone?:
   </div>;
 }
 
-function TxDialog({ open, onOpenChange, schemeId, tx, onSaved }: {
-  open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; tx: FinanceTx | null; onSaved: () => void;
+function TxDialog({ open, onOpenChange, schemeId, tx, defaultFund, onSaved }: {
+  open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; tx: FinanceTx | null;
+  defaultFund?: string | undefined; onSaved: () => void;
 }) {
   const [direction, setDirection] = useState(tx?.direction ?? "out");
-  const [fund, setFund] = useState(tx?.fund ?? "Admin");
+  const [fund, setFund] = useState(tx?.fund ?? defaultFund ?? "Admin");
   const [category, setCategory] = useState(tx?.category ?? "");
   const [status, setStatus] = useState(tx?.status ?? "Paid");
   const categories = direction === "in" ? IN_CATEGORIES : OUT_CATEGORIES;
@@ -146,9 +154,140 @@ function TxDialog({ open, onOpenChange, schemeId, tx, onSaved }: {
   </Dialog>;
 }
 
-export function FinanceSection({ transactions, budgets, levies, lots, documents, isCommittee, schemeId, onChanged }: {
-  transactions: FinanceTx[]; budgets: FinanceBudget[]; levies: FinLevy[]; lots: FinLot[];
-  documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
+function BudgetDialog({ open, onOpenChange, budget, fyName, hasLevies, onGoToLevies, onSaved }: {
+  open: boolean; onOpenChange: (v: boolean) => void; budget: FinanceBudget | null; fyName: string;
+  hasLevies: boolean; onGoToLevies?: (() => void) | undefined; onSaved: () => void;
+}) {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!budget) return;
+    const form = new FormData(e.currentTarget);
+    const payload = {
+      admin_fund_total: Number(form.get("admin_fund_total") ?? 0) || 0,
+      maintenance_fund_total: Number(form.get("maintenance_fund_total") ?? 0) || 0,
+    };
+    const { error } = await supabase.from("budgets").update(payload).eq("id", budget.id);
+    if (error) { toast("Could not update the budget", { description: error.message }); return; }
+    onOpenChange(false); onSaved(); toast("Fund budgets updated");
+  };
+
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="sm:max-w-[520px]">
+      <DialogHeader>
+        <DialogTitle className="font-display tracking-[-0.02em]">Fund budgets for {fyName}</DialogTitle>
+        <DialogDescription>What each fund is meant to raise and spend across the year.</DialogDescription>
+      </DialogHeader>
+      {budget
+        ? <form onSubmit={submit} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2"><Label htmlFor="admin_fund_total">Admin fund</Label><Input id="admin_fund_total" name="admin_fund_total" type="number" min="0" step="0.01" defaultValue={Number(budget.admin_fund_total)} required /></div>
+              <div className="space-y-2"><Label htmlFor="maintenance_fund_total">Maintenance fund</Label><Input id="maintenance_fund_total" name="maintenance_fund_total" type="number" min="0" step="0.01" defaultValue={Number(budget.maintenance_fund_total)} required /></div>
+            </div>
+            {hasLevies && <p className="rounded-[18px] border border-border/70 bg-secondary/40 p-4 text-[12px] leading-5 text-muted-foreground">
+              Levy notices already issued for {fyName} keep the amounts they were raised at. Changing these totals updates your fund tracking and forecast, not invoices that have already gone out.
+            </p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button type="submit" className="rounded-full">Save totals</Button>
+            </div>
+          </form>
+        : <div className="space-y-4">
+            <p className="text-[13px] leading-6 text-muted-foreground">There is no budget for {fyName} yet. Budgets are created over in Levies, because setting one raises a levy notice against every lot.</p>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Close</Button>
+              {onGoToLevies && <Button className="rounded-full" onClick={() => { onOpenChange(false); onGoToLevies(); }}>Go to Levies</Button>}
+            </div>
+          </div>}
+    </DialogContent>
+  </Dialog>;
+}
+
+function LineDialog({ open, onOpenChange, schemeId, line, financialYear, startYear, onSaved }: {
+  open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; line: ForecastLine | null;
+  financialYear: string; startYear: number; onSaved: () => void;
+}) {
+  const [direction, setDirection] = useState(line?.direction ?? "out");
+  const [fund, setFund] = useState(line?.fund ?? "Admin");
+  const [category, setCategory] = useState(line?.category ?? "");
+  const [month, setMonth] = useState(String(line?.expected_month ?? 7));
+  const categories = direction === "in" ? IN_CATEGORIES : OUT_CATEGORIES;
+
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!schemeId) return;
+    const form = new FormData(e.currentTarget);
+    const notes = String(form.get("notes") ?? "").trim();
+    const payload = {
+      scheme_id: schemeId, financial_year: financialYear, direction, fund,
+      category: category === "" ? null : category,
+      label: String(form.get("label") ?? "").trim(),
+      amount: Number(String(form.get("amount") ?? "0")) || 0,
+      expected_month: Number(month),
+      notes: notes === "" ? null : notes,
+    };
+    if (payload.label === "") { toast("Give the line a short name first"); return; }
+    const { error } = line
+      ? await supabase.from("budget_forecast_lines").update(payload).eq("id", line.id)
+      : await supabase.from("budget_forecast_lines").insert(payload);
+    if (error) { toast("Could not save that line", { description: error.message }); return; }
+    onOpenChange(false); onSaved(); toast(line ? "Line updated" : "Added to the plan");
+  };
+
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[560px]">
+      <DialogHeader>
+        <DialogTitle className="font-display tracking-[-0.02em]">{line ? "Edit a planned line" : "Add to the plan"}</DialogTitle>
+        <DialogDescription>What you expect to happen, which fund it comes from, and the month you expect it.</DialogDescription>
+      </DialogHeader>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Direction</Label>
+            <Select value={direction} onValueChange={v => { setDirection(v); setCategory(""); }}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="out">Money out</SelectItem><SelectItem value="in">Money in</SelectItem></SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Fund</Label>
+            <Select value={fund} onValueChange={setFund}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{FUNDS.map(f => <SelectItem key={f} value={f}>{f} fund</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="space-y-2"><Label htmlFor="label">What is it</Label><Input id="label" name="label" defaultValue={line?.label ?? ""} placeholder="Building insurance renewal" required /></div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="space-y-2">
+            <Label>Category</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger><SelectValue placeholder="Choose one" /></SelectTrigger>
+              <SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2"><Label htmlFor="amount">Amount</Label><Input id="amount" name="amount" type="number" min="0" step="0.01" defaultValue={line?.amount ?? ""} required /></div>
+          <div className="space-y-2">
+            <Label>Expected</Label>
+            <Select value={month} onValueChange={setMonth}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{FY_MONTHS.map(m => <SelectItem key={m} value={String(m)}>{monthLabel(m, startYear)}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="space-y-2"><Label htmlFor="notes">Notes</Label><Textarea id="notes" name="notes" rows={3} defaultValue={line?.notes ?? ""} placeholder="How you arrived at the number" /></div>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" className="rounded-full">{line ? "Save changes" : "Add it"}</Button>
+        </div>
+      </form>
+    </DialogContent>
+  </Dialog>;
+}
+
+export function FinanceSection({ transactions, budgets, forecastLines, levies, lots, documents, isCommittee, schemeId, goTo, onChanged }: {
+  transactions: FinanceTx[]; budgets: FinanceBudget[]; forecastLines: ForecastLine[]; levies: FinLevy[]; lots: FinLot[];
+  documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
+  goTo?: ((s: string) => void) | undefined; onChanged: () => void;
 }) {
   const today = new Date();
   const currentFy = today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1;
@@ -161,6 +300,8 @@ export function FinanceSection({ transactions, budgets, levies, lots, documents,
   const [year, setYear] = useState(currentFy);
   const [txOpen, setTxOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceTx | null>(null);
+  const [recordFund, setRecordFund] = useState<string | undefined>(undefined);
+  const [budgetOpen, setBudgetOpen] = useState(false);
   const [invoicesOpen, setInvoicesOpen] = useState(false);
   const [forecastOpen, setForecastOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
@@ -195,6 +336,9 @@ export function FinanceSection({ transactions, budgets, levies, lots, documents,
   const totalIn = admin.collected + maintenance.collected;
   const totalOut = admin.spent + maintenance.spent;
   const totalBudget = budgeted.Admin + budgeted.Maintenance;
+
+  const activeBudget = yearBudgets[0] ?? null;
+  const yearLines = forecastLines.filter(l => budgetStartYear(l.financial_year) === year);
 
   const monthsElapsed = year === currentFy ? Math.min(12, Math.max(1, (today.getMonth() + 12 - 6) % 12 + 1)) : 12;
   const projectedSpend = totalOut / monthsElapsed * 12 + admin.committed + maintenance.committed;
@@ -287,11 +431,11 @@ export function FinanceSection({ transactions, budgets, levies, lots, documents,
           <SelectTrigger className="h-9 w-[150px] rounded-full text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>{years.map(y => <SelectItem key={y} value={String(y)}>{fyLabel(y)}</SelectItem>)}</SelectContent>
         </Select>
-        {isCommittee && <Button className="rounded-full" onClick={() => { setEditing(null); setTxOpen(true); }}><Plus />Record money</Button>}
+        {isCommittee && <Button className="rounded-full" onClick={() => { setEditing(null); setRecordFund(undefined); setTxOpen(true); }}><Plus />Record money</Button>}
       </div>} />
 
     <div className="grid gap-4 lg:grid-cols-3">
-      {([["Admin fund", admin], ["Maintenance fund", maintenance]] as const).map(([label, f]) => <Card key={label} className="p-6">
+      {([["Admin fund", "Admin", admin], ["Maintenance fund", "Maintenance", maintenance]] as const).map(([label, fundKey, f]) => <Card key={label} className="p-6">
         <div className="flex items-center justify-between">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
           <Coins className="size-4 text-muted-foreground" />
@@ -306,6 +450,10 @@ export function FinanceSection({ transactions, budgets, levies, lots, documents,
           <Row label="Committed" value={money(f.committed)} />
           <Row label="Left in budget" value={money(f.remaining)} tone={f.remaining < 0 ? "text-destructive" : ""} />
         </div>
+        {isCommittee && <div className="mt-5 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setEditing(null); setRecordFund(fundKey); setTxOpen(true); }}><Plus />Money in or out</Button>
+          <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setBudgetOpen(true)}><Pencil />Adjust budget</Button>
+        </div>}
       </Card>)}
 
       <Card className="bg-primary p-6 text-primary-foreground">
@@ -313,7 +461,7 @@ export function FinanceSection({ transactions, budgets, levies, lots, documents,
         <p className="mt-4 text-3xl font-medium tracking-[-0.03em] tabular-nums">{money(projectedSpend)}</p>
         <p className="mt-1 text-[12px] opacity-80">Expected spend at the current run rate</p>
         <div className="mt-6 space-y-3 text-[13px]">
-          <div className="flex justify-between opacity-90"><span>Projected {projectedPosition >= 0 ? "surplus" : "shortfall"}</span><span className="font-medium tabular-nums">{money(Math.abs(projectedPosition))}</span></div>
+          <div className="flex justify-between opacity-90"><span>{projectedPosition >= 0 ? "Surplus" : "Shortfall"} at this rate</span><span className="font-medium tabular-nums">{money(Math.abs(projectedPosition))}</span></div>
           <div className="flex justify-between opacity-90"><span>Against budget</span><span className="font-medium tabular-nums">{money(totalBudget - projectedSpend)}</span></div>
           <div className="flex justify-between opacity-90"><span>Months counted</span><span className="font-medium tabular-nums">{monthsElapsed} of 12</span></div>
         </div>
@@ -351,6 +499,11 @@ export function FinanceSection({ transactions, budgets, levies, lots, documents,
           : <div className="flex h-full items-center justify-center rounded-[20px] border border-dashed border-border text-[13px] text-muted-foreground">Nothing recorded for this year yet. Record a payment and it will show here.</div>}
       </div>
     </Card>
+
+    <BudgetPlan lines={yearLines} year={year} fyName={activeBudget?.financial_year ?? fyLabel(year)} currentFy={currentFy}
+      schemeId={schemeId} isCommittee={isCommittee} budget={activeBudget}
+      fundsOnHand={admin.balance + maintenance.balance} leviesToCollect={admin.owing + maintenance.owing}
+      committedOut={admin.committed + maintenance.committed} lots={lots} onChanged={onChanged} />
 
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 p-6">
@@ -399,7 +552,12 @@ export function FinanceSection({ transactions, budgets, levies, lots, documents,
           </div>}
     </Card>
 
-    {txOpen && <TxDialog key={editing?.id ?? "new"} open={txOpen} onOpenChange={setTxOpen} schemeId={schemeId} tx={editing} onSaved={onChanged} />}
+    {txOpen && <TxDialog key={editing?.id ?? `new-${recordFund ?? "any"}`} open={txOpen} onOpenChange={setTxOpen} schemeId={schemeId}
+      tx={editing} defaultFund={recordFund} onSaved={onChanged} />}
+
+    {budgetOpen && <BudgetDialog key={activeBudget?.id ?? "no-budget"} open={budgetOpen} onOpenChange={setBudgetOpen}
+      budget={activeBudget} fyName={activeBudget?.financial_year ?? fyLabel(year)} hasLevies={yearLevies.length > 0}
+      onGoToLevies={goTo ? () => goTo("Levies") : undefined} onSaved={onChanged} />}
 
     <Dialog open={invoicesOpen} onOpenChange={setInvoicesOpen}>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[620px]">
@@ -447,6 +605,200 @@ export function FinanceSection({ transactions, budgets, levies, lots, documents,
 
     <LevyPlanner open={calcOpen} onOpenChange={setCalcOpen} lots={lots} defaultTarget={totalBudget} />
   </div>;
+}
+
+function BudgetPlan({ lines, year, fyName, currentFy, schemeId, isCommittee, budget, fundsOnHand, leviesToCollect, committedOut, lots, onChanged }: {
+  lines: ForecastLine[]; year: number; fyName: string; currentFy: number; schemeId?: string | undefined;
+  isCommittee: boolean; budget: FinanceBudget | null; fundsOnHand: number; leviesToCollect: number;
+  committedOut: number; lots: FinLot[]; onChanged: () => void;
+}) {
+  const [lineOpen, setLineOpen] = useState(false);
+  const [editing, setEditing] = useState<ForecastLine | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+
+  const todayPos = FY_MONTHS.indexOf(new Date().getMonth() + 1);
+  const isRemaining = (m: number) => year > currentFy ? true : year < currentFy ? false : FY_MONTHS.indexOf(m) >= todayPos;
+  const firstRemaining = FY_MONTHS.find(isRemaining) ?? null;
+
+  const sumL = (list: ForecastLine[]) => list.reduce((t, l) => t + Number(l.amount), 0);
+  const outLines = lines.filter(l => l.direction !== "in");
+  const inLines = lines.filter(l => l.direction === "in");
+  const plannedOut = sumL(outLines);
+  const plannedIn = sumL(inLines);
+
+  // Levies still owing land in the month they fall due, or straight away if that month has passed.
+  const levyDueMonth = budget ? new Date(budget.levy_due_date).getMonth() + 1 : null;
+  const levyMonth = levyDueMonth !== null && isRemaining(levyDueMonth) ? levyDueMonth : firstRemaining;
+
+  const timeline = (() => {
+    let running = fundsOnHand;
+    return FY_MONTHS.map(m => {
+      const live = isRemaining(m);
+      const inAmt = sumL(inLines.filter(l => l.expected_month === m)) + (m === levyMonth ? leviesToCollect : 0);
+      const outAmt = sumL(outLines.filter(l => l.expected_month === m)) + (m === firstRemaining ? committedOut : 0);
+      if (live) running += inAmt - outAmt;
+      return { month: m, inAmt, outAmt, running, live };
+    });
+  })();
+
+  const stillIn = leviesToCollect + sumL(inLines.filter(l => isRemaining(l.expected_month)));
+  const stillOut = committedOut + sumL(outLines.filter(l => isRemaining(l.expected_month)));
+  const projected = fundsOnHand + stillIn - stillOut;
+
+  const fundTotals = FUNDS.map(f => ({
+    fund: f,
+    out: sumL(outLines.filter(l => l.fund === f)),
+    moneyIn: sumL(inLines.filter(l => l.fund === f)),
+    lines: lines.filter(l => l.fund === f).sort((a, b) => FY_MONTHS.indexOf(a.expected_month) - FY_MONTHS.indexOf(b.expected_month)),
+  }));
+
+  const removeLine = async (id: string) => {
+    const { error } = await supabase.from("budget_forecast_lines").delete().eq("id", id);
+    if (error) { toast("Could not remove that line", { description: error.message }); return; }
+    onChanged(); toast("Line removed");
+  };
+
+  const applyToBudget = async () => {
+    if (!budget) return;
+    const admin = fundTotals.find(f => f.fund === "Admin")?.out ?? 0;
+    const maintenance = fundTotals.find(f => f.fund === "Maintenance")?.out ?? 0;
+    const { error } = await supabase.from("budgets").update({ admin_fund_total: admin, maintenance_fund_total: maintenance }).eq("id", budget.id);
+    if (error) { toast("Could not update the budget", { description: error.message }); return; }
+    onChanged();
+    toast("Fund budgets set from the plan", { description: `Admin ${money(admin)} · Maintenance ${money(maintenance)}` });
+  };
+
+  const reportText = [
+    `Budget plan ${fyName}`,
+    `Prepared ${niceDate(new Date().toISOString().slice(0, 10))}`,
+    ``,
+    `WHAT WE PLAN TO SPEND`,
+    ...fundTotals.flatMap(f => [
+      ``,
+      `${f.fund} fund — ${money2(f.out)}`,
+      ...f.lines.filter(l => l.direction !== "in").map(l => `  ${monthLabel(l.expected_month, year)} · ${l.label}${l.category ? ` (${l.category})` : ""} · ${money2(Number(l.amount))}`),
+      ...(f.lines.filter(l => l.direction !== "in").length === 0 ? [`  Nothing planned yet`] : []),
+    ]),
+    ``,
+    `Total planned spend: ${money2(plannedOut)}`,
+    ``,
+    `WHAT WE EXPECT TO RECEIVE`,
+    `  Levies still to be collected: ${money2(leviesToCollect)}`,
+    ...inLines.map(l => `  ${monthLabel(l.expected_month, year)} · ${l.label} · ${money2(Number(l.amount))}`),
+    `Total expected income: ${money2(leviesToCollect + plannedIn)}`,
+    ``,
+    `WHEN IT HAPPENS`,
+    ...timeline.filter(t => t.inAmt > 0 || t.outAmt > 0).map(t =>
+      `  ${monthLabel(t.month, year)} · in ${money2(t.inAmt)} · out ${money2(t.outAmt)} · balance ${money2(t.running)}`),
+    ``,
+    `WHERE WE LAND`,
+    `  Funds on hand today: ${money2(fundsOnHand)}`,
+    `  Still to come in: ${money2(stillIn)}`,
+    `  Still to go out: ${money2(stillOut)}`,
+    `  Projected at 30 June ${year + 1}: ${money2(projected)}`,
+    ``,
+    projected >= 0
+      ? `On these numbers the funds stay in surplus through to the end of the financial year.`
+      : `On these numbers the funds fall short by ${money2(Math.abs(projected))} before the end of the financial year, so the committee needs to either raise levies or defer some of the work above.`,
+  ].join("\n");
+
+  const summary: [string, string, string][] = [
+    ["Funds on hand today", money(fundsOnHand), "Collected less spent"],
+    ["Still to come in", money(stillIn), "Levies owing and planned income"],
+    ["Still to go out", money(stillOut), "Planned and committed spend"],
+    ["Projected at 30 June " + (year + 1), money(projected), projected >= 0 ? "In surplus" : "Short on these numbers"],
+  ];
+
+  return <Card className="overflow-hidden">
+    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/70 p-6">
+      <div className="max-w-xl">
+        <h2 className="font-display text-xl tracking-[-0.02em]">Budget plan for {fyName}</h2>
+        <p className="mt-1 text-[13px] leading-6 text-muted-foreground">Break the year into the things you expect to pay for, say when each one falls, and see what is left at 30 June.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {isCommittee && budget && lines.length > 0 && <Button variant="outline" size="sm" className="rounded-full" onClick={() => void applyToBudget()}><Calculator />Set fund budgets</Button>}
+        {lines.length > 0 && <Button variant="outline" size="sm" className="rounded-full" onClick={() => setReportOpen(true)}><Send />Report for owners</Button>}
+        {isCommittee && <Button size="sm" className="rounded-full" onClick={() => { setEditing(null); setLineOpen(true); }}><Plus />Add a line</Button>}
+      </div>
+    </div>
+
+    <div className="grid border-b border-border/70 sm:grid-cols-2 xl:grid-cols-4">
+      {summary.map(([label, value, hint], i) => <div key={label} className={`p-6 ${i > 0 ? "border-border/60 sm:border-l" : ""}`}>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+        <p className={`mt-3 text-2xl font-medium tracking-[-0.03em] tabular-nums ${label.startsWith("Projected") && projected < 0 ? "text-destructive" : ""}`}>{value}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground/80">{hint}</p>
+      </div>)}
+    </div>
+
+    {lines.length === 0
+      ? <div className="p-10 text-center">
+          <p className="text-[13px] text-muted-foreground">Nothing planned for {fyName} yet.</p>
+          {isCommittee && <Button variant="outline" size="sm" className="mt-4 rounded-full" onClick={() => { setEditing(null); setLineOpen(true); }}><Plus />Add your first line</Button>}
+        </div>
+      : <div className="grid xl:grid-cols-12">
+          <div className="xl:col-span-7">
+            {fundTotals.map(f => <div key={f.fund} className="border-b border-border/60 last:border-0">
+              <div className="flex items-center justify-between gap-4 bg-secondary/30 px-6 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{f.fund} fund</p>
+                <p className="text-[12px] tabular-nums text-muted-foreground">{money(f.out)} planned out{f.moneyIn > 0 ? ` · ${money(f.moneyIn)} in` : ""}</p>
+              </div>
+              {f.lines.length === 0
+                ? <p className="px-6 py-5 text-[12px] text-muted-foreground">Nothing planned from this fund.</p>
+                : <div className="divide-y divide-border/60">
+                    {f.lines.map(l => <div key={l.id} className="flex flex-wrap items-center gap-3 px-6 py-3.5">
+                      <span className={`grid size-7 shrink-0 place-items-center rounded-full ${l.direction === "in" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
+                        {l.direction === "in" ? <ArrowUpRight className="size-3.5" /> : <ArrowDownRight className="size-3.5" />}
+                      </span>
+                      <div className="min-w-[150px] flex-1">
+                        <p className="text-[13px] font-medium">{l.label}</p>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">{[monthLabel(l.expected_month, year), l.category].filter(Boolean).join(" · ")}</p>
+                      </div>
+                      <span className="w-24 text-right text-[13px] font-medium tabular-nums">{l.direction === "in" ? "+" : "−"}{money2(Number(l.amount))}</span>
+                      {isCommittee && <div className="flex items-center gap-1">
+                        <Button size="sm" variant="ghost" className="rounded-full text-xs" onClick={() => { setEditing(l); setLineOpen(true); }}>Edit</Button>
+                        <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label={`Remove ${l.label}`} onClick={() => void removeLine(l.id)}><Trash2 className="size-4" /></Button>
+                      </div>}
+                    </div>)}
+                  </div>}
+            </div>)}
+          </div>
+
+          <div className="border-border/60 xl:col-span-5 xl:border-l">
+            <div className="flex items-center justify-between gap-4 bg-secondary/30 px-6 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Month by month</p>
+              <p className="text-[11px] text-muted-foreground">Running balance</p>
+            </div>
+            <div className="divide-y divide-border/60">
+              {timeline.map(t => <div key={t.month} className={`flex items-center gap-3 px-6 py-2.5 text-[12px] ${t.live ? "" : "opacity-45"}`}>
+                <span className="w-20 shrink-0 text-muted-foreground">{monthLabel(t.month, year)}</span>
+                <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground">{t.inAmt > 0 ? `+${money(t.inAmt)}` : "—"}</span>
+                <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground">{t.outAmt > 0 ? `−${money(t.outAmt)}` : "—"}</span>
+                <span className={`flex-1 text-right font-medium tabular-nums ${t.live && t.running < 0 ? "text-destructive" : ""}`}>{t.live ? money(t.running) : "passed"}</span>
+              </div>)}
+            </div>
+            <p className="px-6 py-4 text-[11px] leading-5 text-muted-foreground/80">Months already gone are greyed out — the running balance starts from what you hold today and only counts what is still ahead of you.</p>
+          </div>
+        </div>}
+
+    {lineOpen && <LineDialog key={editing?.id ?? "new-line"} open={lineOpen} onOpenChange={setLineOpen} schemeId={schemeId}
+      line={editing} financialYear={fyName} startYear={year} onSaved={onChanged} />}
+
+    <Dialog open={reportOpen} onOpenChange={setReportOpen}>
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[620px]">
+        <DialogHeader>
+          <DialogTitle className="font-display tracking-[-0.02em]">Budget report for owners</DialogTitle>
+          <DialogDescription>The whole plan written out, ready for your meeting papers or an email to owners.</DialogDescription>
+        </DialogHeader>
+        <pre className="whitespace-pre-wrap rounded-[18px] border border-border/70 bg-secondary/40 p-4 text-[12px] leading-6">{reportText}</pre>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="outline" className="rounded-full" onClick={() => { void navigator.clipboard.writeText(reportText); toast("Report copied"); }}>Copy</Button>
+          <Button asChild className="rounded-full">
+            <a href={`mailto:${lots.map(l => l.owner_email).filter(Boolean).join(",")}?subject=${encodeURIComponent(`Budget plan ${fyName}`)}&body=${encodeURIComponent(reportText)}`}>Email all owners</a>
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  </Card>;
 }
 
 function LevyPlanner({ open, onOpenChange, lots, defaultTarget }: {

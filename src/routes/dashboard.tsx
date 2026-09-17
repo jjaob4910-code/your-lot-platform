@@ -17,7 +17,7 @@ import { WorkOrdersSection, WorkOrderTable, type WorkOrder } from "@/components/
 import { CalendarSection } from "@/components/calendar-view";
 import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
-import { FinanceSection, type FinanceBudget, type FinanceTx } from "@/components/finance";
+import { FinanceSection, type FinanceBudget, type FinanceTx, type ForecastLine } from "@/components/finance";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
@@ -134,6 +134,14 @@ function DashboardPage() {
       return (data ?? []) as unknown as FinanceTx[];
     },
   });
+  const forecastLines = useQuery({
+    queryKey: ["forecast-lines"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("budget_forecast_lines").select("*").order("expected_month");
+      if (error) throw error;
+      return (data ?? []) as unknown as ForecastLine[];
+    },
+  });
 
   const refresh = (keys: string[]) => keys.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
 
@@ -199,8 +207,9 @@ function DashboardPage() {
         onStatus={(id,status)=>setTaskStatus.mutate({id,status})} onChanged={()=>refresh(["tasks","documents","document-folders"])}/>}
 
       {active === "Finance" && <FinanceSection transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
-        lots={lots.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
-        onChanged={()=>refresh(["finance","documents","document-folders"])}/>}
+        forecastLines={forecastLines.data ?? []} lots={lots.data ?? []} documents={documents.data ?? []}
+        isCommittee={isCommittee} schemeId={schemeId} goTo={setActive}
+        onChanged={()=>refresh(["finance","budgets","levies","forecast-lines","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders"])}/>}
