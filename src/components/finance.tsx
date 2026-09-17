@@ -252,7 +252,7 @@ export function FinanceSection({ transactions, budgets, levies, lots, documents,
     window.open(data.signedUrl, "_blank", "noopener");
   };
 
-  const docsFor = (id: string) => documents.filter(d => (d as DocFile & { finance_transaction_id?: string | null }).finance_transaction_id === id);
+  const docsFor = (id: string) => documents.filter(d => d.finance_transaction_id === id);
 
   const unpaid = yearLevies.filter(l => l.status !== "Paid");
   const invoiceText = (l: FinLevy) => [

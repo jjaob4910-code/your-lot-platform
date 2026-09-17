@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
-import { Bell, Building2, CalendarDays, Check, ChevronRight, FileCheck2, Files, LayoutDashboard, LogOut, Menu, Plus, ShieldCheck, WalletCards, Wrench } from "lucide-react";
+import { Bell, Building2, CalendarDays, Check, ChevronRight, Coins, FileCheck2, Files, LayoutDashboard, LogOut, Menu, Plus, ShieldCheck, WalletCards, Wrench } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -17,6 +17,7 @@ import { WorkOrdersSection, WorkOrderTable, type WorkOrder } from "@/components/
 import { CalendarSection } from "@/components/calendar-view";
 import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
+import { FinanceSection, type FinanceBudget, type FinanceTx } from "@/components/finance";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
@@ -43,7 +44,8 @@ type Doc = DocFile;
 
 const sections = [
   ["Dashboard", LayoutDashboard], ["Lots", Building2], ["Levies", WalletCards], ["Work orders", Wrench],
-  ["Insurance", ShieldCheck], ["Compliance", FileCheck2], ["Calendar", CalendarDays], ["Documents", Files],
+  ["Finance", Coins], ["Insurance", ShieldCheck], ["Compliance", FileCheck2], ["Calendar", CalendarDays],
+  ["Documents", Files],
 ] as const;
 
 const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
@@ -116,6 +118,23 @@ function DashboardPage() {
     },
   });
 
+  const budgets = useQuery({
+    queryKey: ["budgets"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("budgets").select("*").order("financial_year", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as FinanceBudget[];
+    },
+  });
+  const finance = useQuery({
+    queryKey: ["finance"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("finance_transactions").select("*").order("occurred_on", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as FinanceTx[];
+    },
+  });
+
   const refresh = (keys: string[]) => keys.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
 
   const setRepairStatus = useMutation({
@@ -171,13 +190,17 @@ function DashboardPage() {
       {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots"])}/>}
 
       {active === "Levies" && <LeviesSection levies={levies.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
-        onPaid={(id)=>markLevyPaid.mutate(id)} onBudget={()=>refresh(["levies"])}/>}
+        onPaid={(id)=>markLevyPaid.mutate(id)} onBudget={()=>refresh(["levies","budgets"])}/>}
 
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
         onChanged={()=>refresh(["repairs"])}/>}
 
       {active === "Compliance" && <ComplianceSection tasks={tasks.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
         onStatus={(id,status)=>setTaskStatus.mutate({id,status})} onChanged={()=>refresh(["tasks","documents","document-folders"])}/>}
+
+      {active === "Finance" && <FinanceSection transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
+        lots={lots.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
+        onChanged={()=>refresh(["finance","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders"])}/>}

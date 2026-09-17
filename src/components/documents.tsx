@@ -20,6 +20,7 @@ export type DocFile = {
   id: string; name: string; category: string | null; folder_id: string | null;
   storage_path: string | null; file_size: number | null; mime_type: string | null;
   shared_with_owners: boolean; uploaded_at: string; updated_at: string; compliance_task_id?: string | null; insurance_policy_id?: string | null;
+  finance_transaction_id?: string | null;
 };
 
 const icons = {
