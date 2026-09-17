@@ -213,6 +213,7 @@ export type Database = {
           category: string | null
           compliance_task_id: string | null
           file_size: number | null
+          finance_transaction_id: string | null
           folder_id: string | null
           id: string
           insurance_policy_id: string | null
@@ -228,6 +229,7 @@ export type Database = {
           category?: string | null
           compliance_task_id?: string | null
           file_size?: number | null
+          finance_transaction_id?: string | null
           folder_id?: string | null
           id?: string
           insurance_policy_id?: string | null
@@ -243,6 +245,7 @@ export type Database = {
           category?: string | null
           compliance_task_id?: string | null
           file_size?: number | null
+          finance_transaction_id?: string | null
           folder_id?: string | null
           id?: string
           insurance_policy_id?: string | null
@@ -260,6 +263,13 @@ export type Database = {
             columns: ["compliance_task_id"]
             isOneToOne: false
             referencedRelation: "compliance_tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_finance_transaction_id_fkey"
+            columns: ["finance_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "finance_transactions"
             referencedColumns: ["id"]
           },
           {
@@ -281,6 +291,72 @@ export type Database = {
             columns: ["scheme_id"]
             isOneToOne: false
             referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      finance_transactions: {
+        Row: {
+          amount: number
+          category: string | null
+          created_at: string
+          description: string
+          direction: string
+          fund: string
+          id: string
+          notes: string | null
+          occurred_on: string
+          scheme_id: string
+          status: string
+          supplier: string | null
+          updated_at: string
+          work_order_id: string | null
+        }
+        Insert: {
+          amount?: number
+          category?: string | null
+          created_at?: string
+          description: string
+          direction?: string
+          fund?: string
+          id?: string
+          notes?: string | null
+          occurred_on?: string
+          scheme_id: string
+          status?: string
+          supplier?: string | null
+          updated_at?: string
+          work_order_id?: string | null
+        }
+        Update: {
+          amount?: number
+          category?: string | null
+          created_at?: string
+          description?: string
+          direction?: string
+          fund?: string
+          id?: string
+          notes?: string | null
+          occurred_on?: string
+          scheme_id?: string
+          status?: string
+          supplier?: string | null
+          updated_at?: string
+          work_order_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_transactions_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_transactions_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_requests"
             referencedColumns: ["id"]
           },
         ]
