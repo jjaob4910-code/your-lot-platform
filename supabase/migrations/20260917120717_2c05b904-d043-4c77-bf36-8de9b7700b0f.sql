@@ -1,0 +1,2 @@
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS compliance_task_id uuid REFERENCES public.compliance_tasks(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS documents_compliance_task_id_idx ON public.documents(compliance_task_id);
