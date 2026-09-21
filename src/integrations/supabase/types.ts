@@ -533,8 +533,10 @@ export type Database = {
           occupied_status: string
           owner_email: string | null
           owner_name: string | null
+          owner_phone: string | null
           owner_user_id: string | null
           scheme_id: string
+          street_address: string | null
         }
         Insert: {
           created_at?: string
@@ -544,8 +546,10 @@ export type Database = {
           occupied_status?: string
           owner_email?: string | null
           owner_name?: string | null
+          owner_phone?: string | null
           owner_user_id?: string | null
           scheme_id: string
+          street_address?: string | null
         }
         Update: {
           created_at?: string
@@ -555,8 +559,10 @@ export type Database = {
           occupied_status?: string
           owner_email?: string | null
           owner_name?: string | null
+          owner_phone?: string | null
           owner_user_id?: string | null
           scheme_id?: string
+          street_address?: string | null
         }
         Relationships: [
           {

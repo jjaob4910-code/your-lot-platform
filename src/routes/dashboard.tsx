@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
-import { Bell, Building2, CalendarDays, Check, ChevronRight, Coins, FileCheck2, Files, LayoutDashboard, LogOut, Menu, Plus, ShieldCheck, WalletCards, Wrench } from "lucide-react";
+import { Bell, Building2, CalendarDays, Check, ChevronRight, Coins, FileCheck2, Files, LayoutDashboard, LogOut, Menu, Pencil, Plus, ShieldCheck, Trash2, WalletCards, Wrench } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -32,7 +32,11 @@ export const Route = createFileRoute("/dashboard")({
 });
 
 type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null };
-type Lot = { id: string; lot_number: number; owner_name: string | null; owner_email: string | null; owner_user_id: string | null; entitlement_percent: number; occupied_status: string };
+type Lot = {
+  id: string; lot_number: number; owner_name: string | null; owner_email: string | null;
+  owner_phone: string | null; street_address: string | null;
+  owner_user_id: string | null; entitlement_percent: number; occupied_status: string
+};
 type Levy = {
   id: string; lot_id: string; amount: number; due_date: string; status: string; paid_at: string | null;
   lots: { lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number } | null;
@@ -348,38 +352,75 @@ function Overview({ scheme, levies, tasks, repairs, isCommittee, myLot, onTaskSt
 }
 
 
-function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [viewing, setViewing] = useState<Lot | null>(null);
+function LotDialog({ open, onOpenChange, schemeId, lot, onSaved }: {
+  open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; lot: Lot | null; onSaved: () => void;
+}) {
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!schemeId) return;
     const form = new FormData(e.currentTarget);
-    const { error } = await supabase.from("lots").insert({
-      scheme_id: schemeId,
+    const base = {
       lot_number: Number(form.get("lot_number")),
       owner_name: String(form.get("owner_name") ?? ""),
       owner_email: String(form.get("owner_email") ?? ""),
+      owner_phone: String(form.get("owner_phone") ?? ""),
+      street_address: String(form.get("street_address") ?? ""),
       occupied_status: String(form.get("occupied_status") ?? "Owner occupied"),
-    });
-    if (error) { toast("Could not add the lot", { description: error.message }); return; }
-    setOpen(false); onChanged(); toast("Lot added");
+    };
+    const { error } = lot
+      ? await supabase.from("lots").update(base).eq("id", lot.id)
+      : await supabase.from("lots").insert({ ...base, scheme_id: schemeId });
+    if (error) { toast(lot ? "Could not update the lot" : "Could not add the lot", { description: error.message }); return; }
+    onOpenChange(false); onSaved(); toast(lot ? "Lot updated" : "Lot added");
   };
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent>
+      <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">{lot ? `Edit lot ${lot.lot_number}` : "Add a lot"}</DialogTitle><DialogDescription>{lot ? "Update the lot number and who owns it." : "Add the lot number and who owns it."}</DialogDescription></DialogHeader>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input id="lot_number" name="lot_number" type="number" min="1" defaultValue={lot?.lot_number ?? ""} required/></div>
+        <div className="space-y-2"><Label htmlFor="owner_name">Owner name</Label><Input id="owner_name" name="owner_name" defaultValue={lot?.owner_name ?? ""}/></div>
+        <div className="space-y-2"><Label htmlFor="owner_email">Owner email</Label><Input id="owner_email" name="owner_email" type="email" defaultValue={lot?.owner_email ?? ""}/></div>
+        <div className="space-y-2"><Label htmlFor="owner_phone">Owner phone</Label><Input id="owner_phone" name="owner_phone" type="tel" placeholder="04xx xxx xxx" defaultValue={lot?.owner_phone ?? ""}/></div>
+        <div className="space-y-2"><Label htmlFor="street_address">Street address</Label><Input id="street_address" name="street_address" placeholder="12 Example St, Suburb" defaultValue={lot?.street_address ?? ""}/></div>
+        <div className="space-y-2"><Label>Occupancy</Label><Select name="occupied_status" defaultValue={lot?.occupied_status ?? "Owner occupied"}><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="Owner occupied">Owner occupied</SelectItem><SelectItem value="Tenanted">Tenanted</SelectItem><SelectItem value="Vacant">Vacant</SelectItem></SelectContent></Select></div>
+        <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full">{lot ? "Save changes" : "Save lot"}</Button></div>
+      </form>
+    </DialogContent>
+  </Dialog>;
+}
+
+function DeleteLotButton({ lot, onDeleted }: { lot: Lot; onDeleted: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const timeoutRef = useRef<number | null>(null);
+
+  useEffect(() => () => { if (timeoutRef.current) window.clearTimeout(timeoutRef.current); }, []);
+
+  const handleClick = async () => {
+    if (!confirming) {
+      setConfirming(true);
+      timeoutRef.current = window.setTimeout(() => setConfirming(false), 4000);
+      return;
+    }
+    if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+    const { error } = await supabase.from("lots").delete().eq("id", lot.id);
+    if (error) { toast("Could not remove that", { description: error.message }); setConfirming(false); return; }
+    onDeleted();
+    toast("Lot removed");
+  };
+
+  return confirming
+    ? <Button type="button" variant="destructive" size="sm" className="rounded-full" onClick={()=>{ void handleClick(); }}>Confirm delete?</Button>
+    : <Button type="button" variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-destructive"
+        aria-label={`Remove lot ${lot.lot_number}`} onClick={()=>{ void handleClick(); }}><Trash2 className="h-4 w-4"/></Button>;
+}
+
+function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Lot | null>(null);
+  const [viewing, setViewing] = useState<Lot | null>(null);
   return <div>
     <PageHead eyebrow="Your property" title="Lots" blurb="Who owns what and who lives there. Open a lot to see that owner's details."
-      action={isCommittee ? <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild><Button className="rounded-full"><Plus/> Add a lot</Button></DialogTrigger>
-        <DialogContent>
-          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Add a lot</DialogTitle><DialogDescription>Add the lot number and who owns it.</DialogDescription></DialogHeader>
-          <form onSubmit={submit} className="space-y-4">
-            <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input id="lot_number" name="lot_number" type="number" min="1" required/></div>
-            <div className="space-y-2"><Label htmlFor="owner_name">Owner name</Label><Input id="owner_name" name="owner_name"/></div>
-            <div className="space-y-2"><Label htmlFor="owner_email">Owner email</Label><Input id="owner_email" name="owner_email" type="email"/></div>
-            <div className="space-y-2"><Label>Occupancy</Label><Select name="occupied_status" defaultValue="Owner occupied"><SelectTrigger className="w-full"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="Owner occupied">Owner occupied</SelectItem><SelectItem value="Tenanted">Tenanted</SelectItem><SelectItem value="Vacant">Vacant</SelectItem></SelectContent></Select></div>
-            <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>setOpen(false)}>Cancel</Button><Button type="submit" className="rounded-full">Save lot</Button></div>
-          </form>
-        </DialogContent>
-      </Dialog> : undefined}/>
+      action={isCommittee ? <Button className="rounded-full" onClick={()=>{ setEditing(null); setOpen(true); }}><Plus/> Add a lot</Button> : undefined}/>
     <Card className="mt-10 overflow-hidden">
       <div className="divide-y divide-border/70">{lots.map(lot =>
         <button type="button" key={lot.id} onClick={()=>setViewing(lot)}
@@ -399,15 +440,25 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
         <div className="divide-y divide-border/70 text-sm">
           {[["Owner", viewing?.owner_name || "Not recorded"],
             ["Email", viewing?.owner_email || "No email on file"],
+            ["Phone", viewing?.owner_phone || "No phone on file"],
+            ["Address", viewing?.street_address || "No address on file"],
             ["Occupancy", viewing?.occupied_status || "Not recorded"]].map(([label, value]) =>
             <div key={label} className="flex items-center justify-between gap-6 py-3">
               <span className="text-[12px] uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
               <span className="text-right font-medium">{value}</span>
             </div>)}
         </div>
-        <div className="flex justify-end pt-2"><Button className="rounded-full" onClick={()=>setViewing(null)}>Close</Button></div>
+        <div className={`flex items-center pt-2 ${isCommittee ? "justify-between" : "justify-end"}`}>
+          {isCommittee && viewing && <div className="flex items-center gap-2">
+            <Button type="button" variant="ghost" size="icon" className="rounded-full" aria-label={`Edit lot ${viewing.lot_number}`}
+              onClick={()=>{ setEditing(viewing); setViewing(null); setOpen(true); }}><Pencil className="h-4 w-4"/></Button>
+            <DeleteLotButton lot={viewing} onDeleted={()=>{ setViewing(null); onChanged(); }}/>
+          </div>}
+          <Button className="rounded-full" onClick={()=>setViewing(null)}>Close</Button>
+        </div>
       </DialogContent>
     </Dialog>
+    {open && <LotDialog open={open} onOpenChange={setOpen} schemeId={schemeId} lot={editing} onSaved={onChanged} key={editing?.id ?? "new"}/>}
   </div>;
 }
 
