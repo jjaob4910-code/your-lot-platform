@@ -14,6 +14,129 @@ export type Database = {
   }
   public: {
     Tables: {
+      budget_line_items: {
+        Row: {
+          amount: number
+          budget_id: string
+          created_at: string
+          description: string
+          fund: string
+          id: string
+          scheme_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount?: number
+          budget_id: string
+          created_at?: string
+          description: string
+          fund?: string
+          id?: string
+          scheme_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          budget_id?: string
+          created_at?: string
+          description?: string
+          fund?: string
+          id?: string
+          scheme_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_line_items_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budget_line_items_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      budget_revisions: {
+        Row: {
+          budget_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          levies_recalculated: boolean
+          new_admin_fund_total: number
+          new_allocation_method: string
+          new_levy_due_date: string
+          new_line_items: Json
+          new_maintenance_fund_total: number
+          previous_admin_fund_total: number
+          previous_allocation_method: string
+          previous_levy_due_date: string
+          previous_line_items: Json
+          previous_maintenance_fund_total: number
+          reason: string
+          scheme_id: string
+        }
+        Insert: {
+          budget_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          levies_recalculated?: boolean
+          new_admin_fund_total: number
+          new_allocation_method: string
+          new_levy_due_date: string
+          new_line_items?: Json
+          new_maintenance_fund_total: number
+          previous_admin_fund_total: number
+          previous_allocation_method: string
+          previous_levy_due_date: string
+          previous_line_items?: Json
+          previous_maintenance_fund_total: number
+          reason: string
+          scheme_id: string
+        }
+        Update: {
+          budget_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          levies_recalculated?: boolean
+          new_admin_fund_total?: number
+          new_allocation_method?: string
+          new_levy_due_date?: string
+          new_line_items?: Json
+          new_maintenance_fund_total?: number
+          previous_admin_fund_total?: number
+          previous_allocation_method?: string
+          previous_levy_due_date?: string
+          previous_line_items?: Json
+          previous_maintenance_fund_total?: number
+          reason?: string
+          scheme_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_revisions_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budget_revisions_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       budget_forecast_lines: {
         Row: {
           amount: number
@@ -263,6 +386,7 @@ export type Database = {
       }
       documents: {
         Row: {
+          budget_line_item_id: string | null
           category: string | null
           compliance_task_id: string | null
           file_size: number | null
@@ -270,6 +394,7 @@ export type Database = {
           folder_id: string | null
           id: string
           insurance_policy_id: string | null
+          levy_id: string | null
           mime_type: string | null
           name: string
           scheme_id: string
@@ -279,6 +404,7 @@ export type Database = {
           uploaded_at: string
         }
         Insert: {
+          budget_line_item_id?: string | null
           category?: string | null
           compliance_task_id?: string | null
           file_size?: number | null
@@ -286,6 +412,7 @@ export type Database = {
           folder_id?: string | null
           id?: string
           insurance_policy_id?: string | null
+          levy_id?: string | null
           mime_type?: string | null
           name: string
           scheme_id: string
@@ -295,6 +422,7 @@ export type Database = {
           uploaded_at?: string
         }
         Update: {
+          budget_line_item_id?: string | null
           category?: string | null
           compliance_task_id?: string | null
           file_size?: number | null
@@ -302,6 +430,7 @@ export type Database = {
           folder_id?: string | null
           id?: string
           insurance_policy_id?: string | null
+          levy_id?: string | null
           mime_type?: string | null
           name?: string
           scheme_id?: string
@@ -311,6 +440,13 @@ export type Database = {
           uploaded_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "documents_budget_line_item_id_fkey"
+            columns: ["budget_line_item_id"]
+            isOneToOne: false
+            referencedRelation: "budget_line_items"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "documents_compliance_task_id_fkey"
             columns: ["compliance_task_id"]
@@ -337,6 +473,13 @@ export type Database = {
             columns: ["insurance_policy_id"]
             isOneToOne: false
             referencedRelation: "insurance_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_levy_id_fkey"
+            columns: ["levy_id"]
+            isOneToOne: false
+            referencedRelation: "levies"
             referencedColumns: ["id"]
           },
           {
