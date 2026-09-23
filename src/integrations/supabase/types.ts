@@ -307,6 +307,7 @@ export type Database = {
           scheme_id: string
           status: Database["public"]["Enums"]["compliance_status"]
           task_name: string
+          widget_id: string | null
         }
         Insert: {
           created_at?: string
@@ -316,6 +317,7 @@ export type Database = {
           scheme_id: string
           status?: Database["public"]["Enums"]["compliance_status"]
           task_name: string
+          widget_id?: string | null
         }
         Update: {
           created_at?: string
@@ -325,10 +327,65 @@ export type Database = {
           scheme_id?: string
           status?: Database["public"]["Enums"]["compliance_status"]
           task_name?: string
+          widget_id?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "compliance_tasks_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "compliance_tasks_widget_id_fkey"
+            columns: ["widget_id"]
+            isOneToOne: false
+            referencedRelation: "compliance_widgets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      compliance_widgets: {
+        Row: {
+          created_at: string
+          default_detail: string | null
+          enabled: boolean
+          id: string
+          is_standard: boolean
+          label: string
+          scheme_id: string
+          sort_order: number
+          standard_key: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_detail?: string | null
+          enabled?: boolean
+          id?: string
+          is_standard?: boolean
+          label: string
+          scheme_id: string
+          sort_order?: number
+          standard_key?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_detail?: string | null
+          enabled?: boolean
+          id?: string
+          is_standard?: boolean
+          label?: string
+          scheme_id?: string
+          sort_order?: number
+          standard_key?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "compliance_widgets_scheme_id_fkey"
             columns: ["scheme_id"]
             isOneToOne: false
             referencedRelation: "schemes"
