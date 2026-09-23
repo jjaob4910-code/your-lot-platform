@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
-import { Bell, Building2, CalendarDays, Check, ChevronRight, Coins, FileCheck2, Files, History, LayoutDashboard, LogOut, Menu, Paperclip, Pencil, Plus, ShieldCheck, Trash2, Undo2, WalletCards, Wrench } from "lucide-react";
+import { Bell, Building2, CalendarDays, Check, ChevronRight, Coins, FileCheck2, Files, Gavel, History, LayoutDashboard, LogOut, Menu, Paperclip, Pencil, Plus, Receipt, ShieldCheck, Trash2, Undo2, WalletCards, Wrench } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -53,7 +53,11 @@ type BudgetRevision = {
   new_allocation_method: string; new_levy_due_date: string; new_line_items: DraftLineItemJson[];
   levies_recalculated: boolean; created_at: string;
 };
-type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
+type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null; created_at: string };
+type ComplianceWidget = {
+  id: string; scheme_id: string; label: string; is_standard: boolean; standard_key: string | null;
+  default_detail: string | null; enabled: boolean; sort_order: number;
+};
 type Repair = WorkOrder;
 type Doc = DocFile;
 
@@ -105,6 +109,14 @@ function DashboardPage() {
       const { data, error } = await supabase.from("compliance_tasks").select("*").order("due_date");
       if (error) throw error;
       return (data ?? []) as unknown as Task[];
+    },
+  });
+  const complianceWidgets = useQuery({
+    queryKey: ["compliance-widgets"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("compliance_widgets").select("*").order("sort_order");
+      if (error) throw error;
+      return (data ?? []) as unknown as ComplianceWidget[];
     },
   });
   const repairs = useQuery({
@@ -236,8 +248,9 @@ function DashboardPage() {
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
         onChanged={()=>refresh(["repairs"])}/>}
 
-      {active === "Compliance" && <ComplianceSection tasks={tasks.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId}
-        onStatus={(id,status)=>setTaskStatus.mutate({id,status})} onChanged={()=>refresh(["tasks","documents","document-folders"])}/>}
+      {active === "Compliance" && <ComplianceSection tasks={tasks.data ?? []} documents={documents.data ?? []} widgets={complianceWidgets.data ?? []}
+        isCommittee={isCommittee} schemeId={schemeId} onStatus={(id,status)=>setTaskStatus.mutate({id,status})}
+        onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets"])}/>}
 
       {active === "Finance" && <FinanceSection transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         forecastLines={forecastLines.data ?? []} lots={lots.data ?? []} documents={documents.data ?? []}
@@ -1043,27 +1056,52 @@ function LeviesSection({ levies, lots, budgets, lineItems, revisions, documents,
 
 const COMPLIANCE_FOLDER = "Compliance";
 
-function ComplianceSection({ tasks, documents, isCommittee, schemeId, onStatus, onChanged }: {
-  tasks: Task[]; documents: Doc[]; isCommittee: boolean; schemeId?: string | undefined;
-  onStatus: (id: string, status: string) => void; onChanged: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
+const STANDARD_WIDGETS: { key: string; label: string; detail: string }[] = [
+  { key: "agm_notice", label: "AGM Notice", detail: "Written notice to every owner ahead of the annual general meeting." },
+  { key: "insurance_renewal", label: "Insurance Renewal", detail: "Keep building insurance current, renewed before the policy lapses." },
+  { key: "financial_statements", label: "Financial Statements", detail: "Prepare the annual financial statements: what came in, what went out." },
+  { key: "maintenance_plan", label: "Maintenance Plan", detail: "Keep a maintenance plan for the building's common property up to date, including fire safety certification." },
+];
 
-  const submit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!schemeId) return;
-    const form = new FormData(e.currentTarget);
-    const { error } = await supabase.from("compliance_tasks").insert({
-      scheme_id: schemeId,
-      task_name: String(form.get("task_name") ?? ""),
-      detail: String(form.get("detail") ?? ""),
-      due_date: String(form.get("due_date") ?? ""),
-      status: "Not Started",
-    });
-    if (error) { toast("Could not add the obligation", { description: error.message }); return; }
-    setOpen(false); onChanged(); toast("Obligation added");
-  };
+const WIDGET_ICON: Record<string, typeof ShieldCheck> = {
+  agm_notice: Gavel, insurance_renewal: ShieldCheck, financial_statements: Receipt, maintenance_plan: Wrench,
+};
+const widgetIcon = (w: ComplianceWidget) => (w.standard_key && WIDGET_ICON[w.standard_key]) || ShieldCheck;
+
+function urgencyTone(dueDate: string | null | undefined, done: boolean) {
+  if (done) return { label: "Done", className: "text-muted-foreground" };
+  if (!dueDate) return { label: "Not started", className: "text-muted-foreground" };
+  const left = daysUntil(dueDate);
+  if (left < 0) return { label: `${Math.abs(left)} days overdue`, className: "font-medium text-destructive" };
+  if (left < 14) return { label: `${left} days left`, className: "text-destructive" };
+  return { label: `${left} days left`, className: "text-muted-foreground" };
+}
+
+async function ensureStandardWidgets(schemeId: string, existing: ComplianceWidget[]) {
+  const missing = STANDARD_WIDGETS.filter(sw => !existing.some(w => w.standard_key === sw.key));
+  if (missing.length === 0) return false;
+  const { error } = await supabase.from("compliance_widgets").insert(
+    missing.map((sw, i) => ({
+      scheme_id: schemeId, label: sw.label, is_standard: true, standard_key: sw.key,
+      default_detail: sw.detail, enabled: true, sort_order: existing.length + i,
+    }))
+  );
+  if (error) throw error;
+  return true;
+}
+
+function currentTaskFor(widget: ComplianceWidget, tasks: Task[]) {
+  return tasks.filter(t => t.widget_id === widget.id).sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+}
+
+function WidgetDialog({ open, onOpenChange, widget, task, documents, schemeId, isCommittee, onChanged }: {
+  open: boolean; onOpenChange: (v: boolean) => void; widget: ComplianceWidget | null; task: Task | undefined;
+  documents: Doc[]; schemeId?: string | undefined; isCommittee: boolean; onChanged: () => void;
+}) {
+  const [status, setStatus] = useState(task?.status ?? "Not Started");
+  const [dueDate, setDueDate] = useState(task?.due_date ?? "");
+  const [taskId, setTaskId] = useState<string | null>(task?.id ?? null);
+  const [busy, setBusy] = useState(false);
 
   const complianceFolderId = async () => {
     if (!schemeId) return null;
@@ -1075,18 +1113,35 @@ function ComplianceSection({ tasks, documents, isCommittee, schemeId, onStatus, 
     return made.id as string;
   };
 
-  const attach = async (task: Task, files: FileList | null) => {
-    if (!files?.length || !schemeId) return;
-    setBusy(task.id);
+  const ensureTask = async (): Promise<string> => {
+    if (taskId) return taskId;
+    if (!schemeId || !widget) throw new Error("Missing scheme or widget");
+    const { data, error } = await supabase.from("compliance_tasks").insert({
+      scheme_id: schemeId, widget_id: widget.id, task_name: widget.label,
+      detail: widget.default_detail, due_date: dueDate || new Date().toISOString().slice(0, 10),
+      status: status as "Not Started" | "In Progress" | "Complete",
+    }).select("id").single();
+    if (error) throw error;
+    const newId = data.id as string;
+    setTaskId(newId);
+    onChanged();
+    return newId;
+  };
+
+  const attach = async (files: FileList | null) => {
+    if (!files?.length || !schemeId || !widget) return;
+    const fileArray = Array.from(files); // snapshot before any await — input.files is live and clears when the input's value resets
+    setBusy(true);
     try {
+      const id = await ensureTask();
       const folderId = await complianceFolderId();
-      for (const file of Array.from(files)) {
+      for (const file of fileArray) {
         const path = `${schemeId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
         const { error: upErr } = await supabase.storage.from("documents").upload(path, file);
         if (upErr) throw upErr;
         const { error } = await supabase.from("documents").insert({
-          scheme_id: schemeId, name: file.name, category: task.task_name, folder_id: folderId,
-          compliance_task_id: task.id, storage_path: path, file_size: file.size, mime_type: file.type,
+          scheme_id: schemeId, name: file.name, category: widget.label, folder_id: folderId,
+          compliance_task_id: id, storage_path: path, file_size: file.size, mime_type: file.type,
         });
         if (error) throw error;
       }
@@ -1094,7 +1149,7 @@ function ComplianceSection({ tasks, documents, isCommittee, schemeId, onStatus, 
       toast("Filed under Compliance in your documents");
     } catch (err) {
       toast("Could not attach that", { description: (err as Error).message });
-    } finally { setBusy(null); }
+    } finally { setBusy(false); }
   };
 
   const openDoc = async (doc: Doc) => {
@@ -1111,50 +1166,200 @@ function ComplianceSection({ tasks, documents, isCommittee, schemeId, onStatus, 
     onChanged(); toast("Removed");
   };
 
+  const save = async () => {
+    if (!schemeId || !widget) return;
+    setBusy(true);
+    try {
+      if (taskId) {
+        const { error } = await supabase.from("compliance_tasks").update({ due_date: dueDate, status: status as "Not Started" | "In Progress" | "Complete" }).eq("id", taskId);
+        if (error) throw error;
+      } else {
+        await ensureTask();
+      }
+      onChanged();
+      onOpenChange(false);
+      toast("Saved");
+    } catch (err) {
+      toast("Could not save", { description: (err as Error).message });
+    } finally { setBusy(false); }
+  };
+
+  const files = taskId ? documents.filter(d => d.compliance_task_id === taskId) : [];
+
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle className="font-display tracking-[-0.02em]">{widget?.label}</DialogTitle>
+        <DialogDescription>{task?.detail || widget?.default_detail || "Anything with a deadline attached to your building."}</DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="widget_due_date">Due date</Label>
+          <Input id="widget_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} disabled={!isCommittee} />
+        </div>
+        <div className="space-y-2">
+          <Label>Status</Label>
+          <div className="flex flex-wrap gap-2">
+            {["Not Started", "In Progress", "Complete"].map(s =>
+              <button key={s} type="button" disabled={!isCommittee} onClick={() => setStatus(s)}
+                className={`rounded-full px-3.5 py-1.5 text-[12px] font-medium transition ${status === s ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"} ${isCommittee ? "cursor-pointer" : "cursor-default"}`}>
+                {s}
+              </button>)}
+          </div>
+        </div>
+        {isCommittee && <div className="space-y-2">
+          <Label>Evidence</Label>
+          <Button asChild variant="outline" size="sm" className="rounded-full">
+            <label>{busy ? "Working…" : "Attach document"}
+              <input type="file" multiple className="sr-only" onChange={e => { void attach(e.target.files); e.target.value = ""; }} />
+            </label>
+          </Button>
+        </div>}
+        {files.length > 0 && <div className="flex flex-wrap gap-2">
+          {files.map(doc => <span key={doc.id} className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-[12px]">
+            <Files className="h-3.5 w-3.5 text-muted-foreground" />
+            <button type="button" className="underline-offset-4 hover:underline" onClick={() => { void openDoc(doc); }}>{doc.name}</button>
+            {isCommittee && <button type="button" aria-label={`Remove ${doc.name}`} className="text-muted-foreground hover:text-destructive" onClick={() => { void removeDoc(doc); }}>×</button>}
+          </span>)}
+        </div>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Close</Button>
+          {isCommittee && <Button type="button" className="rounded-full" disabled={busy} onClick={() => void save()}>Save</Button>}
+        </div>
+      </div>
+    </DialogContent>
+  </Dialog>;
+}
+
+function WidgetCard({ widget, task, isCommittee, dimmed, dragging, onDragStart, onDragOver, onDrop, onDragEnd, onOpen, onToggleEnabled, onDelete }: {
+  widget: ComplianceWidget; task: Task | undefined; isCommittee: boolean; dimmed: boolean; dragging: boolean;
+  onDragStart: (e: React.DragEvent, id: string) => void; onDragOver: (e: React.DragEvent, id: string) => void;
+  onDrop: (e: React.DragEvent, id: string) => void; onDragEnd: () => void; onOpen: () => void;
+  onToggleEnabled: (widget: ComplianceWidget, enabled: boolean) => void; onDelete: (widget: ComplianceWidget) => void;
+}) {
+  const Icon = widgetIcon(widget);
+  const done = task?.status === "Complete";
+  const tone = urgencyTone(task?.due_date, done);
+  const interactive = !dimmed;
+  return <div role="button" tabIndex={interactive ? 0 : -1} draggable={isCommittee && interactive}
+    onDragStart={e => interactive && onDragStart(e, widget.id)}
+    onDragOver={e => interactive && onDragOver(e, widget.id)}
+    onDrop={e => interactive && onDrop(e, widget.id)}
+    onDragEnd={onDragEnd}
+    onClick={() => { if (interactive) onOpen(); }}
+    onKeyDown={e => { if (interactive && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onOpen(); } }}
+    className={`soft-shadow rounded-3xl border border-border/70 bg-card p-6 text-left transition ${interactive ? "hover:border-border cursor-pointer" : "cursor-default opacity-60"} ${dragging ? "opacity-40" : ""}`}>
+    <div className="flex items-start justify-between gap-2">
+      <Icon className="h-5 w-5 text-muted-foreground" />
+      {isCommittee && widget.is_standard && <span onClick={e => e.stopPropagation()}>
+        <Switch checked={widget.enabled} onCheckedChange={v => onToggleEnabled(widget, v)} />
+      </span>}
+      {isCommittee && !widget.is_standard && <button type="button" aria-label={`Remove ${widget.label}`}
+        className="text-muted-foreground hover:text-destructive" onClick={e => { e.stopPropagation(); onDelete(widget); }}>
+        <Trash2 className="h-4 w-4" />
+      </button>}
+    </div>
+    <p className="mt-4 text-sm font-medium">{widget.label}</p>
+    <div className="mt-2"><StatusPill status={task?.status ?? "Not Started"} /></div>
+    <p className={`mt-3 text-[12px] ${tone.className}`}>{tone.label}</p>
+  </div>;
+}
+
+function ComplianceSection({ tasks, documents, widgets, isCommittee, schemeId, onChanged }: {
+  tasks: Task[]; documents: Doc[]; widgets: ComplianceWidget[]; isCommittee: boolean; schemeId?: string | undefined;
+  onStatus: (id: string, status: string) => void; onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [selected, setSelected] = useState<ComplianceWidget | null>(null);
+  const [showDisabled, setShowDisabled] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const bootstrapped = useRef(false);
+
+  useEffect(() => {
+    if (!schemeId || bootstrapped.current) return;
+    bootstrapped.current = true;
+    void ensureStandardWidgets(schemeId, widgets).then(created => { if (created) onChanged(); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemeId]);
+
+  const sorted = widgets.slice().sort((a, b) => a.sort_order - b.sort_order);
+  const visible = sorted.filter(w => w.enabled || showDisabled);
+  const hiddenCount = sorted.filter(w => !w.enabled).length;
+
+  const submitCustom = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!schemeId) return;
+    const form = new FormData(e.currentTarget);
+    const { error } = await supabase.from("compliance_widgets").insert({
+      scheme_id: schemeId, label: String(form.get("label") ?? ""), is_standard: false,
+      default_detail: String(form.get("detail") ?? "") || null, enabled: true, sort_order: widgets.length,
+    });
+    if (error) { toast("Could not add the obligation", { description: error.message }); return; }
+    setAddOpen(false); onChanged(); toast("Obligation added");
+  };
+
+  const toggleEnabled = async (widget: ComplianceWidget, enabled: boolean) => {
+    const { error } = await supabase.from("compliance_widgets").update({ enabled }).eq("id", widget.id);
+    if (error) { toast("Could not update that", { description: error.message }); return; }
+    onChanged();
+  };
+
+  const deleteWidget = async (widget: ComplianceWidget) => {
+    const { error } = await supabase.from("compliance_widgets").delete().eq("id", widget.id);
+    if (error) { toast("Could not remove that", { description: error.message }); return; }
+    onChanged(); toast("Obligation removed");
+  };
+
+  const reorder = async (sourceId: string, targetId: string) => {
+    const ordered = sorted.slice();
+    const from = ordered.findIndex(w => w.id === sourceId);
+    const to = ordered.findIndex(w => w.id === targetId);
+    if (from === -1 || to === -1 || from === to) return;
+    const [moved] = ordered.splice(from, 1);
+    if (!moved) return;
+    ordered.splice(to, 0, moved);
+    const updates = ordered
+      .map((w, i) => ({ w, i }))
+      .filter(({ w, i }) => w.sort_order !== i)
+      .map(({ w, i }) => supabase.from("compliance_widgets").update({ sort_order: i }).eq("id", w.id));
+    await Promise.all(updates);
+    onChanged();
+  };
+
   return <div>
-    <PageHead eyebrow="Your property" title="Compliance" blurb="The things the law expects each year, in plain English, with dates attached. Attach the paperwork and it files itself under Compliance in your documents."
-      action={isCommittee ? <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild><Button className="rounded-full"><Plus/> Add an obligation</Button></DialogTrigger>
+    <PageHead eyebrow="Your property" title="Compliance" blurb="The things the law expects each year, in plain English, with dates attached. Click one to work through it, and attach the paperwork if you have it."
+      action={isCommittee ? <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogTrigger asChild><Button className="rounded-full"><Plus /> Add an obligation</Button></DialogTrigger>
         <DialogContent>
           <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Add an obligation</DialogTitle><DialogDescription>Anything with a deadline attached to your building.</DialogDescription></DialogHeader>
-          <form onSubmit={submit} className="space-y-4">
-            <div className="space-y-2"><Label htmlFor="task_name">What's required</Label><Input id="task_name" name="task_name" placeholder="Fire safety statement" required autoFocus/></div>
-            <div className="space-y-2"><Label htmlFor="detail">Notes</Label><Textarea id="detail" name="detail"/></div>
-            <div className="space-y-2"><Label htmlFor="due_date">Due date</Label><Input id="due_date" name="due_date" type="date" required/></div>
-            <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>setOpen(false)}>Cancel</Button><Button type="submit" className="rounded-full">Save</Button></div>
+          <form onSubmit={submitCustom} className="space-y-4">
+            <div className="space-y-2"><Label htmlFor="label">What's required</Label><Input id="label" name="label" placeholder="Pool safety certificate" required autoFocus /></div>
+            <div className="space-y-2"><Label htmlFor="detail">Notes</Label><Textarea id="detail" name="detail" /></div>
+            <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={() => setAddOpen(false)}>Cancel</Button><Button type="submit" className="rounded-full">Save</Button></div>
           </form>
         </DialogContent>
-      </Dialog> : undefined}/>
-    <Card className="mt-10 overflow-hidden">
-      <div className="divide-y divide-border/70">{tasks.map(task => {
-        const left = daysUntil(task.due_date);
-        const urgent = task.status !== "Complete" && left < 14;
-        const files = documents.filter(d => d.compliance_task_id === task.id);
-        return <div key={task.id} className="px-7 py-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div><p className="text-sm font-medium">{task.task_name}</p><p className="mt-1 text-[12px] text-muted-foreground">{task.detail ? `${task.detail} · ` : ""}Due {niceDate(task.due_date)}</p></div>
-            <div className="flex items-center gap-3">
-              <span className={`text-[12px] ${urgent ? "font-medium text-destructive" : "text-muted-foreground"}`}>{task.status === "Complete" ? "Done" : left < 0 ? `${Math.abs(left)} days overdue` : `${left} days left`}</span>
-              {isCommittee && <Button asChild variant="outline" size="sm" className="rounded-full">
-                <label>{busy === task.id ? "Attaching" : "Attach document"}
-                  <input type="file" multiple className="sr-only" onChange={e => { void attach(task, e.target.files); e.target.value = ""; }}/>
-                </label>
-              </Button>}
-              {isCommittee
-                ? <Select value={task.status} onValueChange={(value)=>onStatus(task.id, value)}><SelectTrigger className="w-[150px] rounded-full"><SelectValue/></SelectTrigger><SelectContent>{["Not Started","In Progress","Complete"].map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
-                : <StatusPill status={task.status}/>}
-            </div>
-          </div>
-          {files.length > 0 && <div className="mt-4 flex flex-wrap gap-2">
-            {files.map(doc => <span key={doc.id} className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-[12px]">
-              <Files className="h-3.5 w-3.5 text-muted-foreground"/>
-              <button type="button" className="underline-offset-4 hover:underline" onClick={()=>{ void openDoc(doc); }}>{doc.name}</button>
-              {isCommittee && <button type="button" aria-label={`Remove ${doc.name}`} className="text-muted-foreground hover:text-destructive" onClick={()=>{ void removeDoc(doc); }}>×</button>}
-            </span>)}
-          </div>}
-        </div>;})}
-        {tasks.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">Nothing recorded yet.</p>}
-      </div>
-    </Card>
+      </Dialog> : undefined} />
+
+    {visible.length === 0
+      ? <p className="mt-10 px-7 py-10 text-center text-sm text-muted-foreground">Nothing to show yet.</p>
+      : <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {visible.map(widget => <WidgetCard key={widget.id} widget={widget} task={currentTaskFor(widget, tasks)} isCommittee={isCommittee}
+            dimmed={!widget.enabled} dragging={dragId === widget.id}
+            onDragStart={(e, id) => { e.dataTransfer.setData("text/plain", id); setDragId(id); }}
+            onDragOver={e => e.preventDefault()}
+            onDrop={(e, id) => { e.preventDefault(); const source = e.dataTransfer.getData("text/plain") || dragId; setDragId(null); if (source && source !== id) void reorder(source, id); }}
+            onDragEnd={() => setDragId(null)}
+            onOpen={() => { setSelected(widget); setOpen(true); }}
+            onToggleEnabled={toggleEnabled} onDelete={deleteWidget} />)}
+        </div>}
+
+    {hiddenCount > 0 && <button type="button" onClick={() => setShowDisabled(v => !v)}
+      className="mt-6 rounded-full border border-border/70 bg-card px-4 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground">
+      {showDisabled ? "Hide disabled obligations" : `Show ${hiddenCount} disabled obligation${hiddenCount === 1 ? "" : "s"}`}
+    </button>}
+
+    {open && <WidgetDialog open={open} onOpenChange={setOpen} widget={selected} task={selected ? currentTaskFor(selected, tasks) : undefined}
+      documents={documents} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} key={selected?.id ?? "none"} />}
   </div>;
 }
