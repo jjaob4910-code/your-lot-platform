@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
-import { Bell, Building2, CalendarDays, Check, ChevronRight, Coins, FileCheck2, Files, Gavel, History, LayoutDashboard, LogOut, Menu, Paperclip, Pencil, Plus, Receipt, ShieldCheck, Trash2, Undo2, WalletCards, Wrench } from "lucide-react";
+import { Bell, Building2, CalendarDays, Check, ChevronRight, Coins, FileCheck2, Files, Gavel, History, LayoutDashboard, LogOut, Menu, Paperclip, Pencil, Plus, Receipt, Settings, ShieldCheck, Trash2, Undo2, WalletCards, Wrench } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -20,6 +20,7 @@ import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
 import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment } from "@/components/overview";
 import { FinanceSection, type FinanceBudget, type FinanceTx, type ForecastLine } from "@/components/finance";
+import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
@@ -211,6 +212,24 @@ function DashboardPage() {
     },
   });
 
+  const committeeRoles = useQuery({
+    queryKey: ["committee-roles"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("committee_roles").select("*");
+      if (error) throw error;
+      return (data ?? []) as unknown as CommitteeRole[];
+    },
+  });
+  const schemeSettings = useQuery({
+    queryKey: ["scheme-settings"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("scheme_settings").select("*").eq("scheme_id", schemeId!).maybeSingle();
+      if (error) throw error;
+      return data as unknown as SchemeSettings | null;
+    },
+    enabled: !!schemeId,
+  });
+
   const refresh = (keys: string[]) => keys.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
 
   const setTaskStatus = useMutation({
@@ -241,7 +260,7 @@ function DashboardPage() {
         <Link to="/" className="mr-2 flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0,1,2,3].map(i=><span key={i} className="rounded-[2px] bg-primary"/>)}</span><span className="hidden sm:inline">Loty</span></Link>
         <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Dashboard sections">{sections.map(([label])=><Button key={label} size="sm" variant={active===label?"default":"ghost"} className="rounded-full px-3.5 text-xs font-medium transition-all duration-300" onClick={()=>setActive(label)}>{label}</Button>)}</nav>
         <div className="ml-auto flex items-center gap-1">
-          <span className="mr-1 hidden rounded-full border border-border bg-secondary px-3 py-1 text-[10px] font-medium sm:inline">{isCommittee ? "Committee" : "Owner"}</span>
+          <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings" onClick={()=>setActive("Settings")}><Settings /></Button>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Notifications" onClick={()=>setActive("Compliance")}><Bell /></Button>
           <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Back to home"><Link to="/"><LogOut /></Link></Button>
           <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav></SheetContent></Sheet>
@@ -281,6 +300,11 @@ function DashboardPage() {
       {active === "Calendar" && <CalendarSection scheme={scheme.data ?? null} tasks={tasks.data ?? []} levies={levies.data ?? []}
         orders={repairs.data ?? []} goTo={setActive}/>}
       {active === "Documents" && <DocumentsSection documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["documents"])}/>}
+
+      {active === "Settings" && <SettingsSection scheme={scheme.data ?? null} lots={lots.data ?? []}
+        committeeRoles={committeeRoles.data ?? []} settings={schemeSettings.data ?? null}
+        isCommittee={isCommittee} schemeId={schemeId}
+        onChanged={()=>refresh(["scheme","lots","committee-roles","scheme-settings"])}/>}
     </main>
 
     <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border/70 bg-background/90 p-2 backdrop-blur-xl lg:hidden">{sections.slice(0,4).map(([label,Icon])=><Button key={label} variant="ghost" className={`h-14 flex-col gap-1 rounded-2xl px-1 text-[9px] ${active===label?"bg-primary text-primary-foreground":"text-muted-foreground"}`} onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav>

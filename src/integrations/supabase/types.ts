@@ -982,6 +982,50 @@ export type Database = {
         }
         Relationships: []
       }
+      scheme_settings: {
+        Row: {
+          created_at: string
+          currency_code: string
+          date_format: string
+          id: string
+          notify_levy_due: boolean
+          notify_new_document: boolean
+          notify_new_work_order: boolean
+          scheme_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency_code?: string
+          date_format?: string
+          id?: string
+          notify_levy_due?: boolean
+          notify_new_document?: boolean
+          notify_new_work_order?: boolean
+          scheme_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency_code?: string
+          date_format?: string
+          id?: string
+          notify_levy_due?: boolean
+          notify_new_document?: boolean
+          notify_new_work_order?: boolean
+          scheme_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheme_settings_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: true
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       schemes: {
         Row: {
           address: string
