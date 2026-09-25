@@ -18,6 +18,7 @@ import { WorkOrdersSection, WorkOrderTable, type WorkOrder } from "@/components/
 import { CalendarSection } from "@/components/calendar-view";
 import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
+import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment } from "@/components/overview";
 import { FinanceSection, type FinanceBudget, type FinanceTx, type ForecastLine } from "@/components/finance";
 
 export const Route = createFileRoute("/dashboard")({
@@ -145,6 +146,30 @@ function DashboardPage() {
     },
   });
 
+  const dashboardWidgets = useQuery({
+    queryKey: ["dashboard-widgets"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("dashboard_widgets").select("*").order("sort_order");
+      if (error) throw error;
+      return (data ?? []) as unknown as DashboardWidget[];
+    },
+  });
+  const notices = useQuery({
+    queryKey: ["notices"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("notices").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as Notice[];
+    },
+  });
+  const noticeComments = useQuery({
+    queryKey: ["notice-comments"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("notice_comments").select("*").order("created_at");
+      if (error) throw error;
+      return (data ?? []) as unknown as NoticeComment[];
+    },
+  });
   const budgets = useQuery({
     queryKey: ["budgets"],
     queryFn: async () => {
@@ -188,14 +213,6 @@ function DashboardPage() {
 
   const refresh = (keys: string[]) => keys.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
 
-  const setRepairStatus = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase.from("maintenance_requests").update({ status: status as "Requested" | "Quoted" | "Approved" | "Complete" }).eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => { refresh(["repairs"]); toast("Repair updated"); },
-    onError: (e: Error) => toast("Could not update", { description: e.message }),
-  });
   const setTaskStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const { error } = await supabase.from("compliance_tasks").update({ status: status as "Not Started" | "In Progress" | "Complete" }).eq("id", id);
@@ -233,10 +250,12 @@ function DashboardPage() {
     </header>
 
     <main className="mx-auto max-w-[1500px] px-4 pb-32 pt-10 sm:px-7 sm:pt-14">
-      {active === "Dashboard" && <Overview
-        scheme={scheme.data ?? null} levies={levies.data ?? []} tasks={tasks.data ?? []} repairs={repairs.data ?? []}
-        isCommittee={isCommittee} myLot={myLot} onTaskStatus={(id,status)=>setTaskStatus.mutate({id,status})}
-        onRepairStatus={(id,status)=>setRepairStatus.mutate({id,status})} goTo={setActive} email=""/>}
+      {active === "Dashboard" && <OverviewSection
+        scheme={scheme.data ?? null} levies={levies.data ?? []} budgets={budgets.data ?? []} transactions={finance.data ?? []}
+        tasks={tasks.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
+        widgets={dashboardWidgets.data ?? []} widgetsLoading={dashboardWidgets.isLoading} isCommittee={isCommittee} schemeId={schemeId}
+        onTaskStatus={(id,status)=>setTaskStatus.mutate({id,status})}
+        onChanged={()=>refresh(["dashboard-widgets","notices","notice-comments"])} goTo={setActive}/>}
 
       {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots"])}/>}
 
@@ -290,108 +309,6 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
   return <section className={`soft-shadow rounded-3xl border border-border/70 bg-card ${className}`}>{children}</section>;
 }
 
-function Overview({ scheme, levies, tasks, repairs, isCommittee, myLot, onTaskStatus, onRepairStatus, goTo, email }: {
-  scheme: Scheme | null; levies: Levy[]; tasks: Task[]; repairs: Repair[]; isCommittee: boolean; myLot: Lot | null;
-  onTaskStatus: (id: string, status: string) => void; onRepairStatus: (id: string, status: string) => void;
-  goTo: (s: string) => void; email: string;
-}) {
-  const thisYear = new Date().getFullYear();
-  const collected = levies.filter(l => l.status === "Paid" && l.paid_at && new Date(l.paid_at).getFullYear() === thisYear)
-    .reduce((sum, l) => sum + Number(l.amount), 0);
-  const outstanding = levies.filter(l => effectiveLevyStatus(l) !== "Paid").reduce((sum, l) => sum + Number(l.amount), 0);
-  const complianceScore = tasks.length ? Math.round((tasks.filter(t => t.status === "Complete").length / tasks.length) * 100) : 0;
-  const openRepairs = repairs.filter(r => r.status !== "Complete").length;
-  const agmDays = scheme?.next_agm_date ? daysUntil(scheme.next_agm_date) : null;
-
-  const months = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - (5 - i));
-    const label = d.toLocaleDateString("en-AU", { month: "short" });
-    const total = levies.filter(l => l.paid_at && new Date(l.paid_at).getMonth() === d.getMonth() && new Date(l.paid_at).getFullYear() === d.getFullYear())
-      .reduce((sum, l) => sum + Number(l.amount), 0);
-    return { month: label, received: Math.round(total) };
-  });
-
-  const stats: [string, string, string][] = [
-    ["Levies collected this year", money(collected), outstanding > 0 ? `${money(outstanding)} still outstanding` : "Everyone is up to date"],
-    ["Compliance score", `${complianceScore}%`, `${tasks.filter(t => t.status === "Complete").length} of ${tasks.length} obligations done`],
-    ["Repairs waiting on you", String(openRepairs), openRepairs ? "In progress or awaiting a decision" : "All quiet"],
-    ["Days until your AGM", agmDays === null ? "—" : String(agmDays), scheme?.next_agm_date ? niceDate(scheme.next_agm_date) : "No date set"],
-  ];
-
-  return <>
-    <div className="max-w-2xl">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{scheme ? scheme.address : "Your building"}</p>
-      <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">Hi there, Here's what's happening.</h1>
-    </div>
-
-    <div className="mt-10 flex gap-3 overflow-x-auto pb-2">{stats.map(([label, value, hint]) =>
-      <div key={label} className="min-w-[210px] shrink-0 rounded-3xl border border-border/70 bg-card p-5">
-        <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-        <p className="mt-4 truncate font-display text-3xl font-medium tracking-[-0.03em]">{value}</p>
-        <p className="mt-2 text-[11px] text-muted-foreground/80">{hint}</p>
-      </div>)}
-    </div>
-
-    <div className="mt-5 grid gap-5 xl:grid-cols-12">
-      <Card className="p-7 xl:col-span-7">
-        <div className="flex items-start justify-between">
-          <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Last six months</p><h2 className="mt-2 text-lg font-medium tracking-[-0.02em]">Levy payments received</h2></div>
-          <Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={()=>goTo("Levies")}>Open levies <ChevronRight/></Button>
-        </div>
-        <div className="mt-8 h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={months} margin={{ left: -18, right: 8 }}>
-              <CartesianGrid vertical={false} stroke="var(--border)" />
-              <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
-              <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
-              <ChartTooltip cursor={{ fill: "var(--secondary)" }} formatter={(value: number) => money(Number(value))} />
-              <Bar dataKey="received" fill="var(--primary)" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
-
-      <section className="soft-shadow rounded-3xl bg-primary p-7 text-primary-foreground xl:col-span-5">
-        <div className="flex items-center justify-between">
-          <div><p className="text-[10px] uppercase tracking-[0.14em] text-primary-foreground/55">What the law expects of you</p><h2 className="mt-2 text-xl font-medium tracking-[-0.025em]">Your yearly obligations</h2></div>
-          <span className="font-display text-2xl">{tasks.filter(t=>t.status==="Complete").length}/{tasks.length}</span>
-        </div>
-        <div className="mt-6">{tasks.map(task => {
-          const left = daysUntil(task.due_date);
-          const done = task.status === "Complete";
-          const urgent = !done && left < 14;
-          return <div key={task.id} className="flex items-start gap-3 border-t border-primary-foreground/15 py-3.5">
-            <button type="button" disabled={!isCommittee} onClick={()=>onTaskStatus(task.id, done ? "In Progress" : "Complete")}
-              className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border ${done ? "border-primary-foreground bg-primary-foreground text-primary" : "border-primary-foreground/40"} ${isCommittee ? "cursor-pointer" : "cursor-default"}`}
-              aria-label={`Mark ${task.task_name} ${done ? "in progress" : "complete"}`}>{done && <Check className="size-2.5"/>}</button>
-            <span className="min-w-0 flex-1">
-              <span className={`block text-[13px] ${done ? "text-primary-foreground/50 line-through" : "text-primary-foreground/90"}`}>{task.task_name}</span>
-              <span className="block text-[11px] text-primary-foreground/50">Due {niceDate(task.due_date)}</span>
-            </span>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${done ? "bg-primary-foreground/10 text-primary-foreground/60" : urgent ? "bg-primary-foreground text-primary" : "bg-primary-foreground/10 text-primary-foreground/80"}`}>
-              {done ? "Done" : left < 0 ? `${Math.abs(left)} days overdue` : `${left} days left`}
-            </span>
-          </div>;})}
-          {tasks.length === 0 && <p className="border-t border-primary-foreground/15 py-6 text-[13px] text-primary-foreground/60">Nothing recorded yet.</p>}
-        </div>
-      </section>
-
-      <Card className="overflow-hidden xl:col-span-12">
-        <div className="flex items-center justify-between border-b border-border/70 px-7 py-5">
-          <div><p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Work orders</p><h2 className="mt-1 text-lg font-medium tracking-[-0.02em]">{openRepairs ? `${openRepairs} open` : "Nothing open"}</h2></div>
-          <Button size="sm" variant="ghost" className="rounded-full" onClick={()=>goTo("Work orders")}>Open work orders <ChevronRight/></Button>
-        </div>
-        <WorkOrderTable orders={repairs.slice(0, 5)} onOpen={()=>goTo("Work orders")}/>
-      </Card>
-
-      {!isCommittee && <Card className="p-7 xl:col-span-12">
-        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Your lot</p>
-        <h2 className="mt-2 text-lg font-medium tracking-[-0.02em]">{myLot ? `Lot ${myLot.lot_number}, ${myLot.owner_name ?? ""}` : "No lot linked to your account yet"}</h2>
-        <p className="mt-3 text-[13px] text-muted-foreground">{myLot ? `Your share of costs is ${myLot.entitlement_percent}%.` : "Ask your committee to add your email against your lot, and your levies will appear here."}</p>
-      </Card>}
-    </div>
-  </>;
-}
 
 
 function LotDialog({ open, onOpenChange, schemeId, lot, onSaved }: {
