@@ -88,6 +88,42 @@ function SchemeDialog({ open, onOpenChange, scheme, onSaved }: {
   </Dialog>;
 }
 
+function CreateSchemeDialog({ open, onOpenChange, onSaved }: {
+  open: boolean; onOpenChange: (v: boolean) => void; onSaved: () => void;
+}) {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const text = (key: string) => { const v = String(form.get(key) ?? "").trim(); return v === "" ? null : v; };
+    const payload = {
+      name: String(form.get("name") ?? "").trim(),
+      address: String(form.get("address") ?? "").trim(),
+      total_lots: Number(form.get("total_lots")),
+      tier: text("tier"),
+      next_agm_date: text("next_agm_date"),
+    };
+    const { error } = await supabase.from("schemes").insert(payload);
+    if (error) { toast("Could not create your building", { description: error.message }); return; }
+    onOpenChange(false); onSaved(); toast("Building created");
+  };
+
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent>
+      <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Create your building</DialogTitle><DialogDescription>The basics your owners and levies will be built around.</DialogDescription></DialogHeader>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-2"><Label htmlFor="new_name">Building name</Label><Input id="new_name" name="name" placeholder="Banksia Court" required/></div>
+        <div className="space-y-2"><Label htmlFor="new_address">Address</Label><Input id="new_address" name="address" placeholder="12 Banksia Street, Brunswick VIC 3056" required/></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2"><Label htmlFor="new_total_lots">Total lots</Label><Input id="new_total_lots" name="total_lots" type="number" min="1" defaultValue={1} required/></div>
+          <div className="space-y-2"><Label htmlFor="new_tier">Tier</Label><Input id="new_tier" name="tier" placeholder="Tier 3"/></div>
+        </div>
+        <div className="space-y-2"><Label htmlFor="new_next_agm_date">Next AGM date</Label><Input id="new_next_agm_date" name="next_agm_date" type="date"/></div>
+        <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full">Create building</Button></div>
+      </form>
+    </DialogContent>
+  </Dialog>;
+}
+
 function AddRoleDialog({ open, onOpenChange, lots, onSaved }: {
   open: boolean; onOpenChange: (v: boolean) => void; lots: Lot[]; onSaved: () => void;
 }) {
@@ -131,6 +167,7 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
   isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
 }) {
   const [editingScheme, setEditingScheme] = useState(false);
+  const [creatingScheme, setCreatingScheme] = useState(false);
   const [addingRole, setAddingRole] = useState(false);
 
   const removeRole = async (role: CommitteeRole) => {
@@ -162,7 +199,12 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
             <Field label="Tier" value={scheme.tier ?? "Not recorded"}/>
             <Field label="Next AGM" value={scheme.next_agm_date ? new Date(scheme.next_agm_date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "Not scheduled"}/>
           </div>
-        : <p className="p-7 text-sm text-muted-foreground">No building set up yet.</p>}
+        : isCommittee
+          ? <div className="p-7 text-center">
+              <p className="text-sm text-muted-foreground">No building set up yet. Create it to get started.</p>
+              <Button className="mt-4 rounded-full" onClick={()=>setCreatingScheme(true)}><Plus className="size-3.5"/>Create your building</Button>
+            </div>
+          : <p className="p-7 text-sm text-muted-foreground">No building set up yet.</p>}
     </Card>
 
     <Card className="mt-6 overflow-hidden">
@@ -222,6 +264,7 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
     </Card>
 
     {scheme && <SchemeDialog open={editingScheme} onOpenChange={setEditingScheme} scheme={scheme} onSaved={onChanged}/>}
+    {creatingScheme && <CreateSchemeDialog open={creatingScheme} onOpenChange={setCreatingScheme} onSaved={onChanged}/>}
     {addingRole && <AddRoleDialog open={addingRole} onOpenChange={setAddingRole} lots={lots} onSaved={onChanged}/>}
   </div>;
 }

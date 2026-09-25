@@ -1,8 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 import { Bell, Building2, CalendarDays, Check, ChevronRight, Coins, FileCheck2, Files, Gavel, History, LayoutDashboard, LogOut, Menu, Paperclip, Pencil, Plus, Receipt, Settings, ShieldCheck, Trash2, Undo2, WalletCards, Wrench } from "lucide-react";
+import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -76,8 +77,24 @@ const niceDate = (value: string) => new Date(value).toLocaleDateString("en-AU", 
 
 function DashboardPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [active, setActive] = useState("Dashboard");
 
+  const [session, setSession] = useState<Session | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthChecked(true);
+      if (!data.session) navigate({ to: "/auth", replace: true });
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      setSession(sess);
+      if (!sess) navigate({ to: "/auth", replace: true });
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [navigate]);
+  const userId = session?.user?.id;
 
   const scheme = useQuery({
     queryKey: ["scheme"],
@@ -88,6 +105,25 @@ function DashboardPage() {
     },
   });
   const schemeId = scheme.data?.id;
+
+  const roleQuery = useQuery({
+    queryKey: ["user-role", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", userId!).maybeSingle();
+      if (error) throw error;
+      return data?.role ?? "Owner";
+    },
+    enabled: !!userId,
+  });
+  const myLotQuery = useQuery({
+    queryKey: ["my-lot", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("lots").select("*").eq("owner_user_id", userId!).maybeSingle();
+      if (error) throw error;
+      return data as unknown as Lot | null;
+    },
+    enabled: !!userId,
+  });
 
   const lots = useQuery({
     queryKey: ["lots"],
@@ -249,9 +285,10 @@ function DashboardPage() {
     onError: (e: Error) => toast("Could not update", { description: e.message }),
   });
 
-  const isCommittee = true;
-  const myLot = null;
+  const isCommittee = roleQuery.data === "Committee";
+  const myLot = myLotQuery.data ?? null;
 
+  if (!authChecked) return null;
 
   return <div className="relative isolate min-h-screen bg-background">
     <Toaster />
@@ -262,7 +299,7 @@ function DashboardPage() {
         <div className="ml-auto flex items-center gap-1">
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings" onClick={()=>setActive("Settings")}><Settings /></Button>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Notifications" onClick={()=>setActive("Compliance")}><Bell /></Button>
-          <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Back to home"><Link to="/"><LogOut /></Link></Button>
+          <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={()=>{ void supabase.auth.signOut().then(()=>navigate({ to: "/", replace: true })); }}><LogOut /></Button>
           <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav></SheetContent></Sheet>
         </div>
       </div>
