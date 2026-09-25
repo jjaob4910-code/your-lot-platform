@@ -386,6 +386,7 @@ function LotDialog({ open, onOpenChange, schemeId, lot, onSaved }: {
     const form = new FormData(e.currentTarget);
     const base = {
       lot_number: Number(form.get("lot_number")),
+      entitlement_percent: Number(form.get("entitlement_percent")) || 0,
       owner_name: String(form.get("owner_name") ?? ""),
       owner_email: String(form.get("owner_email") ?? ""),
       owner_phone: String(form.get("owner_phone") ?? ""),
@@ -403,6 +404,7 @@ function LotDialog({ open, onOpenChange, schemeId, lot, onSaved }: {
       <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">{lot ? `Edit lot ${lot.lot_number}` : "Add a lot"}</DialogTitle><DialogDescription>{lot ? "Update the lot number and who owns it." : "Add the lot number and who owns it."}</DialogDescription></DialogHeader>
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input id="lot_number" name="lot_number" type="number" min="1" defaultValue={lot?.lot_number ?? ""} required/></div>
+        <div className="space-y-2"><Label htmlFor="entitlement_percent">Ownership allotment (%)</Label><Input id="entitlement_percent" name="entitlement_percent" type="number" min="0" step="0.001" placeholder="e.g. 12.5" defaultValue={lot?.entitlement_percent ?? ""}/></div>
         <div className="space-y-2"><Label htmlFor="owner_name">Owner name</Label><Input id="owner_name" name="owner_name" defaultValue={lot?.owner_name ?? ""}/></div>
         <div className="space-y-2"><Label htmlFor="owner_email">Owner email</Label><Input id="owner_email" name="owner_email" type="email" defaultValue={lot?.owner_email ?? ""}/></div>
         <div className="space-y-2"><Label htmlFor="owner_phone">Owner phone</Label><Input id="owner_phone" name="owner_phone" type="tel" placeholder="04xx xxx xxx" defaultValue={lot?.owner_phone ?? ""}/></div>
