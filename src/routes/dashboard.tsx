@@ -23,6 +23,7 @@ import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment 
 import { FinanceSection, type FinanceBudget, type FinanceTx, type ForecastLine } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
+import { computeFundBalances, currentFinancialYearStart } from "@/lib/fund-balance";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
@@ -67,7 +68,7 @@ type Doc = DocFile;
 
 const sections = [
   ["Dashboard", LayoutDashboard], ["Lots", Building2], ["Levies", WalletCards], ["Work orders", Wrench],
-  ["Finance", Coins], ["Insurance", ShieldCheck], ["Compliance", FileCheck2], ["Calendar", CalendarDays],
+  ["Finance", Coins], ["Insurance", ShieldCheck], ["Actions", FileCheck2], ["Calendar", CalendarDays],
   ["Documents", Files],
 ] as const;
 
@@ -249,6 +250,23 @@ function DashboardPage() {
     },
   });
 
+  const actionDrafts = useQuery({
+    queryKey: ["action-drafts"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("action_drafts").select("*");
+      if (error) throw error;
+      return (data ?? []) as unknown as ActionDraft[];
+    },
+  });
+  const agmMeetings = useQuery({
+    queryKey: ["agm-meetings"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("agm_meetings").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as AgmMeeting[];
+    },
+  });
+
   const committeeRoles = useQuery({
     queryKey: ["committee-roles"],
     queryFn: async () => {
@@ -329,9 +347,11 @@ function DashboardPage() {
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
         onChanged={()=>refresh(["repairs"])}/>}
 
-      {active === "Compliance" && <ComplianceSection tasks={tasks.data ?? []} documents={documents.data ?? []} widgets={complianceWidgets.data ?? []}
-        isCommittee={isCommittee} schemeId={schemeId} onStatus={(id,status)=>setTaskStatus.mutate({id,status})}
-        onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets"])}/>}
+      {active === "Actions" && <ComplianceSection tasks={tasks.data ?? []} documents={documents.data ?? []} widgets={complianceWidgets.data ?? []}
+        policies={policies.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []} finance={finance.data ?? []} repairs={repairs.data ?? []}
+        drafts={actionDrafts.data ?? []} meetings={agmMeetings.data ?? []}
+        isCommittee={isCommittee} schemeId={schemeId}
+        onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets","action-drafts","agm-meetings"])}/>}
 
       {active === "Finance" && <FinanceSection transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         forecastLines={forecastLines.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} documents={documents.data ?? []}
@@ -1056,7 +1076,7 @@ function LeviesSection({ levies, lots, budgets, lineItems, revisions, documents,
 }
 
 
-const COMPLIANCE_FOLDER = "Compliance";
+const COMPLIANCE_FOLDER = "Actions";
 
 export const STANDARD_WIDGETS: { key: string; label: string; detail: string }[] = [
   { key: "agm_notice", label: "AGM Notice", detail: "Written notice to every owner ahead of the annual general meeting." },
@@ -1094,6 +1114,46 @@ export async function ensureStandardWidgets(schemeId: string, existing: Complian
 
 function currentTaskFor(widget: ComplianceWidget, tasks: Task[]) {
   return tasks.filter(t => t.widget_id === widget.id).sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+}
+
+async function ensureActionsFolder(schemeId: string) {
+  const { data } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", COMPLIANCE_FOLDER).maybeSingle();
+  if (data?.id) return data.id as string;
+  const { data: made, error } = await supabase.from("document_folders")
+    .insert({ scheme_id: schemeId, name: COMPLIANCE_FOLDER, icon: "ShieldCheck", color: "green" }).select("id").single();
+  if (error) throw error;
+  return made.id as string;
+}
+
+// Turns a preview + the committee's own notes into a filed document, and marks
+// the obligation's task Complete — the shared "publish" behavior for every
+// standard Action (Insurance Renewal, Financial Statements, Maintenance Plan,
+// AGM Notice), so publishing always leaves the same trail in Documents and in
+// the obligation's own status, whichever one it was.
+async function publishActionDocument(schemeId: string, widget: ComplianceWidget, existingTaskId: string | null, text: string) {
+  const folderId = await ensureActionsFolder(schemeId);
+  const fileName = `${widget.label} — ${new Date().toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}.txt`;
+  const path = `${schemeId}/${crypto.randomUUID()}-${fileName.replace(/[^\w.\- ]/g, "_")}`;
+  const blob = new Blob([text], { type: "text/plain" });
+  const { error: upErr } = await supabase.storage.from("documents").upload(path, blob);
+  if (upErr) throw upErr;
+
+  const taskId = existingTaskId ?? (await supabase.from("compliance_tasks").insert({
+    scheme_id: schemeId, widget_id: widget.id, task_name: widget.label,
+    detail: widget.default_detail, due_date: new Date().toISOString().slice(0, 10), status: "Complete",
+  }).select("id").single()).data?.id as string | undefined;
+  if (!taskId) throw new Error("Could not create the obligation record");
+  if (existingTaskId) {
+    const { error } = await supabase.from("compliance_tasks").update({ status: "Complete" }).eq("id", existingTaskId);
+    if (error) throw error;
+  }
+
+  const { error } = await supabase.from("documents").insert({
+    scheme_id: schemeId, name: fileName, category: widget.label, folder_id: folderId,
+    compliance_task_id: taskId, storage_path: path, file_size: blob.size, mime_type: "text/plain",
+  });
+  if (error) throw error;
+  return taskId;
 }
 
 function WidgetDialog({ open, onOpenChange, widget, task, documents, schemeId, isCommittee, onChanged }: {
@@ -1233,6 +1293,151 @@ function WidgetDialog({ open, onOpenChange, widget, task, documents, schemeId, i
   </Dialog>;
 }
 
+type ActionDraft = { id: string; scheme_id: string; standard_key: string; content: string };
+type AgmMeeting = { id: string; scheme_id: string; title: string; meeting_date: string | null; agenda: { label: string; notes: string }[]; notes: string; status: string; created_at: string; published_at: string | null };
+
+function ActionWorkspaceDialog({ open, onOpenChange, widget, task, schemeId, isCommittee, previewLabel, previewText, draft, onChanged }: {
+  open: boolean; onOpenChange: (v: boolean) => void; widget: ComplianceWidget; task: Task | undefined;
+  schemeId?: string | undefined; isCommittee: boolean; previewLabel: string; previewText: string; draft: ActionDraft | null; onChanged: () => void;
+}) {
+  const [content, setContent] = useState(draft?.content ?? "");
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+
+  const saveDraft = async () => {
+    if (!schemeId) return;
+    setSaving(true);
+    const { error } = draft
+      ? await supabase.from("action_drafts").update({ content }).eq("id", draft.id)
+      : await supabase.from("action_drafts").insert({ scheme_id: schemeId, standard_key: widget.standard_key ?? "", content });
+    setSaving(false);
+    if (error) { toast("Could not save the draft", { description: error.message }); return; }
+    onChanged(); toast("Draft saved");
+  };
+
+  const publish = async () => {
+    if (!schemeId) return;
+    setPublishing(true);
+    const text = [previewText, content.trim() ? `\n\nCommittee notes:\n${content.trim()}` : ""].join("");
+    try {
+      await publishActionDocument(schemeId, widget, task?.id ?? null, text);
+      onOpenChange(false); onChanged();
+      toast("Published", { description: "Filed in Documents and marked complete." });
+    } catch (err) {
+      toast("Could not publish", { description: (err as Error).message });
+    } finally { setPublishing(false); }
+  };
+
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[600px]">
+      <DialogHeader>
+        <DialogTitle className="font-display tracking-[-0.02em]">{widget.label}</DialogTitle>
+        <DialogDescription>{widget.default_detail}</DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label>Preview — {previewLabel}</Label>
+          <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-border/70 bg-secondary/40 p-4 text-[12px] leading-6">{previewText}</pre>
+          <p className="text-[11px] text-muted-foreground">Always shows your latest info from {previewLabel} — nothing to keep in sync by hand.</p>
+        </div>
+        {isCommittee && <div className="space-y-2">
+          <Label htmlFor="committee_notes">Committee notes (optional)</Label>
+          <Textarea id="committee_notes" rows={4} value={content} onChange={e => setContent(e.target.value)} placeholder="Anything to add before this goes out" />
+        </div>}
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Close</Button>
+          {isCommittee && <Button type="button" variant="outline" className="rounded-full" disabled={saving} onClick={() => void saveDraft()}>{saving ? "Saving…" : "Save draft"}</Button>}
+          {isCommittee && <Button type="button" className="rounded-full" disabled={publishing} onClick={() => void publish()}>{publishing ? "Publishing…" : "Publish"}</Button>}
+        </div>
+      </div>
+    </DialogContent>
+  </Dialog>;
+}
+
+function AgmDialog({ open, onOpenChange, widget, task, schemeId, isCommittee, meetings, onChanged }: {
+  open: boolean; onOpenChange: (v: boolean) => void; widget: ComplianceWidget; task: Task | undefined;
+  schemeId?: string | undefined; isCommittee: boolean; meetings: AgmMeeting[]; onChanged: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [meetingDate, setMeetingDate] = useState("");
+  const [agenda, setAgenda] = useState<{ label: string; notes: string }[]>([{ label: "", notes: "" }]);
+  const [notes, setNotes] = useState("");
+  const [publishing, setPublishing] = useState(false);
+  const published = meetings.filter(m => m.status === "Published").sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+  const updateAgenda = (i: number, patch: Partial<{ label: string; notes: string }>) =>
+    setAgenda(agenda.map((a, idx) => idx === i ? { ...a, ...patch } : a));
+
+  const publish = async () => {
+    if (!schemeId || !title.trim()) { toast("Give the meeting a title first"); return; }
+    setPublishing(true);
+    const validAgenda = agenda.filter(a => a.label.trim() !== "");
+    const { data: meeting, error } = await supabase.from("agm_meetings").insert({
+      scheme_id: schemeId, title: title.trim(), meeting_date: meetingDate || null,
+      agenda: validAgenda, notes, status: "Published", published_at: new Date().toISOString(),
+    }).select().single();
+    if (error || !meeting) { toast("Could not publish the meeting", { description: error?.message }); setPublishing(false); return; }
+    const text = [
+      `${title.trim()}`, meetingDate ? `Date: ${new Date(meetingDate).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}` : "",
+      "", "Agenda:", ...validAgenda.map((a, i) => `${i + 1}. ${a.label}${a.notes ? ` — ${a.notes}` : ""}`),
+      "", "Notes:", notes,
+    ].filter(l => l !== "").join("\n");
+    try {
+      await publishActionDocument(schemeId, widget, task?.id ?? null, text);
+      setPublishing(false); onOpenChange(false); onChanged();
+      toast("AGM notes published", { description: "Filed in Documents and marked complete." });
+    } catch (err) {
+      setPublishing(false);
+      toast("Saved the meeting, but could not file the document", { description: (err as Error).message });
+    }
+  };
+
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[620px]">
+      <DialogHeader>
+        <DialogTitle className="font-display tracking-[-0.02em]">AGM Notice</DialogTitle>
+        <DialogDescription>Previous meetings, and a place to build the next agenda and notes.</DialogDescription>
+      </DialogHeader>
+      <div className="space-y-5">
+        <div>
+          <Label>Previous meetings</Label>
+          {published.length === 0
+            ? <p className="mt-2 text-[13px] text-muted-foreground">No AGM notes published yet.</p>
+            : <div className="mt-2 space-y-2">
+                {published.map(m => <details key={m.id} className="rounded-2xl border border-border/70 p-3">
+                  <summary className="cursor-pointer text-[13px] font-medium">{m.title}{m.meeting_date ? ` · ${niceDate(m.meeting_date)}` : ""}</summary>
+                  <div className="mt-2 space-y-1 text-[12px] text-muted-foreground">
+                    {m.agenda.map((a, i) => <p key={i}>{i + 1}. {a.label}{a.notes ? ` — ${a.notes}` : ""}</p>)}
+                    {m.notes && <p className="mt-2 whitespace-pre-line">{m.notes}</p>}
+                  </div>
+                </details>)}
+              </div>}
+        </div>
+        {isCommittee && <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2"><Label htmlFor="agm_title">Meeting title</Label><Input id="agm_title" value={title} onChange={e => setTitle(e.target.value)} placeholder="Annual General Meeting 2026" /></div>
+            <div className="space-y-2"><Label htmlFor="agm_date">Meeting date</Label><Input id="agm_date" type="date" value={meetingDate} onChange={e => setMeetingDate(e.target.value)} /></div>
+          </div>
+          <div className="space-y-2">
+            <Label>Agenda</Label>
+            {agenda.map((a, i) => <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+              <Input placeholder="Item" value={a.label} onChange={e => updateAgenda(i, { label: e.target.value })} />
+              <Input placeholder="Notes (optional)" value={a.notes} onChange={e => updateAgenda(i, { notes: e.target.value })} />
+              <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label="Remove item" onClick={() => setAgenda(agenda.filter((_, idx) => idx !== i))} disabled={agenda.length === 1}><Trash2 className="size-4" /></Button>
+            </div>)}
+            <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => setAgenda([...agenda, { label: "", notes: "" }])}><Plus className="size-3.5" />Add agenda item</Button>
+          </div>
+          <div className="space-y-2"><Label htmlFor="agm_notes">Meeting notes</Label><Textarea id="agm_notes" rows={5} value={notes} onChange={e => setNotes(e.target.value)} placeholder="What was discussed and decided" /></div>
+        </>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Close</Button>
+          {isCommittee && <Button type="button" className="rounded-full" disabled={publishing} onClick={() => void publish()}>{publishing ? "Publishing…" : "Publish AGM notes"}</Button>}
+        </div>
+      </div>
+    </DialogContent>
+  </Dialog>;
+}
+
 function WidgetCard({ widget, task, isCommittee, dimmed, dragging, onDragStart, onDragOver, onDrop, onDragEnd, onOpen, onToggleEnabled, onDelete }: {
   widget: ComplianceWidget; task: Task | undefined; isCommittee: boolean; dimmed: boolean; dragging: boolean;
   onDragStart: (e: React.DragEvent, id: string) => void; onDragOver: (e: React.DragEvent, id: string) => void;
@@ -1267,9 +1472,50 @@ function WidgetCard({ widget, task, isCommittee, dimmed, dragging, onDragStart, 
   </div>;
 }
 
-function ComplianceSection({ tasks, documents, widgets, isCommittee, schemeId, onChanged }: {
-  tasks: Task[]; documents: Doc[]; widgets: ComplianceWidget[]; isCommittee: boolean; schemeId?: string | undefined;
-  onStatus: (id: string, status: string) => void; onChanged: () => void;
+function financialStatementsPreview(budgets: FinanceBudget[], levies: Levy[], finance: FinanceTx[]) {
+  const year = currentFinancialYearStart();
+  const budget = budgets.find(b => b.financial_year.match(/\d{4}/)?.[0] === String(year));
+  const balances = computeFundBalances(levies, budgets, finance, year);
+  const paidTx = finance.filter(t => t.status === "Paid" && new Date(t.occurred_on).getFullYear() >= year);
+  const spent = paidTx.filter(t => t.direction === "out").reduce((s, t) => s + Number(t.amount), 0);
+  const collected = paidTx.filter(t => t.direction === "in").reduce((s, t) => s + Number(t.amount), 0);
+  return [
+    `Financial year: ${budget?.financial_year ?? `${year}/${year + 1}`}`,
+    budget ? `Budgeted: Admin ${money(budget.admin_fund_total)} · Maintenance ${money(budget.maintenance_fund_total)}` : "No budget set for this year yet.",
+    `Money in: ${money(collected)}`, `Money out: ${money(spent)}`,
+    `Fund balances: Admin ${money(balances.admin)} · Maintenance ${money(balances.maintenance)} · Total ${money(balances.total)}`,
+  ].join("\n");
+}
+
+function insuranceRenewalPreview(policies: Policy[]) {
+  if (policies.length === 0) return "No insurance policies recorded yet.";
+  const dated = policies.filter(p => p.renewal_date).sort((a, b) => a.renewal_date! < b.renewal_date! ? -1 : 1);
+  const lines = policies.map(p => {
+    const bits = [p.policy_type, p.insurer ? `Insurer: ${p.insurer}` : null, p.premium != null ? `Premium: ${money(p.premium)}` : null,
+      p.sum_insured != null ? `Sum insured: ${money(p.sum_insured)}` : null,
+      p.renewal_date ? `Renews ${niceDate(p.renewal_date)} (${daysUntil(p.renewal_date) < 0 ? "overdue" : `${daysUntil(p.renewal_date)} days away`})` : null];
+    return "- " + bits.filter(Boolean).join(" · ");
+  });
+  const next = dated[0];
+  return [next ? `Next renewal: ${next.policy_type} on ${niceDate(next.renewal_date!)}` : "No renewal dates recorded.", "", "Policies:", ...lines].join("\n");
+}
+
+function maintenancePlanPreview(repairs: Repair[]) {
+  const open = repairs.filter(r => r.status !== "Complete");
+  if (open.length === 0) return "No open maintenance or work orders right now.";
+  const lines = open.map(r => `- ${r.title} (${r.status})`);
+  return [`Open items: ${open.length}`, "", ...lines].join("\n");
+}
+
+const standardPreview: Record<string, { label: string; text: (ctx: { policies: Policy[]; budgets: FinanceBudget[]; levies: Levy[]; finance: FinanceTx[]; repairs: Repair[] }) => string }> = {
+  financial_statements: { label: "Finance", text: ctx => financialStatementsPreview(ctx.budgets, ctx.levies, ctx.finance) },
+  insurance_renewal: { label: "Insurance", text: ctx => insuranceRenewalPreview(ctx.policies) },
+  maintenance_plan: { label: "Work orders", text: ctx => maintenancePlanPreview(ctx.repairs) },
+};
+
+function ComplianceSection({ tasks, documents, widgets, policies, budgets, levies, finance, repairs, drafts, meetings, isCommittee, schemeId, onChanged }: {
+  tasks: Task[]; documents: Doc[]; widgets: ComplianceWidget[]; policies: Policy[]; budgets: FinanceBudget[]; levies: Levy[]; finance: FinanceTx[]; repairs: Repair[];
+  drafts: ActionDraft[]; meetings: AgmMeeting[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -1330,7 +1576,7 @@ function ComplianceSection({ tasks, documents, widgets, isCommittee, schemeId, o
   };
 
   return <div>
-    <PageHead eyebrow="Your property" title="Compliance" blurb="The things the law expects each year, in plain English, with dates attached. Click one to work through it, and attach the paperwork if you have it."
+    <PageHead eyebrow="Your property" title="Actions" blurb="Plan and prepare the paperwork your building actually needs. Click one to see what it should say, add your own notes, and publish it to Documents."
       action={isCommittee ? <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogTrigger asChild><Button className="rounded-full"><Plus /> Add an obligation</Button></DialogTrigger>
         <DialogContent>
@@ -1361,7 +1607,20 @@ function ComplianceSection({ tasks, documents, widgets, isCommittee, schemeId, o
       {showDisabled ? "Hide disabled obligations" : `Show ${hiddenCount} disabled obligation${hiddenCount === 1 ? "" : "s"}`}
     </button>}
 
-    {open && <WidgetDialog open={open} onOpenChange={setOpen} widget={selected} task={selected ? currentTaskFor(selected, tasks) : undefined}
-      documents={documents} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} key={selected?.id ?? "none"} />}
+    {open && selected?.standard_key === "agm_notice" &&
+      <AgmDialog open={open} onOpenChange={setOpen} widget={selected} task={currentTaskFor(selected, tasks)}
+        schemeId={schemeId} isCommittee={isCommittee} meetings={meetings} onChanged={onChanged} key={selected.id} />}
+
+    {open && selected?.standard_key && standardPreview[selected.standard_key] &&
+      <ActionWorkspaceDialog open={open} onOpenChange={setOpen} widget={selected} task={currentTaskFor(selected, tasks)}
+        schemeId={schemeId} isCommittee={isCommittee}
+        previewLabel={standardPreview[selected.standard_key]!.label}
+        previewText={standardPreview[selected.standard_key]!.text({ policies, budgets, levies, finance, repairs })}
+        draft={drafts.find(d => d.standard_key === selected.standard_key) ?? null}
+        onChanged={onChanged} key={selected.id} />}
+
+    {open && selected && selected.standard_key !== "agm_notice" && !standardPreview[selected.standard_key ?? ""] &&
+      <WidgetDialog open={open} onOpenChange={setOpen} widget={selected} task={currentTaskFor(selected, tasks)}
+        documents={documents} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} key={selected.id} />}
   </div>;
 }
