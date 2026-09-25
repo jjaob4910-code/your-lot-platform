@@ -461,6 +461,21 @@ export type Database = {
           },
         ]
       }
+      notification_reads: {
+        Row: {
+          last_read_at: string
+          user_id: string
+        }
+        Insert: {
+          last_read_at?: string
+          user_id: string
+        }
+        Update: {
+          last_read_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       compliance_widgets: {
         Row: {
           created_at: string

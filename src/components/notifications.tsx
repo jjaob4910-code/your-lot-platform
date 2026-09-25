@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Bell, Calendar, FileCheck2, MessageSquare, Vote, Wrench } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -13,19 +14,45 @@ const relativeDay = (value: string) => {
   return `${days} days ago`;
 };
 
-type NotificationItem = { id: string; category: string; icon: typeof Bell; text: string; sub: string; tab: string };
+// `timestamp` drives read/unread — only set for genuine one-off events (a vote
+// request, an update, a message). Compliance/calendar items are ongoing
+// reminders, not "new" occurrences, so they never carry one and never affect
+// the unread dot or count.
+type NotificationItem = { id: string; category: string; icon: typeof Bell; text: string; sub: string; tab: string; timestamp?: string | undefined };
 
-export function NotificationsBell({ schemeId, isCommittee, myLot, goTo }: {
-  schemeId?: string | undefined; isCommittee: boolean; myLot: Lot | null; goTo: (tab: string) => void;
+export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }: {
+  schemeId?: string | undefined; userId?: string | undefined; isCommittee: boolean; myLot: Lot | null; goTo: (tab: string) => void;
 }) {
+  const queryClient = useQueryClient();
+  const [optimisticReadAt, setOptimisticReadAt] = useState<string | null>(null);
+
+  const lastRead = useQuery({
+    queryKey: ["notif-last-read", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("notification_reads").select("last_read_at").eq("user_id", userId!).maybeSingle();
+      if (error) throw error;
+      return data?.last_read_at ?? null;
+    },
+    enabled: !!userId,
+  });
+  const lastReadAt = optimisticReadAt ?? lastRead.data ?? null;
+
+  const markRead = async () => {
+    if (!userId) return;
+    const now = new Date().toISOString();
+    setOptimisticReadAt(now);
+    const { error } = await supabase.from("notification_reads").upsert({ user_id: userId, last_read_at: now });
+    if (!error) queryClient.invalidateQueries({ queryKey: ["notif-last-read", userId] });
+  };
+
   const pendingApprovals = useQuery({
     queryKey: ["notif-approvals", schemeId],
     queryFn: async () => {
       const { data, error } = await supabase.from("maintenance_requests")
-        .select("id, title, work_order_approvals(id, lot_id, decision)")
+        .select("id, title, work_order_approvals(id, lot_id, decision, created_at)")
         .eq("scheme_id", schemeId!).eq("status", "Awaiting approval");
       if (error) throw error;
-      return (data ?? []) as { id: string; title: string; work_order_approvals: { id: string; lot_id: string; decision: string }[] }[];
+      return (data ?? []) as { id: string; title: string; work_order_approvals: { id: string; lot_id: string; decision: string; created_at: string }[] }[];
     },
     enabled: !!schemeId,
   });
@@ -79,19 +106,21 @@ export function NotificationsBell({ schemeId, isCommittee, myLot, goTo }: {
   const openOrders = pendingApprovals.data ?? [];
   const myPendingVotes = myLot ? openOrders.filter(o => o.work_order_approvals.some(a => a.lot_id === myLot.id && a.decision === "Pending")) : [];
   for (const order of myPendingVotes) {
-    items.push({ id: `vote-${order.id}`, category: "Approval needed", icon: Vote, text: `Vote needed: ${order.title}`, sub: "Your lot hasn't responded yet", tab: "Work orders" });
+    const mine = order.work_order_approvals.find(a => a.lot_id === myLot!.id);
+    items.push({ id: `vote-${order.id}`, category: "Approval needed", icon: Vote, text: `Vote needed: ${order.title}`, sub: "Your lot hasn't responded yet", tab: "Work orders", timestamp: mine?.created_at });
   }
   if (isCommittee) {
-    const totalPending = openOrders.reduce((sum, o) => sum + o.work_order_approvals.filter(a => a.decision === "Pending").length, 0);
-    if (totalPending > 0) {
-      items.push({ id: "votes-aggregate", category: "Approval needed", icon: Vote, text: `${totalPending} approval vote${totalPending === 1 ? "" : "s"} still open`, sub: `across ${openOrders.length} work order${openOrders.length === 1 ? "" : "s"}`, tab: "Work orders" });
+    const pendingRows = openOrders.flatMap(o => o.work_order_approvals.filter(a => a.decision === "Pending"));
+    if (pendingRows.length > 0) {
+      const newest = pendingRows.reduce((max, r) => r.created_at > max ? r.created_at : max, pendingRows[0]!.created_at);
+      items.push({ id: "votes-aggregate", category: "Approval needed", icon: Vote, text: `${pendingRows.length} approval vote${pendingRows.length === 1 ? "" : "s"} still open`, sub: `across ${openOrders.length} work order${openOrders.length === 1 ? "" : "s"}`, tab: "Work orders", timestamp: newest });
     }
   }
 
   for (const u of recentUpdates.data ?? []) {
     const relevant = isCommittee || (myLot && u.maintenance_requests?.submitted_by_lot_id === myLot.id);
     if (!relevant) continue;
-    items.push({ id: `update-${u.id}`, category: "Work order update", icon: Wrench, text: u.maintenance_requests?.title ?? "Work order", sub: `${u.note} · ${relativeDay(u.created_at)}`, tab: "Work orders" });
+    items.push({ id: `update-${u.id}`, category: "Work order update", icon: Wrench, text: u.maintenance_requests?.title ?? "Work order", sub: `${u.note} · ${relativeDay(u.created_at)}`, tab: "Work orders", timestamp: u.created_at });
   }
 
   for (const task of compliance.data ?? []) {
@@ -107,17 +136,20 @@ export function NotificationsBell({ schemeId, isCommittee, myLot, goTo }: {
   }
 
   for (const notice of notices.data ?? []) {
-    items.push({ id: `notice-${notice.id}`, category: "Message", icon: MessageSquare, text: notice.title, sub: `Posted ${relativeDay(notice.created_at)}`, tab: "Dashboard" });
+    items.push({ id: `notice-${notice.id}`, category: "Message", icon: MessageSquare, text: notice.title, sub: `Posted ${relativeDay(notice.created_at)}`, tab: "Dashboard", timestamp: notice.created_at });
   }
 
   const categoryOrder = ["Approval needed", "Work order update", "Compliance", "Upcoming event", "Message"];
   items.sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 
-  return <Popover>
+  const isUnread = (item: NotificationItem) => !!item.timestamp && (!lastReadAt || item.timestamp > lastReadAt);
+  const hasUnread = items.some(isUnread);
+
+  return <Popover onOpenChange={(open)=>{ if (open) void markRead(); }}>
     <PopoverTrigger asChild>
       <Button size="icon" variant="ghost" className="relative rounded-full" aria-label="Notifications">
         <Bell/>
-        {items.length > 0 && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive"/>}
+        {hasUnread && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive"/>}
       </Button>
     </PopoverTrigger>
     <PopoverContent align="end" className="w-80 max-h-[70vh] overflow-y-auto p-0">
@@ -127,10 +159,13 @@ export function NotificationsBell({ schemeId, isCommittee, myLot, goTo }: {
         : <div className="divide-y divide-border/70">
             {items.map(item => <button key={item.id} type="button" onClick={()=>goTo(item.tab)}
               className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40">
-              <item.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground"/>
+              <span className="relative mt-0.5 shrink-0">
+                <item.icon className="size-4 text-muted-foreground"/>
+                {isUnread(item) && <span className="absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-destructive"/>}
+              </span>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{item.category}</p>
-                <p className="mt-0.5 truncate text-[13px] font-medium">{item.text}</p>
+                <p className={`mt-0.5 truncate text-[13px] ${isUnread(item) ? "font-semibold" : "font-medium"}`}>{item.text}</p>
                 <p className="mt-0.5 text-[12px] text-muted-foreground">{item.sub}</p>
               </div>
             </button>)}
