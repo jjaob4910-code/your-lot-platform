@@ -451,7 +451,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
         <button type="button" key={lot.id} onClick={()=>setViewing(lot)}
           className="flex w-full flex-wrap items-center justify-between gap-4 px-7 py-5 text-left transition-colors hover:bg-muted/40">
           <div><p className="text-sm font-medium">Lot {lot.lot_number}{lot.owner_name ? ` · ${lot.owner_name}` : ""}</p><p className="mt-1 text-[12px] text-muted-foreground">{lot.owner_email ?? "No email on file"}</p></div>
-          <div className="flex items-center gap-4 text-[12px] text-muted-foreground"><span>{lot.occupied_status}</span><span className="text-foreground">View details</span></div>
+          <div className="flex items-center gap-4 text-[12px] text-muted-foreground"><span>{lot.entitlement_percent}% entitlement</span><span>{lot.occupied_status}</span><span className="text-foreground">View details</span></div>
         </button>)}
         {lots.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">No lots visible to you yet.</p>}
       </div>
@@ -464,6 +464,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
         </DialogHeader>
         <div className="divide-y divide-border/70 text-sm">
           {[["Owner", viewing?.owner_name || "Not recorded"],
+            ["Entitlement", `${viewing?.entitlement_percent ?? 0}%`],
             ["Email", viewing?.owner_email || "No email on file"],
             ["Phone", viewing?.owner_phone || "No phone on file"],
             ["Address", viewing?.street_address || "No address on file"],
