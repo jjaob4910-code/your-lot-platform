@@ -14,6 +14,82 @@ export type Database = {
   }
   public: {
     Tables: {
+      action_drafts: {
+        Row: {
+          content: string
+          id: string
+          scheme_id: string
+          standard_key: string
+          updated_at: string
+        }
+        Insert: {
+          content?: string
+          id?: string
+          scheme_id: string
+          standard_key: string
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          id?: string
+          scheme_id?: string
+          standard_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "action_drafts_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agm_meetings: {
+        Row: {
+          agenda: Json
+          created_at: string
+          id: string
+          meeting_date: string | null
+          notes: string
+          published_at: string | null
+          scheme_id: string
+          status: string
+          title: string
+        }
+        Insert: {
+          agenda?: Json
+          created_at?: string
+          id?: string
+          meeting_date?: string | null
+          notes?: string
+          published_at?: string | null
+          scheme_id: string
+          status?: string
+          title: string
+        }
+        Update: {
+          agenda?: Json
+          created_at?: string
+          id?: string
+          meeting_date?: string | null
+          notes?: string
+          published_at?: string | null
+          scheme_id?: string
+          status?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agm_meetings_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       budget_line_items: {
         Row: {
           amount: number
