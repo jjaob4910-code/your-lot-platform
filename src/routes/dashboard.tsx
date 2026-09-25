@@ -35,8 +35,8 @@ export const Route = createFileRoute("/dashboard")({
   component: DashboardPage,
 });
 
-type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null };
-type Lot = {
+export type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null };
+export type Lot = {
   id: string; lot_number: number; owner_name: string | null; owner_email: string | null;
   owner_phone: string | null; street_address: string | null;
   owner_user_id: string | null; entitlement_percent: number; occupied_status: string
@@ -57,7 +57,7 @@ type BudgetRevision = {
   levies_recalculated: boolean; created_at: string;
 };
 type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null; created_at: string };
-type ComplianceWidget = {
+export type ComplianceWidget = {
   id: string; scheme_id: string; label: string; is_standard: boolean; standard_key: string | null;
   default_detail: string | null; enabled: boolean; sort_order: number;
 };
@@ -70,7 +70,7 @@ const sections = [
   ["Documents", Files],
 ] as const;
 
-const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
+export const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 const effectiveLevyStatus = (levy: Levy) => (levy.status === "Pending" && daysUntil(levy.due_date) < 0 ? "Overdue" : levy.status);
 const niceDate = (value: string) => new Date(value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
@@ -288,6 +288,11 @@ function DashboardPage() {
   const isCommittee = roleQuery.data === "Committee";
   const myLot = myLotQuery.data ?? null;
 
+  useEffect(() => {
+    if (!authChecked || !userId || scheme.isLoading || roleQuery.isLoading) return;
+    if (scheme.data === null && isCommittee) navigate({ to: "/onboarding", replace: true });
+  }, [authChecked, userId, scheme.isLoading, scheme.data, roleQuery.isLoading, isCommittee, navigate]);
+
   if (!authChecked) return null;
 
   return <div className="relative isolate min-h-screen bg-background">
@@ -492,7 +497,7 @@ function reminderText(levy: Levy, status: string) {
 
 const LEVY_FOLDER = "Levies";
 
-async function ensureLevyFolder(schemeId: string) {
+export async function ensureLevyFolder(schemeId: string) {
   const { data: found } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", LEVY_FOLDER).maybeSingle();
   if (found?.id) return found.id as string;
   const { data, error } = await supabase.from("document_folders").insert({ scheme_id: schemeId, name: LEVY_FOLDER, icon: "Receipt", color: "amber" }).select("id").single();
@@ -500,7 +505,7 @@ async function ensureLevyFolder(schemeId: string) {
   return data.id as string;
 }
 
-async function uploadLevyDoc(schemeId: string, file: File, opts: { category: string; budget_line_item_id?: string; levy_id?: string }) {
+export async function uploadLevyDoc(schemeId: string, file: File, opts: { category: string; budget_line_item_id?: string; levy_id?: string }) {
   const folderId = await ensureLevyFolder(schemeId);
   const path = `${schemeId}/${crypto.randomUUID()}-${file.name}`;
   const up = await supabase.storage.from("documents").upload(path, file);
@@ -520,12 +525,12 @@ async function openLevyDoc(doc: DocFile) {
   window.open(data.signedUrl, "_blank", "noopener");
 }
 
-const shareAmount = (method: string, entitlementPercent: number, lotCount: number, total: number) =>
+export const shareAmount = (method: string, entitlementPercent: number, lotCount: number, total: number) =>
   Math.round((method === "Equal" ? total / Math.max(1, lotCount) : (entitlementPercent / 100) * total) * 100) / 100;
 
-type DraftLine = { id: string; fund: "Admin" | "Maintenance"; description: string; amount: string; file: File | null };
-const emptyDraftLine = (): DraftLine => ({ id: crypto.randomUUID(), fund: "Admin", description: "", amount: "", file: null });
-const draftTotals = (lines: DraftLine[]) => ({
+export type DraftLine = { id: string; fund: "Admin" | "Maintenance"; description: string; amount: string; file: File | null };
+export const emptyDraftLine = (): DraftLine => ({ id: crypto.randomUUID(), fund: "Admin", description: "", amount: "", file: null });
+export const draftTotals = (lines: DraftLine[]) => ({
   admin: lines.filter(l => l.fund === "Admin").reduce((s, l) => s + (Number(l.amount) || 0), 0),
   maintenance: lines.filter(l => l.fund === "Maintenance").reduce((s, l) => s + (Number(l.amount) || 0), 0),
 });
@@ -558,7 +563,7 @@ const refundText = (levy: Levy, diff: number, financialYear: string) => {
     : `Hi ${who},\n\nFollowing a correction to the ${financialYear} budget, your paid levy for Lot ${lot} of ${money(Number(levy.amount))} has been reassessed at ${money(reassessed)}.\n\nAn additional ${money(diff)} is now owing. The committee will follow up with you about this.\n\nThanks,\nYour owners corporation committee`;
 };
 
-function LineItemsEditor({ lines, setLines }: { lines: DraftLine[]; setLines: (lines: DraftLine[]) => void }) {
+export function LineItemsEditor({ lines, setLines }: { lines: DraftLine[]; setLines: (lines: DraftLine[]) => void }) {
   const update = (id: string, patch: Partial<DraftLine>) => setLines(lines.map(l => l.id === id ? { ...l, ...patch } : l));
   const remove = (id: string) => { if (lines.length > 1) setLines(lines.filter(l => l.id !== id)); };
   return <div className="space-y-3">
@@ -581,7 +586,7 @@ function LineItemsEditor({ lines, setLines }: { lines: DraftLine[]; setLines: (l
   </div>;
 }
 
-function InvoicePreview({ lots, method, total }: { lots: Lot[]; method: string; total: number }) {
+export function InvoicePreview({ lots, method, total }: { lots: Lot[]; method: string; total: number }) {
   if (lots.length === 0) return <p className="text-[12px] text-muted-foreground">Add your lots first and this will show what each one will be billed.</p>;
   return <div className="divide-y divide-border/60 rounded-2xl border border-border/70">
     {lots.map(l => <div key={l.id} className="flex items-center justify-between gap-4 px-4 py-2.5 text-[13px]">
@@ -591,7 +596,7 @@ function InvoicePreview({ lots, method, total }: { lots: Lot[]; method: string; 
   </div>;
 }
 
-function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreated }: {
+export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreated }: {
   open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; lots: Lot[]; onCreated: () => void;
 }) {
   const [lines, setLines] = useState<DraftLine[]>([emptyDraftLine()]);
@@ -1034,7 +1039,7 @@ function LeviesSection({ levies, lots, budgets, lineItems, revisions, documents,
 
 const COMPLIANCE_FOLDER = "Compliance";
 
-const STANDARD_WIDGETS: { key: string; label: string; detail: string }[] = [
+export const STANDARD_WIDGETS: { key: string; label: string; detail: string }[] = [
   { key: "agm_notice", label: "AGM Notice", detail: "Written notice to every owner ahead of the annual general meeting." },
   { key: "insurance_renewal", label: "Insurance Renewal", detail: "Keep building insurance current, renewed before the policy lapses." },
   { key: "financial_statements", label: "Financial Statements", detail: "Prepare the annual financial statements: what came in, what went out." },
@@ -1055,7 +1060,7 @@ function urgencyTone(dueDate: string | null | undefined, done: boolean) {
   return { label: `${left} days left`, className: "text-muted-foreground" };
 }
 
-async function ensureStandardWidgets(schemeId: string, existing: ComplianceWidget[]) {
+export async function ensureStandardWidgets(schemeId: string, existing: ComplianceWidget[]) {
   const missing = STANDARD_WIDGETS.filter(sw => !existing.some(w => w.standard_key === sw.key));
   if (missing.length === 0) return false;
   const { error } = await supabase.from("compliance_widgets").insert(

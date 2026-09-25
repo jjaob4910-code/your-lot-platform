@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { Compass, Pencil, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -166,6 +167,7 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
   scheme: Scheme | null; lots: Lot[]; committeeRoles: CommitteeRole[]; settings: SchemeSettings | null;
   isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
 }) {
+  const navigate = useNavigate();
   const [editingScheme, setEditingScheme] = useState(false);
   const [creatingScheme, setCreatingScheme] = useState(false);
   const [addingRole, setAddingRole] = useState(false);
@@ -190,7 +192,10 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
 
     <Card className="mt-10 overflow-hidden">
       <SectionHeading title="Building details" blurb="The basics your owners and levies are built around."
-        action={isCommittee && scheme ? <Button variant="outline" size="sm" className="rounded-full" onClick={()=>setEditingScheme(true)}><Pencil className="size-3.5"/>Edit</Button> : undefined}/>
+        action={isCommittee && scheme ? <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="rounded-full" onClick={()=>navigate({ to: "/onboarding" })}><Compass className="size-3.5"/>Run setup guide</Button>
+          <Button variant="outline" size="sm" className="rounded-full" onClick={()=>setEditingScheme(true)}><Pencil className="size-3.5"/>Edit</Button>
+        </div> : undefined}/>
       {scheme
         ? <div className="grid gap-5 p-7 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Building name" value={scheme.name}/>
