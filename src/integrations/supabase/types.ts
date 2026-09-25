@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           amount: number
           budget_id: string
+          cost_type: string
           created_at: string
           description: string
           fund: string
@@ -28,6 +29,7 @@ export type Database = {
         Insert: {
           amount?: number
           budget_id: string
+          cost_type?: string
           created_at?: string
           description: string
           fund?: string
@@ -38,6 +40,7 @@ export type Database = {
         Update: {
           amount?: number
           budget_id?: string
+          cost_type?: string
           created_at?: string
           description?: string
           fund?: string
@@ -681,6 +684,7 @@ export type Database = {
       finance_transactions: {
         Row: {
           amount: number
+          budget_line_item_id: string | null
           category: string | null
           created_at: string
           description: string
@@ -697,6 +701,7 @@ export type Database = {
         }
         Insert: {
           amount?: number
+          budget_line_item_id?: string | null
           category?: string | null
           created_at?: string
           description: string
@@ -713,6 +718,7 @@ export type Database = {
         }
         Update: {
           amount?: number
+          budget_line_item_id?: string | null
           category?: string | null
           created_at?: string
           description?: string
@@ -728,6 +734,13 @@ export type Database = {
           work_order_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "finance_transactions_budget_line_item_id_fkey"
+            columns: ["budget_line_item_id"]
+            isOneToOne: false
+            referencedRelation: "budget_line_items"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "finance_transactions_scheme_id_fkey"
             columns: ["scheme_id"]

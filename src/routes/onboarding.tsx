@@ -283,7 +283,7 @@ function OnboardingPage() {
     : <span/>;
 
   const insuranceLines: DraftLine[] = (policies.data ?? []).map(p => ({
-    id: p.id, fund: "Admin", description: `${p.policy_type} insurance${p.insurer ? ` — ${p.insurer}` : ""}`,
+    id: p.id, fund: "Admin", costType: "Fixed", description: `${p.policy_type} insurance${p.insurer ? ` — ${p.insurer}` : ""}`,
     amount: p.premium != null ? String(p.premium) : "", file: null,
   }));
 

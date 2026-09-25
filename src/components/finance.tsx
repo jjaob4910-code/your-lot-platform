@@ -14,8 +14,9 @@ import type { DocFile } from "@/components/documents";
 export type FinanceTx = {
   id: string; scheme_id: string; direction: string; fund: string; category: string | null;
   description: string; supplier: string | null; amount: number; occurred_on: string;
-  status: string; work_order_id: string | null; notes: string | null;
+  status: string; work_order_id: string | null; notes: string | null; budget_line_item_id: string | null;
 };
+export type FinanceLineItem = { id: string; budget_id: string; fund: string; cost_type: string; description: string; amount: number };
 export type FinanceBudget = {
   id: string; financial_year: string; admin_fund_total: number; maintenance_fund_total: number;
   allocation_method: string | null; levy_due_date: string;
@@ -67,15 +68,17 @@ function Row({ label, value, tone = "" }: { label: string; value: string; tone?:
   </div>;
 }
 
-function TxDialog({ open, onOpenChange, schemeId, tx, defaultFund, onSaved }: {
+function TxDialog({ open, onOpenChange, schemeId, tx, defaultFund, lineItems, onSaved }: {
   open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; tx: FinanceTx | null;
-  defaultFund?: string | undefined; onSaved: () => void;
+  defaultFund?: string | undefined; lineItems: FinanceLineItem[]; onSaved: () => void;
 }) {
   const [direction, setDirection] = useState(tx?.direction ?? "out");
   const [fund, setFund] = useState(tx?.fund ?? defaultFund ?? "Admin");
   const [category, setCategory] = useState(tx?.category ?? "");
   const [status, setStatus] = useState(tx?.status ?? "Paid");
+  const [budgetLineItemId, setBudgetLineItemId] = useState(tx?.budget_line_item_id ?? "");
   const categories = direction === "in" ? IN_CATEGORIES : OUT_CATEGORIES;
+  const matchableLines = lineItems.filter(l => l.fund === fund);
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -90,6 +93,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, defaultFund, onSaved }: {
       amount: Number(text("amount") ?? 0) || 0,
       occurred_on: text("occurred_on") ?? new Date().toISOString().slice(0, 10),
       notes: text("notes"),
+      budget_line_item_id: direction === "out" && budgetLineItemId !== "" ? budgetLineItemId : null,
     };
     if (payload.description === "") { toast("Give it a short description first"); return; }
     const { error } = tx
@@ -144,6 +148,17 @@ function TxDialog({ open, onOpenChange, schemeId, tx, defaultFund, onSaved }: {
             </Select>
           </div>
         </div>
+        {direction === "out" && <div className="space-y-2">
+          <Label>Match to budget line (optional)</Label>
+          <Select value={budgetLineItemId} onValueChange={setBudgetLineItemId}>
+            <SelectTrigger><SelectValue placeholder="Not budgeted" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Not budgeted</SelectItem>
+              {matchableLines.map(l => <SelectItem key={l.id} value={l.id}>{l.description} ({money(l.amount)})</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] leading-5 text-muted-foreground">Matching this to a budget line lets Finance track spend against what was planned. Leave as "Not budgeted" for a cost that wasn't forecast — it'll be flagged for the AGM.</p>
+        </div>}
         <div className="space-y-2"><Label htmlFor="notes">Notes</Label><Textarea id="notes" name="notes" rows={3} defaultValue={tx?.notes ?? ""} placeholder="Anything the committee should remember" /></div>
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -284,8 +299,8 @@ function LineDialog({ open, onOpenChange, schemeId, line, financialYear, startYe
   </Dialog>;
 }
 
-export function FinanceSection({ transactions, budgets, forecastLines, levies, lots, documents, isCommittee, schemeId, goTo, onChanged }: {
-  transactions: FinanceTx[]; budgets: FinanceBudget[]; forecastLines: ForecastLine[]; levies: FinLevy[]; lots: FinLot[];
+export function FinanceSection({ transactions, budgets, forecastLines, lineItems, levies, lots, documents, isCommittee, schemeId, goTo, onChanged }: {
+  transactions: FinanceTx[]; budgets: FinanceBudget[]; forecastLines: ForecastLine[]; lineItems: FinanceLineItem[]; levies: FinLevy[]; lots: FinLot[];
   documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
   goTo?: ((s: string) => void) | undefined; onChanged: () => void;
 }) {
@@ -339,6 +354,18 @@ export function FinanceSection({ transactions, budgets, forecastLines, levies, l
 
   const activeBudget = yearBudgets[0] ?? null;
   const yearLines = forecastLines.filter(l => budgetStartYear(l.financial_year) === year);
+
+  // Budget-vs-actual, per line item — surfaces anything paid that either wasn't
+  // budgeted for at all, or has pushed a specific line past what it budgeted,
+  // so it can be flagged for the AGM rather than only seen as a fund-wide total.
+  const activeLineItems = activeBudget ? lineItems.filter(li => li.budget_id === activeBudget.id) : [];
+  const paidOutTx = yearTx.filter(t => t.direction === "out" && t.status === "Paid");
+  const spentAgainstLine = (lineId: string) => sum(paidOutTx.filter(t => t.budget_line_item_id === lineId));
+  const overBudgetLines = activeLineItems
+    .map(li => ({ line: li, spent: spentAgainstLine(li.id), over: spentAgainstLine(li.id) - Number(li.amount) }))
+    .filter(x => x.over > 0);
+  const unbudgetedTx = paidOutTx.filter(t => !t.budget_line_item_id);
+  const needsReporting = unbudgetedTx.length > 0 || overBudgetLines.length > 0;
 
   const monthsElapsed = year === currentFy ? Math.min(12, Math.max(1, (today.getMonth() + 12 - 6) % 12 + 1)) : 12;
   const projectedSpend = totalOut / monthsElapsed * 12 + admin.committed + maintenance.committed;
@@ -435,9 +462,12 @@ export function FinanceSection({ transactions, budgets, forecastLines, levies, l
       </div>} />
 
     <div className="grid gap-4 lg:grid-cols-3">
-      {([["Admin fund", "Admin", admin], ["Maintenance fund", "Maintenance", maintenance]] as const).map(([label, fundKey, f]) => <Card key={label} className="p-6">
+      {([["Admin fund", "day-to-day running costs", "Admin", admin], ["Maintenance fund", "savings for bigger repairs and works", "Maintenance", maintenance]] as const).map(([label, subtitle, fundKey, f]) => <Card key={label} className="p-6">
         <div className="flex items-center justify-between">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground/80">{subtitle}</p>
+          </div>
           <Coins className="size-4 text-muted-foreground" />
         </div>
         <p className="mt-4 text-3xl font-medium tracking-[-0.03em] tabular-nums">{money(f.balance)}</p>
@@ -447,9 +477,10 @@ export function FinanceSection({ transactions, budgets, forecastLines, levies, l
           <Row label="Collected" value={money(f.collected)} />
           <Row label="Still owing" value={money(f.owing)} tone={f.owing > 0 ? "text-destructive" : ""} />
           <Row label="Spent" value={money(f.spent)} />
-          <Row label="Committed" value={money(f.committed)} />
-          <Row label="Left in budget" value={money(f.remaining)} tone={f.remaining < 0 ? "text-destructive" : ""} />
+          <Row label="Already committed" value={money(f.committed)} />
+          <Row label="Remaining budget" value={money(f.remaining)} tone={f.remaining < 0 ? "text-destructive" : ""} />
         </div>
+        <p className="mt-3 text-[11px] leading-5 text-muted-foreground/80">"Already committed" is work quoted or approved but not yet paid — it's set aside from the remaining budget so it isn't spent twice.</p>
         {isCommittee && <div className="mt-5 flex flex-wrap gap-2">
           <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setEditing(null); setRecordFund(fundKey); setTxOpen(true); }}><Plus />Money in or out</Button>
           <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setBudgetOpen(true)}><Pencil />Adjust budget</Button>
@@ -500,6 +531,23 @@ export function FinanceSection({ transactions, budgets, forecastLines, levies, l
       </div>
     </Card>
 
+    {needsReporting && <Card className="overflow-hidden border-destructive/30">
+      <div className="border-b border-destructive/20 bg-destructive/5 px-6 py-4">
+        <h2 className="font-display text-lg tracking-[-0.02em]">Needs reporting to the AGM</h2>
+        <p className="mt-1 text-[13px] text-muted-foreground">Spending that wasn't in the budget, or that went over what a line item planned for — call these out when you report back to owners.</p>
+      </div>
+      <div className="divide-y divide-border/60">
+        {overBudgetLines.map(({ line, spent, over }) => <div key={line.id} className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5">
+          <div><p className="text-[13px] font-medium">{line.description}</p><p className="mt-0.5 text-[12px] text-muted-foreground">Budgeted {money(Number(line.amount))} · Spent {money(spent)}</p></div>
+          <span className="text-[13px] font-medium tabular-nums text-destructive">{money(over)} over</span>
+        </div>)}
+        {unbudgetedTx.map(t => <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5">
+          <div><p className="text-[13px] font-medium">{t.description}</p><p className="mt-0.5 text-[12px] text-muted-foreground">{niceDate(t.occurred_on)} · {t.fund} fund · not budgeted</p></div>
+          <span className="text-[13px] font-medium tabular-nums">{money2(Number(t.amount))}</span>
+        </div>)}
+      </div>
+    </Card>}
+
     <BudgetPlan lines={yearLines} year={year} fyName={activeBudget?.financial_year ?? fyLabel(year)} currentFy={currentFy}
       schemeId={schemeId} isCommittee={isCommittee} budget={activeBudget}
       fundsOnHand={admin.balance + maintenance.balance} leviesToCollect={admin.owing + maintenance.owing}
@@ -534,7 +582,8 @@ export function FinanceSection({ transactions, budgets, forecastLines, levies, l
               </span>
               <div className="min-w-[180px] flex-1">
                 <p className="text-sm font-medium">{t.description}</p>
-                <p className="mt-0.5 text-[12px] text-muted-foreground">{[niceDate(t.occurred_on), t.category, t.supplier, `${t.fund} fund`].filter(Boolean).join(" · ")}</p>
+                <p className="mt-0.5 text-[12px] text-muted-foreground">{[niceDate(t.occurred_on), t.category, t.supplier, `${t.fund} fund`].filter(Boolean).join(" · ")}
+                  {t.direction === "out" && t.status === "Paid" && !t.budget_line_item_id && <span className="ml-1.5 text-destructive">· not budgeted</span>}</p>
                 {docsFor(t.id).length > 0 && <div className="mt-2 flex flex-wrap gap-2">
                   {docsFor(t.id).map(d => <button key={d.id} onClick={() => void openDoc(d)} className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-secondary/70">{d.name}</button>)}
                 </div>}
@@ -553,7 +602,7 @@ export function FinanceSection({ transactions, budgets, forecastLines, levies, l
     </Card>
 
     {txOpen && <TxDialog key={editing?.id ?? `new-${recordFund ?? "any"}`} open={txOpen} onOpenChange={setTxOpen} schemeId={schemeId}
-      tx={editing} defaultFund={recordFund} onSaved={onChanged} />}
+      tx={editing} defaultFund={recordFund} lineItems={activeLineItems} onSaved={onChanged} />}
 
     {budgetOpen && <BudgetDialog key={activeBudget?.id ?? "no-budget"} open={budgetOpen} onOpenChange={setBudgetOpen}
       budget={activeBudget} fyName={activeBudget?.financial_year ?? fyLabel(year)} hasLevies={yearLevies.length > 0}
