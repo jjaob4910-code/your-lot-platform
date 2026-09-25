@@ -47,7 +47,7 @@ type Levy = {
   lots: { lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number } | null;
   budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number; allocation_method: string | null } | null;
 };
-type BudgetLineItem = { id: string; budget_id: string; scheme_id: string; fund: string; description: string; amount: number };
+export type BudgetLineItem = { id: string; budget_id: string; scheme_id: string; fund: string; description: string; amount: number; cost_type: string };
 type DraftLineItemJson = { fund: string; description: string; amount: number };
 type BudgetRevision = {
   id: string; budget_id: string; scheme_id: string; reason: string;
@@ -334,9 +334,9 @@ function DashboardPage() {
         onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets"])}/>}
 
       {active === "Finance" && <FinanceSection transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
-        forecastLines={forecastLines.data ?? []} lots={lots.data ?? []} documents={documents.data ?? []}
+        forecastLines={forecastLines.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} goTo={setActive}
-        onChanged={()=>refresh(["finance","budgets","levies","forecast-lines","documents","document-folders"])}/>}
+        onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","forecast-lines","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders"])}/>}
@@ -532,16 +532,18 @@ async function openLevyDoc(doc: DocFile) {
 export const shareAmount = (method: string, entitlementPercent: number, lotCount: number, total: number) =>
   Math.round((method === "Equal" ? total / Math.max(1, lotCount) : (entitlementPercent / 100) * total) * 100) / 100;
 
-export type DraftLine = { id: string; fund: "Admin" | "Maintenance"; description: string; amount: string; file: File | null };
-export const emptyDraftLine = (): DraftLine => ({ id: crypto.randomUUID(), fund: "Admin", description: "", amount: "", file: null });
+export type DraftLine = { id: string; fund: "Admin" | "Maintenance"; costType: "Fixed" | "Variable"; description: string; amount: string; file: File | null };
+export const emptyDraftLine = (): DraftLine => ({ id: crypto.randomUUID(), fund: "Admin", costType: "Variable", description: "", amount: "", file: null });
 export const draftTotals = (lines: DraftLine[]) => ({
   admin: lines.filter(l => l.fund === "Admin").reduce((s, l) => s + (Number(l.amount) || 0), 0),
   maintenance: lines.filter(l => l.fund === "Maintenance").reduce((s, l) => s + (Number(l.amount) || 0), 0),
+  fixed: lines.filter(l => l.costType === "Fixed").reduce((s, l) => s + (Number(l.amount) || 0), 0),
+  variable: lines.filter(l => l.costType === "Variable").reduce((s, l) => s + (Number(l.amount) || 0), 0),
 });
-const lineItemsToDraft = (items: { id: string; fund: string; description: string; amount: number }[]): DraftLine[] =>
-  items.length ? items.map(i => ({ id: i.id, fund: i.fund === "Maintenance" ? "Maintenance" : "Admin", description: i.description, amount: String(i.amount), file: null })) : [emptyDraftLine()];
+const lineItemsToDraft = (items: { id: string; fund: string; description: string; amount: number; cost_type?: string }[]): DraftLine[] =>
+  items.length ? items.map(i => ({ id: i.id, fund: i.fund === "Maintenance" ? "Maintenance" : "Admin", costType: i.cost_type === "Fixed" ? "Fixed" : "Variable", description: i.description, amount: String(i.amount), file: null })) : [emptyDraftLine()];
 const jsonLineItemsToDraft = (items: DraftLineItemJson[]): DraftLine[] =>
-  items.length ? items.map(i => ({ id: crypto.randomUUID(), fund: i.fund === "Maintenance" ? "Maintenance" : "Admin", description: i.description, amount: String(i.amount), file: null })) : [emptyDraftLine()];
+  items.length ? items.map(i => ({ id: crypto.randomUUID(), fund: i.fund === "Maintenance" ? "Maintenance" : "Admin", costType: "Variable", description: i.description, amount: String(i.amount), file: null })) : [emptyDraftLine()];
 
 const budgetChangeText = (financialYear: string, reason: string, prevAdmin: number, prevMaint: number, newAdmin: number, newMaint: number, recalculated: boolean) => [
   `Budget update for ${financialYear}`,
@@ -571,11 +573,18 @@ export function LineItemsEditor({ lines, setLines }: { lines: DraftLine[]; setLi
   const update = (id: string, patch: Partial<DraftLine>) => setLines(lines.map(l => l.id === id ? { ...l, ...patch } : l));
   const remove = (id: string) => { if (lines.length > 1) setLines(lines.filter(l => l.id !== id)); };
   return <div className="space-y-3">
+    <p className="text-[11px] leading-5 text-muted-foreground">
+      <span className="font-medium">Fixed</span> — a known, recurring cost (insurance, a cleaning contract). <span className="font-medium">Variable</span> — a one-off or estimated cost (a repair quote).
+    </p>
     {lines.map(line => <div key={line.id} className="rounded-2xl border border-border/70 p-3">
-      <div className="grid gap-2 sm:grid-cols-[120px_1fr_130px_auto_auto] sm:items-center">
+      <div className="grid gap-2 sm:grid-cols-[110px_100px_1fr_130px_auto_auto] sm:items-center">
         <Select value={line.fund} onValueChange={(v) => update(line.id, { fund: v as "Admin" | "Maintenance" })}>
           <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="Admin">Admin</SelectItem><SelectItem value="Maintenance">Maintenance</SelectItem></SelectContent>
+        </Select>
+        <Select value={line.costType} onValueChange={(v) => update(line.id, { costType: v as "Fixed" | "Variable" })}>
+          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+          <SelectContent><SelectItem value="Fixed">Fixed</SelectItem><SelectItem value="Variable">Variable</SelectItem></SelectContent>
         </Select>
         <Input placeholder="What is it" value={line.description} onChange={e => update(line.id, { description: e.target.value })} className="h-9" />
         <Input type="number" min="0" step="0.01" placeholder="Amount" value={line.amount} onChange={e => update(line.id, { amount: e.target.value })} className="h-9" />
@@ -626,7 +635,7 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreat
     const failures: string[] = [];
     for (const line of validLines) {
       const { data: item, error: itemError } = await supabase.from("budget_line_items").insert({
-        budget_id: budget.id as string, scheme_id: schemeId, fund: line.fund, description: line.description, amount: Number(line.amount),
+        budget_id: budget.id as string, scheme_id: schemeId, fund: line.fund, cost_type: line.costType, description: line.description, amount: Number(line.amount),
       }).select().single();
       if (itemError || !item) { failures.push(line.description); continue; }
       if (line.file) {
@@ -666,6 +675,9 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreat
         <div className="rounded-2xl border border-border/70 bg-secondary/40 p-4 text-[13px]">
           <div className="flex justify-between"><span className="text-muted-foreground">Admin fund total</span><span className="font-medium tabular-nums">{money(totals.admin)}</span></div>
           <div className="mt-1.5 flex justify-between"><span className="text-muted-foreground">Maintenance fund total</span><span className="font-medium tabular-nums">{money(totals.maintenance)}</span></div>
+          <div className="mt-3 flex justify-between border-t border-border/60 pt-3 text-[12px] text-muted-foreground"><span>Fixed costs</span><span className="tabular-nums">{money(totals.fixed)}</span></div>
+          <div className="mt-1 flex justify-between text-[12px] text-muted-foreground"><span>Variable costs</span><span className="tabular-nums">{money(totals.variable)}</span></div>
+          <p className="mt-3 border-t border-border/60 pt-3 text-[11px] leading-5 text-muted-foreground">Admin fund — day-to-day running costs. Maintenance fund — savings for bigger repairs and works.</p>
         </div>
         {lots.length > 0 && total > 0 && <div className="space-y-2">
           <Label>Preview — what each lot will be billed</Label>
@@ -734,7 +746,7 @@ function EditBudgetDialog({ open, onOpenChange, schemeId, budget, lots, levies, 
     }
     for (const line of validLines) {
       if (originalIds.has(line.id)) {
-        const { error } = await supabase.from("budget_line_items").update({ fund: line.fund, description: line.description, amount: Number(line.amount) }).eq("id", line.id);
+        const { error } = await supabase.from("budget_line_items").update({ fund: line.fund, cost_type: line.costType, description: line.description, amount: Number(line.amount) }).eq("id", line.id);
         if (error) { failures.push(line.description); continue; }
         if (line.file) {
           const up = await uploadLevyDoc(schemeId, line.file, { category: "Budget line item", budget_line_item_id: line.id });
@@ -742,7 +754,7 @@ function EditBudgetDialog({ open, onOpenChange, schemeId, budget, lots, levies, 
         }
       } else {
         const { data: item, error } = await supabase.from("budget_line_items").insert({
-          budget_id: budget.id, scheme_id: schemeId, fund: line.fund, description: line.description, amount: Number(line.amount),
+          budget_id: budget.id, scheme_id: schemeId, fund: line.fund, cost_type: line.costType, description: line.description, amount: Number(line.amount),
         }).select().single();
         if (error || !item) { failures.push(line.description); continue; }
         if (line.file) {
@@ -822,6 +834,8 @@ function EditBudgetDialog({ open, onOpenChange, schemeId, budget, lots, levies, 
               <div className="rounded-2xl border border-border/70 bg-secondary/40 p-4 text-[13px]">
                 <div className="flex justify-between"><span className="text-muted-foreground">Admin fund total</span><span className="font-medium tabular-nums">{money(totals.admin)}</span></div>
                 <div className="mt-1.5 flex justify-between"><span className="text-muted-foreground">Maintenance fund total</span><span className="font-medium tabular-nums">{money(totals.maintenance)}</span></div>
+                <div className="mt-3 flex justify-between border-t border-border/60 pt-3 text-[12px] text-muted-foreground"><span>Fixed costs</span><span className="tabular-nums">{money(totals.fixed)}</span></div>
+                <div className="mt-1 flex justify-between text-[12px] text-muted-foreground"><span>Variable costs</span><span className="tabular-nums">{money(totals.variable)}</span></div>
               </div>
               {lots.length > 0 && total > 0 && <div className="space-y-2">
                 <Label>Preview if recalculated — what each lot would be billed</Label>

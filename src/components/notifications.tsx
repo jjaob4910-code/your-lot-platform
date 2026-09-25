@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bell, Calendar, FileCheck2, MessageSquare, Vote, Wrench } from "lucide-react";
+import { AlertTriangle, Bell, Calendar, Coins, FileCheck2, MessageSquare, Vote, Wrench } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,15 @@ type NotificationItem = { id: string; category: string; icon: typeof Bell; text:
 export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }: {
   schemeId?: string | undefined; userId?: string | undefined; isCommittee: boolean; myLot: Lot | null; goTo: (tab: string) => void;
 }) {
+  const schemeSettings = useQuery({
+    queryKey: ["notif-scheme-settings", schemeId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("scheme_settings").select("notify_levy_due").eq("scheme_id", schemeId!).maybeSingle();
+      if (error) throw error;
+      return data?.notify_levy_due ?? true;
+    },
+    enabled: !!schemeId,
+  });
   const queryClient = useQueryClient();
   const [optimisticReadAt, setOptimisticReadAt] = useState<string | null>(null);
 
@@ -101,6 +110,31 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
     enabled: !!schemeId,
   });
 
+  const duelevies = useQuery({
+    queryKey: ["notif-levies", schemeId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("levies")
+        .select("id, lot_id, amount, due_date, status, budgets!inner(scheme_id)")
+        .eq("budgets.scheme_id", schemeId!).eq("status", "Pending");
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; lot_id: string; amount: number; due_date: string; status: string }[];
+    },
+    enabled: !!schemeId,
+  });
+
+  const unbudgetedSpend = useQuery({
+    queryKey: ["notif-unbudgeted", schemeId],
+    queryFn: async () => {
+      const since = new Date(Date.now() - 7 * 86400000).toISOString();
+      const { data, error } = await supabase.from("finance_transactions")
+        .select("id, description, amount, occurred_on, created_at")
+        .eq("scheme_id", schemeId!).eq("direction", "out").eq("status", "Paid").is("budget_line_item_id", null).gte("created_at", since);
+      if (error) throw error;
+      return (data ?? []) as { id: string; description: string; amount: number; occurred_on: string; created_at: string }[];
+    },
+    enabled: !!schemeId && isCommittee,
+  });
+
   const items: NotificationItem[] = [];
 
   const openOrders = pendingApprovals.data ?? [];
@@ -139,7 +173,25 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
     items.push({ id: `notice-${notice.id}`, category: "Message", icon: MessageSquare, text: notice.title, sub: `Posted ${relativeDay(notice.created_at)}`, tab: "Dashboard", timestamp: notice.created_at });
   }
 
-  const categoryOrder = ["Approval needed", "Work order update", "Compliance", "Upcoming event", "Message"];
+  if (schemeSettings.data !== false) {
+    const dueSoon = (duelevies.data ?? []).filter(l => daysUntil(l.due_date) <= 14);
+    if (isCommittee) {
+      if (dueSoon.length > 0) {
+        items.push({ id: "levies-aggregate", category: "Levy due", icon: Coins, text: `${dueSoon.length} levy${dueSoon.length === 1 ? "" : "ies"} coming due`, sub: "Across the scheme", tab: "Levies" });
+      }
+    } else if (myLot) {
+      for (const levy of dueSoon.filter(l => l.lot_id === myLot.id)) {
+        const left = daysUntil(levy.due_date);
+        items.push({ id: `levy-${levy.id}`, category: "Levy due", icon: Coins, text: `Levy due ${left < 0 ? `${Math.abs(left)} days ago` : left === 0 ? "today" : `in ${left} days`}`, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(levy.amount))}`, tab: "Levies" });
+      }
+    }
+  }
+
+  for (const tx of unbudgetedSpend.data ?? []) {
+    items.push({ id: `unbudgeted-${tx.id}`, category: "Unbudgeted spend", icon: AlertTriangle, text: tx.description, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(tx.amount))} · not in the budget`, tab: "Finance", timestamp: tx.created_at });
+  }
+
+  const categoryOrder = ["Approval needed", "Unbudgeted spend", "Work order update", "Levy due", "Compliance", "Upcoming event", "Message"];
   items.sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 
   const isUnread = (item: NotificationItem) => !!item.timestamp && (!lastReadAt || item.timestamp > lastReadAt);
