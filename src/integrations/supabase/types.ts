@@ -346,6 +346,121 @@ export type Database = {
           },
         ]
       }
+      dashboard_widgets: {
+        Row: {
+          created_at: string
+          id: string
+          scheme_id: string
+          sort_order: number
+          updated_at: string
+          widget_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          scheme_id: string
+          sort_order?: number
+          updated_at?: string
+          widget_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          scheme_id?: string
+          sort_order?: number
+          updated_at?: string
+          widget_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_widgets_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notice_comments: {
+        Row: {
+          author_name: string | null
+          created_at: string
+          id: string
+          message: string
+          notice_id: string
+          scheme_id: string
+        }
+        Insert: {
+          author_name?: string | null
+          created_at?: string
+          id?: string
+          message: string
+          notice_id: string
+          scheme_id: string
+        }
+        Update: {
+          author_name?: string | null
+          created_at?: string
+          id?: string
+          message?: string
+          notice_id?: string
+          scheme_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notice_comments_notice_id_fkey"
+            columns: ["notice_id"]
+            isOneToOne: false
+            referencedRelation: "notices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notice_comments_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notices: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          pinned: boolean
+          scheme_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          pinned?: boolean
+          scheme_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          pinned?: boolean
+          scheme_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notices_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       compliance_widgets: {
         Row: {
           created_at: string
