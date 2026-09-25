@@ -596,10 +596,11 @@ export function InvoicePreview({ lots, method, total }: { lots: Lot[]; method: s
   </div>;
 }
 
-export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreated }: {
+export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreated, initialLines }: {
   open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; lots: Lot[]; onCreated: () => void;
+  initialLines?: DraftLine[] | undefined;
 }) {
-  const [lines, setLines] = useState<DraftLine[]>([emptyDraftLine()]);
+  const [lines, setLines] = useState<DraftLine[]>(initialLines && initialLines.length > 0 ? initialLines : [emptyDraftLine()]);
   const [method, setMethod] = useState("Entitlement");
   const [financialYear, setFinancialYear] = useState("");
   const [dueDate, setDueDate] = useState("");
