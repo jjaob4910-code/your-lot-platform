@@ -285,7 +285,7 @@ function OnboardingPage() {
 
   const insuranceLines: DraftLine[] = (policies.data ?? []).map(p => ({
     id: p.id, fund: "Admin", costType: "Fixed", description: `${p.policy_type} insurance${p.insurer ? ` — ${p.insurer}` : ""}`,
-    amount: p.premium != null ? String(p.premium) : "", file: null,
+    amount: p.premium != null ? String(p.premium) : "", month: "", file: null,
   }));
 
   return <div className="relative isolate min-h-screen bg-background">
