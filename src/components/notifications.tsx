@@ -204,7 +204,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
         {hasUnread && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive"/>}
       </Button>
     </PopoverTrigger>
-    <PopoverContent align="end" className="w-80 max-h-[70vh] overflow-y-auto p-0">
+    <PopoverContent align="end" sideOffset={8} collisionPadding={12} className="w-[calc(100vw-24px)] max-w-80 max-h-[70vh] overflow-y-auto p-0">
       <div className="border-b border-border/70 px-4 py-3"><p className="text-sm font-medium">Notifications</p></div>
       {items.length === 0
         ? <p className="px-4 py-8 text-center text-[13px] text-muted-foreground">You're all caught up.</p>
