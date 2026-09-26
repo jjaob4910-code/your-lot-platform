@@ -349,7 +349,7 @@ function DashboardPage() {
         onChanged={()=>refresh(["scheme","lots","committee-roles","scheme-settings"])}/>}
     </main>
 
-    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-border/70 bg-background/90 p-2 backdrop-blur-xl lg:hidden">{sections.slice(0,4).map(([label,Icon])=><Button key={label} variant="ghost" className={`h-14 flex-col gap-1 rounded-2xl px-1 text-[9px] ${active===label?"bg-primary text-primary-foreground":"text-muted-foreground"}`} onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav>
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex gap-1 overflow-x-auto scroll-px-2 snap-x snap-mandatory border-t border-border/70 bg-background/90 p-2 backdrop-blur-xl lg:hidden">{sections.map(([label,Icon])=><Button key={label} variant="ghost" className={`h-14 w-[76px] shrink-0 snap-center flex-col gap-1 rounded-2xl px-1 text-[9px] ${active===label?"bg-primary text-primary-foreground":"text-muted-foreground"}`} onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav>
   </div>;
 }
 
