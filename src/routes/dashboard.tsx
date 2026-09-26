@@ -20,7 +20,7 @@ import { CalendarSection } from "@/components/calendar-view";
 import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
 import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment } from "@/components/overview";
-import { FinanceSection, type FinanceBudget, type FinanceTx, type ForecastLine, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
+import { FinanceSection, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
 import { computeFundBalances, currentFinancialYearStart, type Levy } from "@/lib/fund-balance";
@@ -225,15 +225,6 @@ function DashboardPage() {
       return (data ?? []) as unknown as FinanceTx[];
     },
   });
-  const forecastLines = useQuery({
-    queryKey: ["forecast-lines"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("budget_forecast_lines").select("*").order("expected_month");
-      if (error) throw error;
-      return (data ?? []) as unknown as ForecastLine[];
-    },
-  });
-
   const actionDrafts = useQuery({
     queryKey: ["action-drafts"],
     queryFn: async () => {
@@ -333,9 +324,9 @@ function DashboardPage() {
         onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets","action-drafts","agm-meetings"])}/>}
 
       {active === "Finance" && <FinanceSection transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
-        revisions={budgetRevisions.data ?? []} forecastLines={forecastLines.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} documents={documents.data ?? []}
+        revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id)=>markLevyPaid.mutate(id)}
-        onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","forecast-lines","documents","document-folders"])}/>}
+        onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders"])}/>}

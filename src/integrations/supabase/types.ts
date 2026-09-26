@@ -97,6 +97,7 @@ export type Database = {
           cost_type: string
           created_at: string
           description: string
+          expected_month: number | null
           fund: string
           id: string
           scheme_id: string
@@ -108,6 +109,7 @@ export type Database = {
           cost_type?: string
           created_at?: string
           description: string
+          expected_month?: number | null
           fund?: string
           id?: string
           scheme_id: string
@@ -119,6 +121,7 @@ export type Database = {
           cost_type?: string
           created_at?: string
           description?: string
+          expected_month?: number | null
           fund?: string
           id?: string
           scheme_id?: string
@@ -209,59 +212,6 @@ export type Database = {
           },
           {
             foreignKeyName: "budget_revisions_scheme_id_fkey"
-            columns: ["scheme_id"]
-            isOneToOne: false
-            referencedRelation: "schemes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      budget_forecast_lines: {
-        Row: {
-          amount: number
-          category: string | null
-          created_at: string
-          direction: string
-          expected_month: number
-          financial_year: string
-          fund: string
-          id: string
-          label: string
-          notes: string | null
-          scheme_id: string
-          updated_at: string
-        }
-        Insert: {
-          amount?: number
-          category?: string | null
-          created_at?: string
-          direction?: string
-          expected_month?: number
-          financial_year: string
-          fund?: string
-          id?: string
-          label: string
-          notes?: string | null
-          scheme_id: string
-          updated_at?: string
-        }
-        Update: {
-          amount?: number
-          category?: string | null
-          created_at?: string
-          direction?: string
-          expected_month?: number
-          financial_year?: string
-          fund?: string
-          id?: string
-          label?: string
-          notes?: string | null
-          scheme_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "budget_forecast_lines_scheme_id_fkey"
             columns: ["scheme_id"]
             isOneToOne: false
             referencedRelation: "schemes"

@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
-import { ArrowDownRight, ArrowUpRight, Calculator, Coins, History, Paperclip, Pencil, Plus, Send, Trash2, Undo2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Coins, History, Paperclip, Pencil, Plus, Send, Trash2, Undo2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -18,14 +18,10 @@ export type FinanceTx = {
   description: string; supplier: string | null; amount: number; occurred_on: string;
   status: string; work_order_id: string | null; notes: string | null; budget_line_item_id: string | null;
 };
-export type BudgetLineItem = { id: string; budget_id: string; scheme_id: string; fund: string; description: string; amount: number; cost_type: string };
+export type BudgetLineItem = { id: string; budget_id: string; scheme_id: string; fund: string; description: string; amount: number; cost_type: string; expected_month: number | null };
 export type FinanceBudget = {
   id: string; financial_year: string; admin_fund_total: number; maintenance_fund_total: number;
   allocation_method: string | null; levy_due_date: string;
-};
-export type ForecastLine = {
-  id: string; scheme_id: string; financial_year: string; direction: string; fund: string;
-  category: string | null; label: string; amount: number; expected_month: number; notes: string | null;
 };
 export type BudgetRevision = {
   id: string; budget_id: string; scheme_id: string; reason: string;
@@ -117,18 +113,35 @@ function reminderText(levy: Levy, status: string) {
 export const shareAmount = (method: string, entitlementPercent: number, lotCount: number, total: number) =>
   Math.round((method === "Equal" ? total / Math.max(1, lotCount) : (entitlementPercent / 100) * total) * 100) / 100;
 
-export type DraftLine = { id: string; fund: "Admin" | "Maintenance"; costType: "Fixed" | "Variable"; description: string; amount: string; file: File | null };
-export const emptyDraftLine = (): DraftLine => ({ id: crypto.randomUUID(), fund: "Admin", costType: "Variable", description: "", amount: "", file: null });
+export type DraftLine = { id: string; fund: "Admin" | "Maintenance"; costType: "Fixed" | "Variable"; description: string; amount: string; month: string; file: File | null };
+export const emptyDraftLine = (): DraftLine => ({ id: crypto.randomUUID(), fund: "Admin", costType: "Variable", description: "", amount: "", month: "", file: null });
 export const draftTotals = (lines: DraftLine[]) => ({
   admin: lines.filter(l => l.fund === "Admin").reduce((s, l) => s + (Number(l.amount) || 0), 0),
   maintenance: lines.filter(l => l.fund === "Maintenance").reduce((s, l) => s + (Number(l.amount) || 0), 0),
   fixed: lines.filter(l => l.costType === "Fixed").reduce((s, l) => s + (Number(l.amount) || 0), 0),
   variable: lines.filter(l => l.costType === "Variable").reduce((s, l) => s + (Number(l.amount) || 0), 0),
 });
-const lineItemsToDraft = (items: { id: string; fund: string; description: string; amount: number; cost_type?: string }[]): DraftLine[] =>
-  items.length ? items.map(i => ({ id: i.id, fund: i.fund === "Maintenance" ? "Maintenance" : "Admin", costType: i.cost_type === "Fixed" ? "Fixed" : "Variable", description: i.description, amount: String(i.amount), file: null })) : [emptyDraftLine()];
+// Common owners-corporation costs to seed a scheme's very first budget with, so a first-time
+// user only has to adjust amounts rather than think up a list of categories from scratch.
+const STARTER_BUDGET_ROWS: [string, "Admin" | "Maintenance", "Fixed" | "Variable"][] = [
+  ["Building insurance", "Admin", "Fixed"], ["Public liability insurance", "Admin", "Fixed"],
+  ["Cleaning", "Admin", "Fixed"], ["Gardening & grounds", "Admin", "Fixed"],
+  ["Common area electricity", "Admin", "Variable"], ["Water rates", "Admin", "Variable"],
+  ["Pest control", "Admin", "Variable"], ["Fire safety compliance", "Admin", "Fixed"],
+  ["Bank fees & admin", "Admin", "Fixed"], ["Repairs & maintenance", "Maintenance", "Variable"],
+  ["Capital works contribution", "Maintenance", "Fixed"],
+];
+export const STARTER_BUDGET_LINES: DraftLine[] = STARTER_BUDGET_ROWS.map(([description, fund, costType]) => ({ id: crypto.randomUUID(), fund, costType, description, amount: "", month: "", file: null }));
+const lineItemsToDraft = (items: { id: string; fund: string; description: string; amount: number; cost_type?: string; expected_month?: number | null }[]): DraftLine[] =>
+  items.length ? items.map(i => ({ id: i.id, fund: i.fund === "Maintenance" ? "Maintenance" : "Admin", costType: i.cost_type === "Fixed" ? "Fixed" : "Variable", description: i.description, amount: String(i.amount), month: i.expected_month ? String(i.expected_month) : "", file: null })) : [emptyDraftLine()];
 const jsonLineItemsToDraft = (items: DraftLineItemJson[]): DraftLine[] =>
-  items.length ? items.map(i => ({ id: crypto.randomUUID(), fund: i.fund === "Maintenance" ? "Maintenance" : "Admin", costType: "Variable", description: i.description, amount: String(i.amount), file: null })) : [emptyDraftLine()];
+  items.length ? items.map(i => ({ id: crypto.randomUUID(), fund: i.fund === "Maintenance" ? "Maintenance" : "Admin", costType: "Variable", description: i.description, amount: String(i.amount), month: "", file: null })) : [emptyDraftLine()];
+// Starting point for a new year's budget: last year's lines (carried amounts, cleared months)
+// to adjust, or the generic starter template if this scheme has never budgeted before.
+export const draftLinesForNewBudget = (previousYearLineItems: BudgetLineItem[]): DraftLine[] =>
+  previousYearLineItems.length
+    ? previousYearLineItems.map(i => ({ id: crypto.randomUUID(), fund: i.fund === "Maintenance" ? "Maintenance" : "Admin", costType: i.cost_type === "Fixed" ? "Fixed" : "Variable", description: i.description, amount: String(i.amount), month: "", file: null }))
+    : STARTER_BUDGET_LINES.map(l => ({ ...l, id: crypto.randomUUID() }));
 
 const budgetChangeText = (financialYear: string, reason: string, prevAdmin: number, prevMaint: number, newAdmin: number, newMaint: number, recalculated: boolean) => [
   `Budget update for ${financialYear}`,
@@ -154,32 +167,94 @@ const refundText = (levy: Levy, diff: number, financialYear: string) => {
     : `Hi ${who},\n\nFollowing a correction to the ${financialYear} budget, your paid levy for Lot ${lot} of ${money(Number(levy.amount))} has been reassessed at ${money(reassessed)}.\n\nAn additional ${money(diff)} is now owing. The committee will follow up with you about this.\n\nThanks,\nYour owners corporation committee`;
 };
 
-export function LineItemsEditor({ lines, setLines }: { lines: DraftLine[]; setLines: (lines: DraftLine[]) => void }) {
+// A spreadsheet-style editor: one row per cost, fund/type/month as dropdowns, amount
+// as a plain number field, live subtotals per fund at the bottom. Used both for building
+// a brand-new budget and for editing an existing one, so there's exactly one place a
+// committee learns to fill in a cost — not a different tool for each situation.
+export function LineItemsEditor({ lines, setLines, startYear, spentByLineId }: {
+  lines: DraftLine[]; setLines: (lines: DraftLine[]) => void; startYear?: number | undefined;
+  spentByLineId?: ((id: string) => number) | undefined;
+}) {
   const update = (id: string, patch: Partial<DraftLine>) => setLines(lines.map(l => l.id === id ? { ...l, ...patch } : l));
   const remove = (id: string) => { if (lines.length > 1) setLines(lines.filter(l => l.id !== id)); };
+  const totals = draftTotals(lines);
+  const tracking = !!spentByLineId;
+
   return <div className="space-y-3">
     <p className="text-[11px] leading-5 text-muted-foreground">
-      <span className="font-medium">Fixed</span> — a known, recurring cost (insurance, a cleaning contract). <span className="font-medium">Variable</span> — a one-off or estimated cost (a repair quote).
+      <span className="font-medium">Fixed</span> — a known, recurring cost (insurance, a cleaning contract). <span className="font-medium">Variable</span> — a one-off or estimated cost (a repair quote). <span className="font-medium">When</span> — the month you expect to pay it; leave blank if you're not sure yet.
     </p>
-    {lines.map(line => <div key={line.id} className="rounded-2xl border border-border/70 p-3">
-      <div className="grid gap-2 sm:grid-cols-[110px_100px_1fr_130px_auto_auto] sm:items-center">
-        <Select value={line.fund} onValueChange={(v) => update(line.id, { fund: v as "Admin" | "Maintenance" })}>
-          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="Admin">Admin</SelectItem><SelectItem value="Maintenance">Maintenance</SelectItem></SelectContent>
-        </Select>
-        <Select value={line.costType} onValueChange={(v) => update(line.id, { costType: v as "Fixed" | "Variable" })}>
-          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="Fixed">Fixed</SelectItem><SelectItem value="Variable">Variable</SelectItem></SelectContent>
-        </Select>
-        <Input placeholder="What is it" value={line.description} onChange={e => update(line.id, { description: e.target.value })} className="h-9" />
-        <Input type="number" min="0" step="0.01" placeholder="Amount" value={line.amount} onChange={e => update(line.id, { amount: e.target.value })} className="h-9" />
-        <Button asChild type="button" size="icon" variant="ghost" className="rounded-full" aria-label="Attach evidence of cost">
-          <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0] ?? null; update(line.id, { file: f }); e.currentTarget.value = ""; }} /></label>
-        </Button>
-        <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label="Remove this line" onClick={() => remove(line.id)}><Trash2 className="size-4" /></Button>
-      </div>
-      {line.file && <p className="mt-2 text-[11px] text-muted-foreground">Attaching: {line.file.name}</p>}
-    </div>)}
+    <div className="overflow-x-auto rounded-2xl border border-border/70">
+      <table className="w-full min-w-[820px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-border/70 bg-secondary/40 text-left text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <th className="px-3 py-2.5">Description</th>
+            <th className="px-3 py-2.5">Fund</th>
+            <th className="px-3 py-2.5">Type</th>
+            <th className="px-3 py-2.5">When</th>
+            <th className="px-3 py-2.5 text-right">Budgeted</th>
+            {tracking && <th className="px-3 py-2.5 text-right">Spent</th>}
+            {tracking && <th className="px-3 py-2.5 text-right">Remaining</th>}
+            <th className="w-[72px] px-3 py-2.5" />
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map(line => {
+            const spent = tracking ? spentByLineId(line.id) : 0;
+            const remaining = (Number(line.amount) || 0) - spent;
+            return <tr key={line.id} className="border-b border-border/60 last:border-0">
+              <td className="px-3 py-2"><Input placeholder="What is it" value={line.description} onChange={e => update(line.id, { description: e.target.value })} className="h-9" /></td>
+              <td className="px-3 py-2">
+                <Select value={line.fund} onValueChange={(v) => update(line.id, { fund: v as "Admin" | "Maintenance" })}>
+                  <SelectTrigger className="h-9 w-[110px]"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="Admin">Admin</SelectItem><SelectItem value="Maintenance">Maintenance</SelectItem></SelectContent>
+                </Select>
+              </td>
+              <td className="px-3 py-2">
+                <Select value={line.costType} onValueChange={(v) => update(line.id, { costType: v as "Fixed" | "Variable" })}>
+                  <SelectTrigger className="h-9 w-[100px]"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="Fixed">Fixed</SelectItem><SelectItem value="Variable">Variable</SelectItem></SelectContent>
+                </Select>
+              </td>
+              <td className="px-3 py-2">
+                <Select value={line.month} onValueChange={(v) => update(line.id, { month: v })}>
+                  <SelectTrigger className="h-9 w-[110px]"><SelectValue placeholder="Not yet" /></SelectTrigger>
+                  <SelectContent>{FY_MONTHS.map(m => <SelectItem key={m} value={String(m)}>{startYear ? monthLabel(m, startYear) : monthName(m)}</SelectItem>)}</SelectContent>
+                </Select>
+              </td>
+              <td className="px-3 py-2"><Input type="number" min="0" step="0.01" placeholder="0" value={line.amount} onChange={e => update(line.id, { amount: e.target.value })} className="h-9 text-right" /></td>
+              {tracking && <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{money(spent)}</td>}
+              {tracking && <td className={`px-3 py-2 text-right tabular-nums font-medium ${remaining < 0 ? "text-destructive" : ""}`}>{money(remaining)}</td>}
+              <td className="px-3 py-2">
+                <div className="flex items-center justify-end gap-0.5">
+                  <Button asChild type="button" size="icon" variant="ghost" className="rounded-full" aria-label="Attach evidence of cost">
+                    <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0] ?? null; update(line.id, { file: f }); e.currentTarget.value = ""; }} /></label>
+                  </Button>
+                  <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label="Remove this line" onClick={() => remove(line.id)}><Trash2 className="size-4" /></Button>
+                </div>
+              </td>
+            </tr>;
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-border/70 bg-secondary/30 text-[12px] font-medium">
+            <td className="px-3 py-2.5" colSpan={2}>Admin fund subtotal</td>
+            <td className="px-3 py-2.5 text-right tabular-nums" colSpan={tracking ? 5 : 3}>{money(totals.admin)}</td>
+          </tr>
+          <tr className="text-[12px] font-medium">
+            <td className="px-3 py-2.5" colSpan={2}>Maintenance fund subtotal</td>
+            <td className="px-3 py-2.5 text-right tabular-nums" colSpan={tracking ? 5 : 3}>{money(totals.maintenance)}</td>
+          </tr>
+          <tr className="border-t border-border/70 text-[13px] font-semibold">
+            <td className="px-3 py-2.5" colSpan={2}>Total budget</td>
+            <td className="px-3 py-2.5 text-right tabular-nums" colSpan={tracking ? 5 : 3}>{money(totals.admin + totals.maintenance)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {lines.some(l => l.file) && <div className="space-y-1">
+      {lines.filter(l => l.file).map(l => <p key={l.id} className="text-[11px] text-muted-foreground">Attaching for "{l.description || "untitled line"}": {l.file!.name}</p>)}
+    </div>}
     <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => setLines([...lines, emptyDraftLine()])}><Plus className="size-3.5" />Add a line</Button>
   </div>;
 }
@@ -280,7 +355,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, defaultFund, lineItems, on
             <SelectTrigger><SelectValue placeholder="Not budgeted" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="">Not budgeted</SelectItem>
-              {matchableLines.map(l => <SelectItem key={l.id} value={l.id}>{l.description} ({money(l.amount)})</SelectItem>)}
+              {matchableLines.map(l => <SelectItem key={l.id} value={l.id}>{l.description}{l.expected_month ? ` (${monthName(l.expected_month)})` : ""} — {money(l.amount)}</SelectItem>)}
             </SelectContent>
           </Select>
           <p className="text-[11px] leading-5 text-muted-foreground">Matching this to a budget line lets Finance track spend against what was planned. Leave as "Not budgeted" for a cost that wasn't forecast — it'll be flagged for the AGM.</p>
@@ -295,91 +370,11 @@ function TxDialog({ open, onOpenChange, schemeId, tx, defaultFund, lineItems, on
   </Dialog>;
 }
 
-function LineDialog({ open, onOpenChange, schemeId, line, financialYear, startYear, onSaved }: {
-  open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; line: ForecastLine | null;
-  financialYear: string; startYear: number; onSaved: () => void;
-}) {
-  const [direction, setDirection] = useState(line?.direction ?? "out");
-  const [fund, setFund] = useState(line?.fund ?? "Admin");
-  const [category, setCategory] = useState(line?.category ?? "");
-  const [month, setMonth] = useState(String(line?.expected_month ?? 7));
-  const categories = direction === "in" ? IN_CATEGORIES : OUT_CATEGORIES;
-
-  const submit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!schemeId) return;
-    const form = new FormData(e.currentTarget);
-    const notes = String(form.get("notes") ?? "").trim();
-    const payload = {
-      scheme_id: schemeId, financial_year: financialYear, direction, fund,
-      category: category === "" ? null : category,
-      label: String(form.get("label") ?? "").trim(),
-      amount: Number(String(form.get("amount") ?? "0")) || 0,
-      expected_month: Number(month),
-      notes: notes === "" ? null : notes,
-    };
-    if (payload.label === "") { toast("Give the line a short name first"); return; }
-    const { error } = line
-      ? await supabase.from("budget_forecast_lines").update(payload).eq("id", line.id)
-      : await supabase.from("budget_forecast_lines").insert(payload);
-    if (error) { toast("Could not save that line", { description: error.message }); return; }
-    onOpenChange(false); onSaved(); toast(line ? "Line updated" : "Added to the plan");
-  };
-
-  return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[560px]">
-      <DialogHeader>
-        <DialogTitle className="font-display tracking-[-0.02em]">{line ? "Edit a planned line" : "Add to the plan"}</DialogTitle>
-        <DialogDescription>What you expect to happen, which fund it comes from, and the month you expect it.</DialogDescription>
-      </DialogHeader>
-      <form onSubmit={submit} className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Direction</Label>
-            <Select value={direction} onValueChange={v => { setDirection(v); setCategory(""); }}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="out">Money out</SelectItem><SelectItem value="in">Money in</SelectItem></SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Fund</Label>
-            <Select value={fund} onValueChange={setFund}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{FUNDS.map(f => <SelectItem key={f} value={f}>{f} fund</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="space-y-2"><Label htmlFor="label">What is it</Label><Input id="label" name="label" defaultValue={line?.label ?? ""} placeholder="Building insurance renewal" required /></div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2">
-            <Label>Category</Label>
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger><SelectValue placeholder="Choose one" /></SelectTrigger>
-              <SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2"><Label htmlFor="amount">Amount</Label><Input id="amount" name="amount" type="number" min="0" step="0.01" defaultValue={line?.amount ?? ""} required /></div>
-          <div className="space-y-2">
-            <Label>Expected</Label>
-            <Select value={month} onValueChange={setMonth}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{FY_MONTHS.map(m => <SelectItem key={m} value={String(m)}>{monthLabel(m, startYear)}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="space-y-2"><Label htmlFor="notes">Notes</Label><Textarea id="notes" name="notes" rows={3} defaultValue={line?.notes ?? ""} placeholder="How you arrived at the number" /></div>
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" className="rounded-full">{line ? "Save changes" : "Add it"}</Button>
-        </div>
-      </form>
-    </DialogContent>
-  </Dialog>;
-}
-
-export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreated, initialLines }: {
-  open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; lots: FinLot[]; onCreated: () => void;
-  initialLines?: DraftLine[] | undefined;
+// The budget-building form itself, with no opinion on how it's presented — used inline in the
+// Budget tab as the main "start here" experience, and reused inside a Dialog for onboarding.
+export function BudgetBuilderForm({ schemeId, lots, onCreated, onCancel, initialLines, submitLabel }: {
+  schemeId?: string | undefined; lots: FinLot[]; onCreated: () => void; onCancel?: (() => void) | undefined;
+  initialLines?: DraftLine[] | undefined; submitLabel?: string | undefined;
 }) {
   const [lines, setLines] = useState<DraftLine[]>(initialLines && initialLines.length > 0 ? initialLines : [emptyDraftLine()]);
   const [method, setMethod] = useState("Entitlement");
@@ -388,6 +383,7 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreat
   const [submitting, setSubmitting] = useState(false);
   const totals = draftTotals(lines);
   const total = totals.admin + totals.maintenance;
+  const startYear = financialYear.match(/\d{4}/) ? Number(financialYear.match(/\d{4}/)![0]) : undefined;
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -404,6 +400,7 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreat
     for (const line of validLines) {
       const { data: item, error: itemError } = await supabase.from("budget_line_items").insert({
         budget_id: budget.id as string, scheme_id: schemeId, fund: line.fund, cost_type: line.costType, description: line.description, amount: Number(line.amount),
+        expected_month: line.month ? Number(line.month) : null,
       }).select().single();
       if (itemError || !item) { failures.push(line.description); continue; }
       if (line.file) {
@@ -412,7 +409,7 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreat
       }
     }
     setSubmitting(false);
-    onOpenChange(false); onCreated();
+    onCreated();
     if (failures.length > 0) {
       toast("Budget created, but some items need attention", { description: `Could not save: ${failures.join(", ")}. The budget and levies were still created — add these manually from the budget's line items.` });
     } else {
@@ -420,42 +417,44 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreat
     }
   };
 
+  return <form onSubmit={submit} className="space-y-4">
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="space-y-2"><Label htmlFor="financial_year">Financial year</Label><Input id="financial_year" value={financialYear} onChange={e => setFinancialYear(e.target.value)} placeholder="2026/27" required /></div>
+      <div className="space-y-2"><Label htmlFor="levy_due_date">Levy due date</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
+    </div>
+    <div className="space-y-2">
+      <Label>How it is split</Label>
+      <Select value={method} onValueChange={setMethod}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent><SelectItem value="Entitlement">By lot entitlement</SelectItem><SelectItem value="Equal">Equal share for every lot</SelectItem></SelectContent>
+      </Select>
+      <p className="text-[11px] leading-5 text-muted-foreground">{method === "Equal" ? "The total is divided evenly, so every lot pays the same amount." : "Each lot pays its entitlement percentage of the total."}</p>
+    </div>
+    <div className="space-y-2">
+      <Label>Line items</Label>
+      <LineItemsEditor lines={lines} setLines={setLines} startYear={startYear} />
+      <p className="text-[11px] leading-5 text-muted-foreground">Admin fund — day-to-day running costs. Maintenance fund — savings for bigger repairs and works.</p>
+    </div>
+    {lots.length > 0 && total > 0 && <div className="space-y-2">
+      <Label>Preview — what each lot will be billed</Label>
+      <InvoicePreview lots={lots} method={method} total={total} />
+    </div>}
+    <div className="flex justify-end gap-2 pt-2">
+      {onCancel && <Button type="button" variant="ghost" className="rounded-full" onClick={onCancel}>Cancel</Button>}
+      <Button type="submit" className="rounded-full" disabled={submitting}>{submitting ? "Locking in…" : (submitLabel ?? "Lock in budget and issue levies")}</Button>
+    </div>
+  </form>;
+}
+
+export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, onCreated, initialLines }: {
+  open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; lots: FinLot[]; onCreated: () => void;
+  initialLines?: DraftLine[] | undefined;
+}) {
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[640px]">
       <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Create a budget</DialogTitle><DialogDescription>Break the year into line items, and Loty issues a notice to every lot from the totals.</DialogDescription></DialogHeader>
-      <form onSubmit={submit} className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="financial_year">Financial year</Label><Input id="financial_year" value={financialYear} onChange={e => setFinancialYear(e.target.value)} placeholder="2026/27" required /></div>
-          <div className="space-y-2"><Label htmlFor="levy_due_date">Due date</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
-        </div>
-        <div className="space-y-2">
-          <Label>How it is split</Label>
-          <Select value={method} onValueChange={setMethod}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="Entitlement">By lot entitlement</SelectItem><SelectItem value="Equal">Equal share for every lot</SelectItem></SelectContent>
-          </Select>
-          <p className="text-[11px] leading-5 text-muted-foreground">{method === "Equal" ? "The total is divided evenly, so every lot pays the same amount." : "Each lot pays its entitlement percentage of the total."}</p>
-        </div>
-        <div className="space-y-2">
-          <Label>Line items</Label>
-          <LineItemsEditor lines={lines} setLines={setLines} />
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-secondary/40 p-4 text-[13px]">
-          <div className="flex justify-between"><span className="text-muted-foreground">Admin fund total</span><span className="font-medium tabular-nums">{money(totals.admin)}</span></div>
-          <div className="mt-1.5 flex justify-between"><span className="text-muted-foreground">Maintenance fund total</span><span className="font-medium tabular-nums">{money(totals.maintenance)}</span></div>
-          <div className="mt-3 flex justify-between border-t border-border/60 pt-3 text-[12px] text-muted-foreground"><span>Fixed costs</span><span className="tabular-nums">{money(totals.fixed)}</span></div>
-          <div className="mt-1 flex justify-between text-[12px] text-muted-foreground"><span>Variable costs</span><span className="tabular-nums">{money(totals.variable)}</span></div>
-          <p className="mt-3 border-t border-border/60 pt-3 text-[11px] leading-5 text-muted-foreground">Admin fund — day-to-day running costs. Maintenance fund — savings for bigger repairs and works.</p>
-        </div>
-        {lots.length > 0 && total > 0 && <div className="space-y-2">
-          <Label>Preview — what each lot will be billed</Label>
-          <InvoicePreview lots={lots} method={method} total={total} />
-        </div>}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" className="rounded-full" disabled={submitting}>{submitting ? "Creating…" : "Create and issue notices"}</Button>
-        </div>
-      </form>
+      <BudgetBuilderForm schemeId={schemeId} lots={lots} initialLines={initialLines} onCancel={() => onOpenChange(false)}
+        onCreated={() => { onOpenChange(false); onCreated(); }} submitLabel="Create and issue notices" />
     </DialogContent>
   </Dialog>;
 }
@@ -514,7 +513,7 @@ function EditBudgetDialog({ open, onOpenChange, schemeId, budget, lots, levies, 
     }
     for (const line of validLines) {
       if (originalIds.has(line.id)) {
-        const { error } = await supabase.from("budget_line_items").update({ fund: line.fund, cost_type: line.costType, description: line.description, amount: Number(line.amount) }).eq("id", line.id);
+        const { error } = await supabase.from("budget_line_items").update({ fund: line.fund, cost_type: line.costType, description: line.description, amount: Number(line.amount), expected_month: line.month ? Number(line.month) : null }).eq("id", line.id);
         if (error) { failures.push(line.description); continue; }
         if (line.file) {
           const up = await uploadFinanceDoc(schemeId, line.file, { category: "Budget line item", budget_line_item_id: line.id });
@@ -523,6 +522,7 @@ function EditBudgetDialog({ open, onOpenChange, schemeId, budget, lots, levies, 
       } else {
         const { data: item, error } = await supabase.from("budget_line_items").insert({
           budget_id: budget.id, scheme_id: schemeId, fund: line.fund, cost_type: line.costType, description: line.description, amount: Number(line.amount),
+          expected_month: line.month ? Number(line.month) : null,
         }).select().single();
         if (error || !item) { failures.push(line.description); continue; }
         if (line.file) {
@@ -597,7 +597,7 @@ function EditBudgetDialog({ open, onOpenChange, schemeId, budget, lots, levies, 
               </div>
               <div className="space-y-2">
                 <Label>Line items</Label>
-                <LineItemsEditor lines={lines} setLines={setLines} />
+                <LineItemsEditor lines={lines} setLines={setLines} startYear={budgetStartYear(budget.financial_year)} />
               </div>
               <div className="rounded-2xl border border-border/70 bg-secondary/40 p-4 text-[13px]">
                 <div className="flex justify-between"><span className="text-muted-foreground">Admin fund total</span><span className="font-medium tabular-nums">{money(totals.admin)}</span></div>
@@ -657,22 +657,17 @@ function BudgetHistoryDialog({ open, onOpenChange, budget, revisions, onRevert }
 const effectiveLevyStatus = (levy: Levy) => (levy.status === "Pending" && daysUntil(levy.due_date) < 0 ? "Overdue" : levy.status);
 const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 
-function LeviesTab({ levies, lots, budgets, lineItems, revisions, documents, isCommittee, schemeId, onPaid, onChanged }: {
-  levies: Levy[]; lots: FinLot[]; budgets: FinanceBudget[]; lineItems: BudgetLineItem[]; revisions: BudgetRevision[]; documents: DocFile[];
+function LeviesTab({ levies, documents, isCommittee, schemeId, onPaid, onChanged }: {
+  levies: Levy[]; documents: DocFile[];
   isCommittee: boolean; schemeId?: string | undefined; onPaid: (id: string) => void; onChanged: () => void;
 }) {
-  const [createOpen, setCreateOpen] = useState(false);
   const [invoice, setInvoice] = useState<Levy | null>(null);
   const [reminder, setReminder] = useState<Levy | null>(null);
   const [showPaid, setShowPaid] = useState(false);
-  const [editingBudget, setEditingBudget] = useState<FinanceBudget | null>(null);
-  const [revertFrom, setRevertFrom] = useState<BudgetRevision | null>(null);
-  const [historyBudget, setHistoryBudget] = useState<FinanceBudget | null>(null);
 
   const years = Array.from(new Set(levies.map(l => l.budgets?.financial_year ?? "Unallocated")));
   const [year, setYear] = useState("All years");
   const inYear = year === "All years" ? levies : levies.filter(l => (l.budgets?.financial_year ?? "Unallocated") === year);
-  const currentBudget = year === "All years" ? null : (budgets.find(b => b.financial_year === year) ?? null);
 
   const paid = inYear.filter(l => l.status === "Paid");
   const unpaid = inYear.filter(l => l.status !== "Paid").sort((a, b) => a.due_date.localeCompare(b.due_date));
@@ -699,19 +694,14 @@ function LeviesTab({ levies, lots, budgets, lineItems, revisions, documents, isC
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="max-w-2xl">
         <h2 className="font-display text-xl tracking-[-0.02em]">Levies</h2>
-        <p className="mt-2 text-[13px] leading-6 text-muted-foreground">Set what is to be paid and how it is split, then track exactly who still owes and how close they are to their due date.</p>
+        <p className="mt-2 text-[13px] leading-6 text-muted-foreground">Track exactly who still owes and how close they are to their due date. Budgets are set from the Budget tab, which is what raises these.</p>
       </div>
-      {isCommittee && <Button className="rounded-full" onClick={() => setCreateOpen(true)}><Plus /> Create a budget</Button>}
     </div>
 
     <div className="mt-6 flex flex-wrap items-center gap-2">
       {["All years", ...years].map(option =>
         <button key={option} type="button" onClick={() => setYear(option)}
           className={`rounded-full px-4 py-2 text-[12px] font-medium transition ${year === option ? "bg-primary text-primary-foreground" : "border border-border/70 bg-card text-muted-foreground hover:text-foreground"}`}>{option}</button>)}
-      {isCommittee && currentBudget && <>
-        <Button size="sm" variant="outline" className="rounded-full" onClick={() => setEditingBudget(currentBudget)}><Pencil className="size-3.5" />Edit budget</Button>
-        <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setHistoryBudget(currentBudget)}><History className="size-3.5" />History</Button>
-      </>}
       <button type="button" onClick={() => setShowPaid(v => !v)}
         className="ml-auto rounded-full border border-border/70 bg-card px-4 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground">
         {showPaid ? "Hide the lots that have paid" : `Show the ${paid.length} lots that have paid`}
@@ -816,20 +806,11 @@ function LeviesTab({ levies, lots, budgets, lineItems, revisions, documents, isC
         </div>}
       </DialogContent>
     </Dialog>
-
-    {createOpen && <CreateBudgetDialog open={createOpen} onOpenChange={setCreateOpen} schemeId={schemeId} lots={lots} onCreated={onChanged} />}
-
-    {editingBudget && <EditBudgetDialog key={`${editingBudget.id}-${revertFrom?.id ?? "current"}`} open={!!editingBudget}
-      onOpenChange={(o) => { if (!o) { setEditingBudget(null); setRevertFrom(null); } }} schemeId={schemeId} budget={editingBudget}
-      lots={lots} levies={levies} lineItems={lineItems} revertFrom={revertFrom} onSaved={onChanged} />}
-
-    <BudgetHistoryDialog open={!!historyBudget} onOpenChange={(o) => { if (!o) setHistoryBudget(null); }} budget={historyBudget} revisions={revisions}
-      onRevert={(revision) => { setHistoryBudget(null); setRevertFrom(revision); setEditingBudget(historyBudget); }} />
   </div>;
 }
 
-export function FinanceSection({ transactions, budgets, forecastLines, lineItems, levies, revisions, lots, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged }: {
-  transactions: FinanceTx[]; budgets: FinanceBudget[]; forecastLines: ForecastLine[]; lineItems: BudgetLineItem[]; levies: Levy[]; revisions: BudgetRevision[]; lots: FinLot[];
+export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged }: {
+  transactions: FinanceTx[]; budgets: FinanceBudget[]; lineItems: BudgetLineItem[]; levies: Levy[]; revisions: BudgetRevision[]; lots: FinLot[];
   documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
   onMarkLevyPaid: (id: string) => void; onChanged: () => void;
 }) {
@@ -841,13 +822,15 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
     budgets.forEach(b => set.add(budgetStartYear(b.financial_year)));
     return [...set].sort((a, b) => b - a);
   }, [transactions, budgets, currentFy]);
-  const [view, setView] = useState<"Overview" | "Budget" | "Levies" | "Transactions">("Overview");
+  const [view, setView] = useState<"Budget" | "Cashflow" | "Levies" | "Transactions">("Budget");
   const [year, setYear] = useState(currentFy);
   const [txOpen, setTxOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceTx | null>(null);
   const [recordFund, setRecordFund] = useState<string | undefined>(undefined);
   const [forecastOpen, setForecastOpen] = useState(false);
-  const [calcOpen, setCalcOpen] = useState(false);
+  const [editingBudget, setEditingBudget] = useState<FinanceBudget | null>(null);
+  const [revertFrom, setRevertFrom] = useState<BudgetRevision | null>(null);
+  const [historyBudget, setHistoryBudget] = useState<FinanceBudget | null>(null);
   const [filter, setFilter] = useState("all");
 
   const inYear = (iso: string) => startYearOf(iso) === year;
@@ -875,7 +858,6 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
   const totalBudget = budgeted.Admin + budgeted.Maintenance;
 
   const activeBudget = yearBudgets[0] ?? null;
-  const yearLines = forecastLines.filter(l => budgetStartYear(l.financial_year) === year);
 
   // Budget-vs-actual, per line item — surfaces anything paid that either wasn't
   // budgeted for at all, or has pushed a specific line past what it budgeted,
@@ -889,9 +871,41 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
   const unbudgetedTx = paidOutTx.filter(t => !t.budget_line_item_id);
   const needsReporting = unbudgetedTx.length > 0 || overBudgetLines.length > 0;
 
+  // For a year with no budget yet: seed the builder from the closest earlier year's lines,
+  // so a returning committee adjusts last year's numbers instead of starting from nothing.
+  const priorBudget = budgets.filter(b => budgetStartYear(b.financial_year) < year)
+    .sort((a, b) => budgetStartYear(b.financial_year) - budgetStartYear(a.financial_year))[0] ?? null;
+  const priorLineItems = priorBudget ? lineItems.filter(li => li.budget_id === priorBudget.id) : [];
+
   const monthsElapsed = year === currentFy ? Math.min(12, Math.max(1, (today.getMonth() + 12 - 6) % 12 + 1)) : 12;
   const projectedSpend = totalOut / monthsElapsed * 12 + admin.committed + maintenance.committed;
   const projectedPosition = (totalIn + admin.owing + maintenance.owing) - projectedSpend;
+
+  // Planned schedule: when each budgeted line falls due, plus the levy due date as the one
+  // "money in" event, laid over a running balance for the rest of the financial year.
+  const todayPos = FY_MONTHS.indexOf(new Date().getMonth() + 1);
+  const isRemaining = (m: number) => year > currentFy ? true : year < currentFy ? false : FY_MONTHS.indexOf(m) >= todayPos;
+  const firstRemaining = FY_MONTHS.find(isRemaining) ?? null;
+  const scheduledLines = activeLineItems.filter((l): l is BudgetLineItem & { expected_month: number } => l.expected_month != null);
+  const unscheduledLines = activeLineItems.filter(l => l.expected_month == null);
+  const unscheduledTotal = unscheduledLines.reduce((s, l) => s + Number(l.amount), 0);
+  const leviesToCollect = admin.owing + maintenance.owing;
+  const committedOut = admin.committed + maintenance.committed;
+  const fundsOnHand = admin.balance + maintenance.balance;
+  const levyDueMonth = activeBudget ? new Date(activeBudget.levy_due_date).getMonth() + 1 : null;
+  const levyMonth = levyDueMonth !== null && isRemaining(levyDueMonth) ? levyDueMonth : firstRemaining;
+  const schedule = (() => {
+    let running = fundsOnHand;
+    return FY_MONTHS.map(m => {
+      const live = isRemaining(m);
+      const outAmt = scheduledLines.filter(l => l.expected_month === m).reduce((s, l) => s + Number(l.amount), 0) + (m === firstRemaining ? committedOut : 0);
+      const inAmt = m === levyMonth ? leviesToCollect : 0;
+      if (live) running += inAmt - outAmt;
+      return { month: m, inAmt, outAmt, running, live };
+    });
+  })();
+  const stillOut = committedOut + scheduledLines.filter(l => isRemaining(l.expected_month)).reduce((s, l) => s + Number(l.amount), 0) + unscheduledTotal;
+  const projected = fundsOnHand + leviesToCollect - stillOut;
 
   const chartData = useMemo(() => {
     const months = Array.from({ length: 12 }, (_, i) => (6 + i) % 12);
@@ -939,10 +953,10 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
     `At this rate we expect to spend ${money(projectedSpend)} by the end of the year, leaving a projected ${projectedPosition >= 0 ? "surplus" : "shortfall"} of ${money(Math.abs(projectedPosition))}.`,
   ].join("\n");
 
-  const tabs = ["Overview", "Budget", "Levies", "Transactions"] as const;
+  const tabs = ["Budget", "Cashflow", "Levies", "Transactions"] as const;
 
   return <div className="space-y-8">
-    <PageHead eyebrow="Finance" title="Budget it, levy it, track it, report it" blurb="One place to plan the year's costs, send levies, track every dollar in and out, and report back to owners."
+    <PageHead eyebrow="Finance" title="Budget it, track it, see it through" blurb="Build the year's budget, watch spend against it as bills come in, and see the cashflow — all from one spreadsheet."
       action={<div className="flex flex-wrap items-center gap-2">
         <Select value={String(year)} onValueChange={v => setYear(Number(v))}>
           <SelectTrigger className="h-9 w-[150px] rounded-full text-xs"><SelectValue /></SelectTrigger>
@@ -956,9 +970,29 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
         className={`rounded-full px-4 py-2 text-[12px] font-medium transition ${view === t ? "bg-primary text-primary-foreground" : "border border-border/70 bg-card text-muted-foreground hover:text-foreground"}`}>{t}</button>)}
     </div>
 
-    {view === "Overview" && <>
+    {view === "Budget" && <Card className="p-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="max-w-2xl">
+          <h2 className="font-display text-xl tracking-[-0.02em]">{activeBudget ? `Budget for ${activeBudget.financial_year}` : `Build your ${fyLabel(year)} budget`}</h2>
+          <p className="mt-2 text-[13px] leading-6 text-muted-foreground">{activeBudget
+            ? "Every line you budgeted, what's been spent against it so far, and what's left."
+            : "We've started you off with the usual costs — adjust the amounts, add or remove lines, and say roughly when each one falls. Lock it in and Loty issues a levy notice to every lot."}</p>
+        </div>
+        {activeBudget && isCommittee && <div className="flex gap-2">
+          <Button size="sm" variant="outline" className="rounded-full" onClick={() => setEditingBudget(activeBudget)}><Pencil className="size-3.5" />Edit budget</Button>
+          <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setHistoryBudget(activeBudget)}><History className="size-3.5" />History</Button>
+        </div>}
+      </div>
+      <div className="mt-6">
+        {activeBudget
+          ? <BudgetTrackerTable lineItems={activeLineItems} spentAgainstLine={spentAgainstLine} startYear={year} />
+          : <BudgetBuilderForm schemeId={schemeId} lots={lots} onCreated={onChanged} initialLines={draftLinesForNewBudget(priorLineItems)} />}
+      </div>
+    </Card>}
+
+    {view === "Cashflow" && <>
     <div className="grid gap-4 lg:grid-cols-3">
-      {([["Admin fund", "day-to-day running costs", "Admin", admin], ["Maintenance fund", "savings for bigger repairs and works", "Maintenance", maintenance]] as const).map(([label, subtitle, fundKey, f]) => <Card key={label} className="p-6">
+      {([["Admin fund", "day-to-day running costs", admin], ["Maintenance fund", "savings for bigger repairs and works", maintenance]] as const).map(([label, subtitle, f]) => <Card key={label} className="p-6">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
@@ -977,10 +1011,6 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
           <Row label="Remaining budget" value={money(f.remaining)} tone={f.remaining < 0 ? "text-destructive" : ""} />
         </div>
         <p className="mt-3 text-[11px] leading-5 text-muted-foreground/80">"Already committed" is work quoted or approved but not yet paid — it's set aside from the remaining budget so it isn't spent twice.</p>
-        {isCommittee && <div className="mt-5 flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" className="rounded-full" onClick={() => { setEditing(null); setRecordFund(fundKey); setTxOpen(true); setView("Transactions"); }}><Plus />Money in or out</Button>
-          <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setView("Budget")}><Pencil />Adjust budget</Button>
-        </div>}
       </Card>)}
 
       <Card className="bg-primary p-6 text-primary-foreground">
@@ -994,7 +1024,6 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
         </div>
         <div className="mt-6 flex flex-wrap gap-2">
           <Button size="sm" variant="secondary" className="rounded-full" onClick={() => setForecastOpen(true)}><Send />Send forecast</Button>
-          <Button size="sm" variant="secondary" className="rounded-full" onClick={() => setCalcOpen(true)}><Calculator />Levy planner</Button>
         </div>
       </Card>
     </div>
@@ -1027,6 +1056,32 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
       </div>
     </Card>
 
+    <Card className="overflow-hidden">
+      <div className="border-b border-border/70 p-6">
+        <h2 className="font-display text-xl tracking-[-0.02em]">Planned schedule</h2>
+        <p className="mt-1 text-[13px] leading-6 text-muted-foreground">When your budgeted costs are due to land, and the running balance across the rest of {fyLabel(year)}.</p>
+      </div>
+      {!activeBudget
+        ? <p className="p-10 text-center text-[13px] text-muted-foreground">Build a budget first and this fills in on its own.</p>
+        : <div className="divide-y divide-border/60">
+            {schedule.filter(t => t.inAmt > 0 || t.outAmt > 0 || t.live).map(t => <div key={t.month} className={`flex items-center gap-3 px-6 py-2.5 text-[12px] ${t.live ? "" : "opacity-45"}`}>
+              <span className="w-20 shrink-0 text-muted-foreground">{monthLabel(t.month, year)}</span>
+              <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">{t.inAmt > 0 ? `+${money(t.inAmt)}` : "—"}</span>
+              <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">{t.outAmt > 0 ? `−${money(t.outAmt)}` : "—"}</span>
+              <span className={`flex-1 text-right font-medium tabular-nums ${t.live && t.running < 0 ? "text-destructive" : ""}`}>{t.live ? money(t.running) : "passed"}</span>
+            </div>)}
+            {unscheduledTotal > 0 && <div className="flex items-center justify-between gap-3 bg-secondary/30 px-6 py-3 text-[12px]">
+              <span className="text-muted-foreground">Not yet scheduled</span>
+              <span className="font-medium tabular-nums">{money(unscheduledTotal)}</span>
+            </div>}
+            <div className="flex items-center justify-between gap-3 px-6 py-3.5 text-[13px] font-medium">
+              <span>Projected at 30 June {year + 1}</span>
+              <span className={projected < 0 ? "text-destructive" : ""}>{money(projected)}</span>
+            </div>
+          </div>}
+      <p className="border-t border-border/60 px-6 py-4 text-[11px] leading-5 text-muted-foreground/80">Months already gone are greyed out. Set "When" on a budget line to have it show up here.</p>
+    </Card>
+
     {needsReporting && <Card className="overflow-hidden border-destructive/30">
       <div className="border-b border-destructive/20 bg-destructive/5 px-6 py-4">
         <h2 className="font-display text-lg tracking-[-0.02em]">Needs reporting to the AGM</h2>
@@ -1045,13 +1100,7 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
     </Card>}
     </>}
 
-    {view === "Budget" && <BudgetPlan lines={yearLines} year={year} fyName={activeBudget?.financial_year ?? fyLabel(year)} currentFy={currentFy}
-      schemeId={schemeId} isCommittee={isCommittee} budget={activeBudget}
-      fundsOnHand={admin.balance + maintenance.balance} leviesToCollect={admin.owing + maintenance.owing}
-      committedOut={admin.committed + maintenance.committed} lots={lots} onChanged={onChanged} />}
-
-    {view === "Levies" && <LeviesTab levies={levies} lots={lots} budgets={budgets} lineItems={lineItems} revisions={revisions}
-      documents={documents} isCommittee={isCommittee} schemeId={schemeId} onPaid={onMarkLevyPaid} onChanged={onChanged} />}
+    {view === "Levies" && <LeviesTab levies={levies} documents={documents} isCommittee={isCommittee} schemeId={schemeId} onPaid={onMarkLevyPaid} onChanged={onChanged} />}
 
     {view === "Transactions" && <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 p-6">
@@ -1119,241 +1168,58 @@ export function FinanceSection({ transactions, budgets, forecastLines, lineItems
       </DialogContent>
     </Dialog>
 
-    <LevyPlanner open={calcOpen} onOpenChange={setCalcOpen} lots={lots} defaultTarget={totalBudget} />
+    {editingBudget && <EditBudgetDialog key={`${editingBudget.id}-${revertFrom?.id ?? "current"}`} open={!!editingBudget}
+      onOpenChange={(o) => { if (!o) { setEditingBudget(null); setRevertFrom(null); } }} schemeId={schemeId} budget={editingBudget}
+      lots={lots} levies={levies} lineItems={lineItems} revertFrom={revertFrom} onSaved={onChanged} />}
+
+    <BudgetHistoryDialog open={!!historyBudget} onOpenChange={(o) => { if (!o) setHistoryBudget(null); }} budget={historyBudget} revisions={revisions}
+      onRevert={(revision) => { setHistoryBudget(null); setRevertFrom(revision); setEditingBudget(historyBudget); }} />
   </div>;
 }
 
-function BudgetPlan({ lines, year, fyName, currentFy, schemeId, isCommittee, budget, fundsOnHand, leviesToCollect, committedOut, lots, onChanged }: {
-  lines: ForecastLine[]; year: number; fyName: string; currentFy: number; schemeId?: string | undefined;
-  isCommittee: boolean; budget: FinanceBudget | null; fundsOnHand: number; leviesToCollect: number;
-  committedOut: number; lots: FinLot[]; onChanged: () => void;
+function BudgetTrackerTable({ lineItems, spentAgainstLine, startYear }: {
+  lineItems: BudgetLineItem[]; spentAgainstLine: (id: string) => number; startYear: number;
 }) {
-  const [lineOpen, setLineOpen] = useState(false);
-  const [editing, setEditing] = useState<ForecastLine | null>(null);
-  const [reportOpen, setReportOpen] = useState(false);
-
-  const todayPos = FY_MONTHS.indexOf(new Date().getMonth() + 1);
-  const isRemaining = (m: number) => year > currentFy ? true : year < currentFy ? false : FY_MONTHS.indexOf(m) >= todayPos;
-  const firstRemaining = FY_MONTHS.find(isRemaining) ?? null;
-
-  const sumL = (list: ForecastLine[]) => list.reduce((t, l) => t + Number(l.amount), 0);
-  const outLines = lines.filter(l => l.direction !== "in");
-  const inLines = lines.filter(l => l.direction === "in");
-  const plannedOut = sumL(outLines);
-  const plannedIn = sumL(inLines);
-
-  // Levies still owing land in the month they fall due, or straight away if that month has passed.
-  const levyDueMonth = budget ? new Date(budget.levy_due_date).getMonth() + 1 : null;
-  const levyMonth = levyDueMonth !== null && isRemaining(levyDueMonth) ? levyDueMonth : firstRemaining;
-
-  const timeline = (() => {
-    let running = fundsOnHand;
-    return FY_MONTHS.map(m => {
-      const live = isRemaining(m);
-      const inAmt = sumL(inLines.filter(l => l.expected_month === m)) + (m === levyMonth ? leviesToCollect : 0);
-      const outAmt = sumL(outLines.filter(l => l.expected_month === m)) + (m === firstRemaining ? committedOut : 0);
-      if (live) running += inAmt - outAmt;
-      return { month: m, inAmt, outAmt, running, live };
-    });
-  })();
-
-  const stillIn = leviesToCollect + sumL(inLines.filter(l => isRemaining(l.expected_month)));
-  const stillOut = committedOut + sumL(outLines.filter(l => isRemaining(l.expected_month)));
-  const projected = fundsOnHand + stillIn - stillOut;
-
-  const fundTotals = FUNDS.map(f => ({
-    fund: f,
-    out: sumL(outLines.filter(l => l.fund === f)),
-    moneyIn: sumL(inLines.filter(l => l.fund === f)),
-    lines: lines.filter(l => l.fund === f).sort((a, b) => FY_MONTHS.indexOf(a.expected_month) - FY_MONTHS.indexOf(b.expected_month)),
-  }));
-
-  const removeLine = async (id: string) => {
-    const { error } = await supabase.from("budget_forecast_lines").delete().eq("id", id);
-    if (error) { toast("Could not remove that line", { description: error.message }); return; }
-    onChanged(); toast("Line removed");
-  };
-
-  const applyToBudget = async () => {
-    if (!budget) return;
-    const admin = fundTotals.find(f => f.fund === "Admin")?.out ?? 0;
-    const maintenance = fundTotals.find(f => f.fund === "Maintenance")?.out ?? 0;
-    const { error } = await supabase.from("budgets").update({ admin_fund_total: admin, maintenance_fund_total: maintenance }).eq("id", budget.id);
-    if (error) { toast("Could not update the budget", { description: error.message }); return; }
-    onChanged();
-    toast("Fund budgets set from the plan", { description: `Admin ${money(admin)} · Maintenance ${money(maintenance)}` });
-  };
-
-  const reportText = [
-    `Budget plan ${fyName}`,
-    `Prepared ${niceDate(new Date().toISOString().slice(0, 10))}`,
-    ``,
-    `WHAT WE PLAN TO SPEND`,
-    ...fundTotals.flatMap(f => [
-      ``,
-      `${f.fund} fund — ${money2(f.out)}`,
-      ...f.lines.filter(l => l.direction !== "in").map(l => `  ${monthLabel(l.expected_month, year)} · ${l.label}${l.category ? ` (${l.category})` : ""} · ${money2(Number(l.amount))}`),
-      ...(f.lines.filter(l => l.direction !== "in").length === 0 ? [`  Nothing planned yet`] : []),
-    ]),
-    ``,
-    `Total planned spend: ${money2(plannedOut)}`,
-    ``,
-    `WHAT WE EXPECT TO RECEIVE`,
-    `  Levies still to be collected: ${money2(leviesToCollect)}`,
-    ...inLines.map(l => `  ${monthLabel(l.expected_month, year)} · ${l.label} · ${money2(Number(l.amount))}`),
-    `Total expected income: ${money2(leviesToCollect + plannedIn)}`,
-    ``,
-    `WHEN IT HAPPENS`,
-    ...timeline.filter(t => t.inAmt > 0 || t.outAmt > 0).map(t =>
-      `  ${monthLabel(t.month, year)} · in ${money2(t.inAmt)} · out ${money2(t.outAmt)} · balance ${money2(t.running)}`),
-    ``,
-    `WHERE WE LAND`,
-    `  Funds on hand today: ${money2(fundsOnHand)}`,
-    `  Still to come in: ${money2(stillIn)}`,
-    `  Still to go out: ${money2(stillOut)}`,
-    `  Projected at 30 June ${year + 1}: ${money2(projected)}`,
-    ``,
-    projected >= 0
-      ? `On these numbers the funds stay in surplus through to the end of the financial year.`
-      : `On these numbers the funds fall short by ${money2(Math.abs(projected))} before the end of the financial year, so the committee needs to either raise levies or defer some of the work above.`,
-  ].join("\n");
-
-  const summary: [string, string, string][] = [
-    ["Funds on hand today", money(fundsOnHand), "Collected less spent"],
-    ["Still to come in", money(stillIn), "Levies owing and planned income"],
-    ["Still to go out", money(stillOut), "Planned and committed spend"],
-    ["Projected at 30 June " + (year + 1), money(projected), projected >= 0 ? "In surplus" : "Short on these numbers"],
-  ];
-
-  return <Card className="overflow-hidden">
-    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/70 p-6">
-      <div className="max-w-xl">
-        <h2 className="font-display text-xl tracking-[-0.02em]">Budget plan for {fyName}</h2>
-        <p className="mt-1 text-[13px] leading-6 text-muted-foreground">Break the year into the things you expect to pay for, say when each one falls, and see what is left at 30 June.</p>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {isCommittee && budget && lines.length > 0 && <Button variant="outline" size="sm" className="rounded-full" onClick={() => void applyToBudget()}><Calculator />Set fund budgets</Button>}
-        {lines.length > 0 && <Button variant="outline" size="sm" className="rounded-full" onClick={() => setReportOpen(true)}><Send />Report for owners</Button>}
-        {isCommittee && <Button size="sm" className="rounded-full" onClick={() => { setEditing(null); setLineOpen(true); }}><Plus />Add a line</Button>}
-      </div>
-    </div>
-
-    <div className="grid border-b border-border/70 sm:grid-cols-2 xl:grid-cols-4">
-      {summary.map(([label, value, hint], i) => <div key={label} className={`p-6 ${i > 0 ? "border-border/60 sm:border-l" : ""}`}>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
-        <p className={`mt-3 text-2xl font-medium tracking-[-0.03em] tabular-nums ${label.startsWith("Projected") && projected < 0 ? "text-destructive" : ""}`}>{value}</p>
-        <p className="mt-1 text-[11px] text-muted-foreground/80">{hint}</p>
-      </div>)}
-    </div>
-
-    {lines.length === 0
-      ? <div className="p-10 text-center">
-          <p className="text-[13px] text-muted-foreground">Nothing planned for {fyName} yet.</p>
-          {isCommittee && <Button variant="outline" size="sm" className="mt-4 rounded-full" onClick={() => { setEditing(null); setLineOpen(true); }}><Plus />Add your first line</Button>}
-        </div>
-      : <div className="grid xl:grid-cols-12">
-          <div className="xl:col-span-7">
-            {fundTotals.map(f => <div key={f.fund} className="border-b border-border/60 last:border-0">
-              <div className="flex items-center justify-between gap-4 bg-secondary/30 px-6 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{f.fund} fund</p>
-                <p className="text-[12px] tabular-nums text-muted-foreground">{money(f.out)} planned out{f.moneyIn > 0 ? ` · ${money(f.moneyIn)} in` : ""}</p>
-              </div>
-              {f.lines.length === 0
-                ? <p className="px-6 py-5 text-[12px] text-muted-foreground">Nothing planned from this fund.</p>
-                : <div className="divide-y divide-border/60">
-                    {f.lines.map(l => <div key={l.id} className="flex flex-wrap items-center gap-3 px-6 py-3.5">
-                      <span className={`grid size-7 shrink-0 place-items-center rounded-full ${l.direction === "in" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
-                        {l.direction === "in" ? <ArrowUpRight className="size-3.5" /> : <ArrowDownRight className="size-3.5" />}
-                      </span>
-                      <div className="min-w-[150px] flex-1">
-                        <p className="text-[13px] font-medium">{l.label}</p>
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">{[monthLabel(l.expected_month, year), l.category].filter(Boolean).join(" · ")}</p>
-                      </div>
-                      <span className="w-24 text-right text-[13px] font-medium tabular-nums">{l.direction === "in" ? "+" : "−"}{money2(Number(l.amount))}</span>
-                      {isCommittee && <div className="flex items-center gap-1">
-                        <Button size="sm" variant="ghost" className="rounded-full text-xs" onClick={() => { setEditing(l); setLineOpen(true); }}>Edit</Button>
-                        <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label={`Remove ${l.label}`} onClick={() => void removeLine(l.id)}><Trash2 className="size-4" /></Button>
-                      </div>}
-                    </div>)}
-                  </div>}
-            </div>)}
-          </div>
-
-          <div className="border-border/60 xl:col-span-5 xl:border-l">
-            <div className="flex items-center justify-between gap-4 bg-secondary/30 px-6 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Month by month</p>
-              <p className="text-[11px] text-muted-foreground">Running balance</p>
-            </div>
-            <div className="divide-y divide-border/60">
-              {timeline.map(t => <div key={t.month} className={`flex items-center gap-3 px-6 py-2.5 text-[12px] ${t.live ? "" : "opacity-45"}`}>
-                <span className="w-20 shrink-0 text-muted-foreground">{monthLabel(t.month, year)}</span>
-                <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground">{t.inAmt > 0 ? `+${money(t.inAmt)}` : "—"}</span>
-                <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground">{t.outAmt > 0 ? `−${money(t.outAmt)}` : "—"}</span>
-                <span className={`flex-1 text-right font-medium tabular-nums ${t.live && t.running < 0 ? "text-destructive" : ""}`}>{t.live ? money(t.running) : "passed"}</span>
-              </div>)}
-            </div>
-            <p className="px-6 py-4 text-[11px] leading-5 text-muted-foreground/80">Months already gone are greyed out — the running balance starts from what you hold today and only counts what is still ahead of you.</p>
-          </div>
-        </div>}
-
-    {lineOpen && <LineDialog key={editing?.id ?? "new-line"} open={lineOpen} onOpenChange={setLineOpen} schemeId={schemeId}
-      line={editing} financialYear={fyName} startYear={year} onSaved={onChanged} />}
-
-    <Dialog open={reportOpen} onOpenChange={setReportOpen}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[620px]">
-        <DialogHeader>
-          <DialogTitle className="font-display tracking-[-0.02em]">Budget report for owners</DialogTitle>
-          <DialogDescription>The whole plan written out, ready for your meeting papers or an email to owners.</DialogDescription>
-        </DialogHeader>
-        <pre className="whitespace-pre-wrap rounded-[18px] border border-border/70 bg-secondary/40 p-4 text-[12px] leading-6">{reportText}</pre>
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" className="rounded-full" onClick={() => { void navigator.clipboard.writeText(reportText); toast("Report copied"); }}>Copy</Button>
-          <Button asChild className="rounded-full">
-            <a href={`mailto:${lots.map(l => l.owner_email).filter(Boolean).join(",")}?subject=${encodeURIComponent(`Budget plan ${fyName}`)}&body=${encodeURIComponent(reportText)}`}>Email all owners</a>
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  </Card>;
+  const totalBudgeted = lineItems.reduce((s, l) => s + Number(l.amount), 0);
+  const totalSpent = lineItems.reduce((s, l) => s + spentAgainstLine(l.id), 0);
+  if (lineItems.length === 0) return <p className="py-8 text-center text-[13px] text-muted-foreground">No line items on this budget.</p>;
+  return <div className="overflow-x-auto rounded-2xl border border-border/70">
+    <table className="w-full min-w-[760px] border-collapse text-[13px]">
+      <thead>
+        <tr className="border-b border-border/70 bg-secondary/40 text-left text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          <th className="px-3 py-2.5">Description</th>
+          <th className="px-3 py-2.5">Fund</th>
+          <th className="px-3 py-2.5">Type</th>
+          <th className="px-3 py-2.5">When</th>
+          <th className="px-3 py-2.5 text-right">Budgeted</th>
+          <th className="px-3 py-2.5 text-right">Spent</th>
+          <th className="px-3 py-2.5 text-right">Remaining</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lineItems.map(li => {
+          const spent = spentAgainstLine(li.id);
+          const remaining = Number(li.amount) - spent;
+          return <tr key={li.id} className="border-b border-border/60 last:border-0">
+            <td className="px-3 py-2.5">{li.description}</td>
+            <td className="px-3 py-2.5 text-muted-foreground">{li.fund}</td>
+            <td className="px-3 py-2.5 text-muted-foreground">{li.cost_type}</td>
+            <td className="px-3 py-2.5 text-muted-foreground">{li.expected_month ? monthLabel(li.expected_month, startYear) : "Not yet"}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums">{money(Number(li.amount))}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{money(spent)}</td>
+            <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${remaining < 0 ? "text-destructive" : ""}`}>{money(remaining)}</td>
+          </tr>;
+        })}
+      </tbody>
+      <tfoot>
+        <tr className="border-t border-border/70 bg-secondary/30 text-[13px] font-semibold">
+          <td className="px-3 py-2.5" colSpan={4}>Total</td>
+          <td className="px-3 py-2.5 text-right tabular-nums">{money(totalBudgeted)}</td>
+          <td className="px-3 py-2.5 text-right tabular-nums">{money(totalSpent)}</td>
+          <td className={`px-3 py-2.5 text-right tabular-nums ${totalBudgeted - totalSpent < 0 ? "text-destructive" : ""}`}>{money(totalBudgeted - totalSpent)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>;
 }
 
-function LevyPlanner({ open, onOpenChange, lots, defaultTarget }: {
-  open: boolean; onOpenChange: (v: boolean) => void; lots: FinLot[]; defaultTarget: number;
-}) {
-  const [target, setTarget] = useState(String(defaultTarget || 0));
-  const [method, setMethod] = useState("Entitlement");
-  const [instalments, setInstalments] = useState("4");
-  const total = Number(target) || 0;
-  const per = Math.max(1, Number(instalments) || 1);
-  const shareFor = (lot: FinLot) => method === "Equal" ? total / Math.max(1, lots.length) : total * (Number(lot.entitlement_percent) / 100);
-
-  return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[600px]">
-      <DialogHeader>
-        <DialogTitle className="font-display tracking-[-0.02em]">Levy planner</DialogTitle>
-        <DialogDescription>Work out what each lot pays before you commit to a budget.</DialogDescription>
-      </DialogHeader>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="space-y-2"><Label htmlFor="target">Amount to raise</Label><Input id="target" type="number" min="0" value={target} onChange={e => setTarget(e.target.value)} /></div>
-        <div className="space-y-2">
-          <Label>Allocation</Label>
-          <Select value={method} onValueChange={setMethod}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="Entitlement">By lot entitlement</SelectItem><SelectItem value="Equal">Equal share</SelectItem></SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2"><Label htmlFor="inst">Instalments</Label><Input id="inst" type="number" min="1" max="12" value={instalments} onChange={e => setInstalments(e.target.value)} /></div>
-      </div>
-      {lots.length === 0
-        ? <p className="py-8 text-center text-[13px] text-muted-foreground">Add your lots first and this will work out each share.</p>
-        : <div className="mt-2 divide-y divide-border/60 rounded-[18px] border border-border/70">
-            {lots.map(l => <div key={l.id} className="flex items-center justify-between gap-4 px-4 py-2.5 text-[13px]">
-              <span>Lot {l.lot_number}{l.owner_name ? ` · ${l.owner_name}` : ""}</span>
-              <span className="text-muted-foreground">{method === "Equal" ? "Equal share" : `${l.entitlement_percent}%`}</span>
-              <span className="tabular-nums">{money2(shareFor(l))} <span className="text-muted-foreground">/ yr</span></span>
-              <span className="tabular-nums font-medium">{money2(shareFor(l) / per)} <span className="font-normal text-muted-foreground">each</span></span>
-            </div>)}
-          </div>}
-    </DialogContent>
-  </Dialog>;
-}
