@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { WorkOrderTable, type WorkOrder } from "@/components/work-orders";
-import { computeFundBalances, currentFinancialYearStart, type FundBudget, type FundLevy, type FundTx } from "@/lib/fund-balance";
+import { computeFundBalances, currentFinancialYearStart, type FundBudget, type Levy, type FundTx } from "@/lib/fund-balance";
 
 export type DashboardWidget = { id: string; scheme_id: string; widget_type: string; sort_order: number };
 export type Notice = { id: string; scheme_id: string; title: string; message: string; pinned: boolean; created_at: string };
@@ -18,7 +18,7 @@ export type NoticeComment = { id: string; notice_id: string; scheme_id: string; 
 type OvScheme = { address: string; next_agm_date: string | null };
 type OvTask = { id: string; task_name: string; due_date: string; status: string };
 type OvLot = { lot_number: number; owner_name: string | null; entitlement_percent: number };
-type OvLevy = FundLevy & { paid_at: string | null };
+type OvLevy = Levy;
 
 const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
@@ -63,7 +63,7 @@ function WidgetShell({ widget, title, icon: Icon, tone = "default", action, isCo
   </div>;
 }
 
-function CashWidgetBody({ levies, budgets, transactions, goTo }: { levies: FundLevy[]; budgets: FundBudget[]; transactions: FundTx[]; goTo: (s: string) => void }) {
+function CashWidgetBody({ levies, budgets, transactions, goTo }: { levies: Levy[]; budgets: FundBudget[]; transactions: FundTx[]; goTo: (s: string) => void }) {
   const { admin, maintenance, total } = computeFundBalances(levies, budgets, transactions, currentFinancialYearStart());
   return <div>
     <p className="font-display text-4xl font-medium tracking-[-0.03em]">{money(total)}</p>
@@ -316,7 +316,7 @@ export function OverviewSection({ scheme, levies, budgets, transactions, tasks, 
           case "cash": return <WidgetShell key={widget.id} {...shared} title="Current cash" icon={Coins}><CashWidgetBody levies={levies} budgets={budgets} transactions={transactions} goTo={goTo} /></WidgetShell>;
           case "next_meeting": return <WidgetShell key={widget.id} {...shared} title="Next meeting" icon={CalendarClock}><NextMeetingWidgetBody scheme={scheme} goTo={goTo} /></WidgetShell>;
           case "notices": return <WidgetShell key={widget.id} {...shared} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={notices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetShell>;
-          case "levies_chart": return <WidgetShell key={widget.id} {...shared} title="Levy payments" icon={Landmark} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Levies")}>Open <ChevronRight className="size-3.5" /></Button>}><LeviesChartWidgetBody levies={levies} /></WidgetShell>;
+          case "levies_chart": return <WidgetShell key={widget.id} {...shared} title="Levy payments" icon={Landmark} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance")}>Open <ChevronRight className="size-3.5" /></Button>}><LeviesChartWidgetBody levies={levies} /></WidgetShell>;
           case "obligations": return <WidgetShell key={widget.id} {...shared} title="Yearly obligations" icon={FileCheck2} tone="primary" action={<span className="font-display text-lg text-primary-foreground">{tasks.filter(t => t.status === "Complete").length}/{tasks.length}</span>}><ObligationsWidgetBody tasks={tasks} isCommittee={isCommittee} onTaskStatus={onTaskStatus} /></WidgetShell>;
           case "work_orders": return <WidgetShell key={widget.id} {...shared} title="Work orders" icon={Wrench} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Work orders")}>Open <ChevronRight className="size-3.5" /></Button>}><WorkOrdersWidgetBody repairs={repairs} goTo={goTo} /></WidgetShell>;
           case "my_lot": return <WidgetShell key={widget.id} {...shared} title="Your lot" icon={Building2}><MyLotWidgetBody myLot={myLot} /></WidgetShell>;

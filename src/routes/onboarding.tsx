@@ -11,8 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import {
-  CreateBudgetDialog, money, type DraftLine, type Lot, type Scheme,
+  money, type Lot, type Scheme,
 } from "@/routes/dashboard";
+import { CreateBudgetDialog, type DraftLine } from "@/components/finance";
 
 export const Route = createFileRoute("/onboarding")({
   head: () => ({ meta: [
