@@ -13,7 +13,8 @@ import { toast } from "sonner";
 import {
   money, type Lot, type Scheme,
 } from "@/routes/dashboard";
-import { CreateBudgetDialog, type DraftLine } from "@/components/finance";
+import { CreateBudgetDialog, ensureDefaultFunds, type DraftLine } from "@/components/finance";
+import type { BudgetFund } from "@/components/overview";
 
 export const Route = createFileRoute("/onboarding")({
   head: () => ({ meta: [
@@ -273,6 +274,23 @@ function OnboardingPage() {
     },
     enabled: !!schemeId && budgetCreated,
   });
+  const funds = useQuery({
+    queryKey: ["onboarding-funds", schemeId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("budget_funds").select("*").eq("scheme_id", schemeId!).order("sort_order");
+      if (error) throw error;
+      return (data ?? []) as unknown as BudgetFund[];
+    },
+    enabled: !!schemeId,
+  });
+  const fundsBootstrapped = useState(() => ({ current: false }))[0];
+  useEffect(() => {
+    if (!schemeId || funds.isLoading || fundsBootstrapped.current) return;
+    fundsBootstrapped.current = true;
+    void ensureDefaultFunds(schemeId, funds.data?.length ?? 0).then(created => {
+      if (created) queryClient.invalidateQueries({ queryKey: ["onboarding-funds", schemeId] });
+    });
+  }, [schemeId, funds.isLoading, funds.data, fundsBootstrapped, queryClient]);
 
   if (!authChecked || (session && schemeQuery.isLoading)) return null;
 
@@ -283,8 +301,9 @@ function OnboardingPage() {
     ? <Button variant="ghost" className="rounded-full" onClick={prev}>Back</Button>
     : <span/>;
 
+  const defaultFundId = funds.data?.[0]?.id ?? "";
   const insuranceLines: DraftLine[] = (policies.data ?? []).map(p => ({
-    id: p.id, fund: "Admin", costType: "Fixed", description: `${p.policy_type} insurance${p.insurer ? ` — ${p.insurer}` : ""}`,
+    id: p.id, fundId: defaultFundId, occurrence: "Annually", costType: "Fixed", description: `${p.policy_type} insurance${p.insurer ? ` — ${p.insurer}` : ""}`,
     amount: p.premium != null ? String(p.premium) : "", month: "", file: null,
   }));
 
@@ -348,7 +367,7 @@ function OnboardingPage() {
       </div>
     </StepShell>}
 
-    {schemeId && <CreateBudgetDialog key={`budget-${insuranceLines.length}`} open={budgetOpen} onOpenChange={setBudgetOpen} schemeId={schemeId} lots={lots.data ?? []} initialLines={insuranceLines.length > 0 ? insuranceLines : undefined}
+    {schemeId && <CreateBudgetDialog key={`budget-${insuranceLines.length}`} open={budgetOpen} onOpenChange={setBudgetOpen} schemeId={schemeId} lots={lots.data ?? []} funds={funds.data ?? []} initialLines={insuranceLines.length > 0 ? insuranceLines : undefined}
       onCreated={()=>{ setBudgetCreated(true); queryClient.invalidateQueries({ queryKey: ["onboarding-levies", schemeId] }); }}/>}
   </div>;
 }

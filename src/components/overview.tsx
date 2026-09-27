@@ -9,7 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { WorkOrderTable, type WorkOrder } from "@/components/work-orders";
-import { computeFundBalances, currentFinancialYearStart, type FundBudget, type Levy, type FundTx } from "@/lib/fund-balance";
+import { computeFundBalances, currentFinancialYearStart, type Levy, type FundTx } from "@/lib/fund-balance";
+
+export type BudgetFund = { id: string; name: string; sort_order: number };
 
 export type DashboardWidget = { id: string; scheme_id: string; widget_type: string; sort_order: number };
 export type Notice = { id: string; scheme_id: string; title: string; message: string; pinned: boolean; created_at: string };
@@ -63,14 +65,15 @@ function WidgetShell({ widget, title, icon: Icon, tone = "default", action, isCo
   </div>;
 }
 
-function CashWidgetBody({ levies, budgets, transactions, goTo }: { levies: Levy[]; budgets: FundBudget[]; transactions: FundTx[]; goTo: (s: string) => void }) {
-  const { admin, maintenance, total } = computeFundBalances(levies, budgets, transactions, currentFinancialYearStart());
+function CashWidgetBody({ levies, funds, transactions, goTo }: { levies: Levy[]; funds: BudgetFund[]; transactions: FundTx[]; goTo: (s: string) => void }) {
+  const { byFund, total } = computeFundBalances(levies, transactions, currentFinancialYearStart());
   return <div>
     <p className="font-display text-4xl font-medium tracking-[-0.03em]">{money(total)}</p>
-    <p className="mt-1 text-[12px] text-muted-foreground">Across admin and maintenance funds, this financial year</p>
+    <p className="mt-1 text-[12px] text-muted-foreground">Across your funds, this financial year</p>
     <div className="mt-5 space-y-2 text-[13px]">
-      <div className="flex justify-between border-t border-border/60 pt-2"><span className="text-muted-foreground">Admin fund</span><span className="font-medium tabular-nums">{money(admin)}</span></div>
-      <div className="flex justify-between"><span className="text-muted-foreground">Maintenance fund</span><span className="font-medium tabular-nums">{money(maintenance)}</span></div>
+      {funds.map(f => <div key={f.id} className="flex justify-between border-t border-border/60 pt-2 first:border-0 first:pt-0">
+        <span className="text-muted-foreground">{f.name}</span><span className="font-medium tabular-nums">{money(byFund[f.id] ?? 0)}</span>
+      </div>)}
     </div>
     <Button size="sm" variant="ghost" className="mt-4 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance")}>Open Finance <ChevronRight className="size-3.5" /></Button>
   </div>;
@@ -221,8 +224,8 @@ function MyLotWidgetBody({ myLot }: { myLot: OvLot | null }) {
   </div>;
 }
 
-export function OverviewSection({ scheme, levies, budgets, transactions, tasks, repairs, myLot, notices, noticeComments, widgets, widgetsLoading, isCommittee, schemeId, onTaskStatus, onChanged, goTo }: {
-  scheme: OvScheme | null; levies: OvLevy[]; budgets: FundBudget[]; transactions: FundTx[]; tasks: OvTask[]; repairs: WorkOrder[];
+export function OverviewSection({ scheme, levies, funds, transactions, tasks, repairs, myLot, notices, noticeComments, widgets, widgetsLoading, isCommittee, schemeId, onTaskStatus, onChanged, goTo }: {
+  scheme: OvScheme | null; levies: OvLevy[]; funds: BudgetFund[]; transactions: FundTx[]; tasks: OvTask[]; repairs: WorkOrder[];
   myLot: OvLot | null; notices: Notice[]; noticeComments: NoticeComment[]; widgets: DashboardWidget[]; widgetsLoading: boolean;
   isCommittee: boolean; schemeId?: string | undefined; onTaskStatus: (id: string, status: string) => void; onChanged: () => void; goTo: (s: string) => void;
 }) {
@@ -313,7 +316,7 @@ export function OverviewSection({ scheme, levies, budgets, transactions, tasks, 
         if (!cfg) return null;
         const shared = { widget, isCommittee, span: cfg.span, dragging: dragId === widget.id, onDragStart, onDragOver, onDrop, onDragEnd, onRemove: removeWidget };
         switch (widget.widget_type) {
-          case "cash": return <WidgetShell key={widget.id} {...shared} title="Current cash" icon={Coins}><CashWidgetBody levies={levies} budgets={budgets} transactions={transactions} goTo={goTo} /></WidgetShell>;
+          case "cash": return <WidgetShell key={widget.id} {...shared} title="Current cash" icon={Coins}><CashWidgetBody levies={levies} funds={funds} transactions={transactions} goTo={goTo} /></WidgetShell>;
           case "next_meeting": return <WidgetShell key={widget.id} {...shared} title="Next meeting" icon={CalendarClock}><NextMeetingWidgetBody scheme={scheme} goTo={goTo} /></WidgetShell>;
           case "notices": return <WidgetShell key={widget.id} {...shared} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={notices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetShell>;
           case "levies_chart": return <WidgetShell key={widget.id} {...shared} title="Levy payments" icon={Landmark} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance")}>Open <ChevronRight className="size-3.5" /></Button>}><LeviesChartWidgetBody levies={levies} /></WidgetShell>;

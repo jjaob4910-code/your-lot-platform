@@ -1,14 +1,18 @@
 // Shared levy data model and fund-balance math, used by the dashboard's Current Cash
 // widget, the Finance section (fund balances, reporting), and the Actions workspace's
 // Financial Statements preview — one source of truth instead of three drifting copies.
+// Funds are a custom, per-scheme list (not a fixed Admin/Maintenance pair), so a levy's
+// budget carries its fund split as a list of {fund_id, total} rows rather than two
+// named columns.
 
+export type BudgetFundTotal = { fund_id: string; total: number };
 export type Levy = {
   id: string; lot_id: string; budget_id: string; amount: number; due_date: string; status: string; paid_at: string | null;
   lots: { lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number } | null;
-  budgets: { financial_year: string; admin_fund_total: number; maintenance_fund_total: number; allocation_method: string | null } | null;
+  budgets: { financial_year: string; allocation_method: string | null; total_amount: number; budget_fund_totals: BudgetFundTotal[] } | null;
 };
-export type FundBudget = { financial_year: string; admin_fund_total: number; maintenance_fund_total: number };
-export type FundTx = { direction: string; fund: string; status: string; amount: number; occurred_on: string };
+export type FundBudget = { financial_year: string; total_amount: number; budget_fund_totals: BudgetFundTotal[] };
+export type FundTx = { direction: string; fund_id: string; status: string; amount: number; occurred_on: string };
 
 export const currentFinancialYearStart = () => {
   const today = new Date();
@@ -18,28 +22,32 @@ export const currentFinancialYearStart = () => {
 const startYearOf = (iso: string) => { const d = new Date(iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
 export const budgetStartYear = (fy: string) => { const m = fy.match(/\d{4}/); return m ? Number(m[0]) : new Date().getFullYear(); };
 
-// Splits a levy's own amount between the admin and maintenance funds, proportionally
-// to the two funds' share of the budget total it was raised against.
-export function levyShare(fund: "Admin" | "Maintenance", levy: Levy) {
-  const admin = Number(levy.budgets?.admin_fund_total ?? 0), maint = Number(levy.budgets?.maintenance_fund_total ?? 0);
-  const total = admin + maint;
-  if (total <= 0) return fund === "Admin" ? Number(levy.amount) : 0;
-  return Number(levy.amount) * ((fund === "Admin" ? admin : maint) / total);
+// Splits a levy's own amount across its budget's funds, proportionally to each fund's
+// share of the budget total it was raised against.
+export function levyShareForFund(levy: Levy, fundId: string) {
+  const totals = levy.budgets?.budget_fund_totals ?? [];
+  const grand = totals.reduce((s, t) => s + Number(t.total), 0);
+  if (grand <= 0) return 0;
+  const fundTotal = totals.find(t => t.fund_id === fundId)?.total ?? 0;
+  return Number(levy.amount) * (Number(fundTotal) / grand);
 }
-export const adminShare = (levy: Levy) => levyShare("Admin", levy);
-export const maintShare = (levy: Levy) => levyShare("Maintenance", levy);
 
-export function computeFundBalances(levies: Levy[], budgets: FundBudget[], transactions: FundTx[], year: number) {
+export function computeFundBalances(levies: Levy[], transactions: FundTx[], year: number) {
   const yearLevies = levies.filter(l => l.budgets ? budgetStartYear(l.budgets.financial_year) === year : startYearOf(l.due_date) === year);
   const yearTx = transactions.filter(t => startYearOf(t.occurred_on) === year);
 
+  const fundIds = new Set<string>();
+  yearLevies.forEach(l => l.budgets?.budget_fund_totals.forEach(t => fundIds.add(t.fund_id)));
+  yearTx.forEach(t => fundIds.add(t.fund_id));
+
   const sum = (list: FundTx[]) => list.reduce((s, t) => s + Number(t.amount), 0);
-  const balanceFor = (fund: "Admin" | "Maintenance") => {
-    const collected = yearLevies.filter(l => l.status === "Paid").reduce((s, l) => s + levyShare(fund, l), 0)
-      + sum(yearTx.filter(t => t.direction === "in" && t.fund === fund && t.status === "Paid"));
-    const spent = sum(yearTx.filter(t => t.direction === "out" && t.fund === fund && t.status === "Paid"));
-    return collected - spent;
-  };
-  const admin = balanceFor("Admin"), maintenance = balanceFor("Maintenance");
-  return { admin, maintenance, total: admin + maintenance };
+  const byFund: Record<string, number> = {};
+  for (const fundId of fundIds) {
+    const collected = yearLevies.filter(l => l.status === "Paid").reduce((s, l) => s + levyShareForFund(l, fundId), 0)
+      + sum(yearTx.filter(t => t.direction === "in" && t.fund_id === fundId && t.status === "Paid"));
+    const spent = sum(yearTx.filter(t => t.direction === "out" && t.fund_id === fundId && t.status === "Paid"));
+    byFund[fundId] = collected - spent;
+  }
+  const total = Object.values(byFund).reduce((s, v) => s + v, 0);
+  return { total, byFund };
 }
