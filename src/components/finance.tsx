@@ -1,5 +1,4 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 import { ArrowDownRight, ArrowUpRight, Coins, History, Paperclip, Plus, Send, Settings2, Trash2, Undo2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -1186,7 +1185,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
     budgets.forEach(b => set.add(budgetStartYear(b.financial_year)));
     return [...set].sort((a, b) => b - a);
   }, [transactions, budgets, currentFy]);
-  const [view, setView] = useState<"Budget" | "Cashflow" | "Levies" | "Transactions">("Budget");
+  const [view, setView] = useState<"Budget" | "Levies" | "Cashflow">("Budget");
   const [year, setYear] = useState(currentFy);
   const [txOpen, setTxOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceTx | null>(null);
@@ -1228,17 +1227,27 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
 
   const activeBudget = yearBudgets[0] ?? null;
 
+  // Per-fund projected year-end position: same run-rate logic as the scheme-wide
+  // projectedSpend/projectedPosition below, but netted against this fund's own
+  // budget rather than the scheme total — shown directly on each fund's card
+  // instead of only a single scheme-wide forecast dialog.
+  const fundProjected = (fundId: string) => {
+    const stat = fundStats[fundId];
+    if (!stat) return { projectedSpend: 0, position: 0 };
+    const projectedSpend = stat.spent / monthsElapsed * 12 + stat.committed;
+    const position = stat.budget - projectedSpend; // >=0 surplus (under budget), <0 shortfall (over budget)
+    return { projectedSpend, position };
+  };
+
   // Budget-vs-actual, per line item — surfaces anything paid that either wasn't
-  // budgeted for at all, or has pushed a specific line past what it budgeted,
-  // so it can be flagged for the AGM rather than only seen as a fund-wide total.
+  // budgeted for at all, or has pushed a specific line past what it budgeted.
+  // Cashflow no longer renders an "AGM reporting" card for this (simplified down
+  // to fund summary + ledger); the natural future home is the Actions/Compliance
+  // Financial Statements preview in dashboard.tsx, so this stays computed here
+  // rather than being deleted, ready to be threaded through when that lands.
   const activeLineItems = activeBudget ? lineItems.filter(li => li.budget_id === activeBudget.id) : [];
   const paidOutTx = yearTx.filter(t => t.direction === "out" && t.status === "Paid");
   const spentAgainstLine = (lineId: string) => sum(paidOutTx.filter(t => t.budget_line_item_id === lineId));
-  const overBudgetLines = activeLineItems
-    .map(li => ({ line: li, spent: spentAgainstLine(li.id), over: spentAgainstLine(li.id) - Number(li.amount) }))
-    .filter(x => x.over > 0);
-  const unbudgetedTx = paidOutTx.filter(t => !t.budget_line_item_id);
-  const needsReporting = unbudgetedTx.length > 0 || overBudgetLines.length > 0;
 
   // For a year with no budget yet: seed the builder from the closest earlier year's lines,
   // so a returning committee adjusts last year's numbers instead of starting from nothing.
@@ -1249,44 +1258,6 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
   const monthsElapsed = year === currentFy ? Math.min(12, Math.max(1, (today.getMonth() + 12 - 6) % 12 + 1)) : 12;
   const projectedSpend = totalOut / monthsElapsed * 12 + totalCommitted;
   const projectedPosition = (totalIn + totalOwing) - projectedSpend;
-
-  // Planned schedule: when each budgeted line falls due, plus the levy due date as the one
-  // "money in" event, laid over a running balance for the rest of the financial year.
-  const todayPos = FY_MONTHS.indexOf(new Date().getMonth() + 1);
-  const isRemaining = (m: number) => year > currentFy ? true : year < currentFy ? false : FY_MONTHS.indexOf(m) >= todayPos;
-  const firstRemaining = FY_MONTHS.find(isRemaining) ?? null;
-  const scheduledLines = activeLineItems.filter((l): l is BudgetLineItem & { expected_month: number } => l.expected_month != null);
-  const unscheduledLines = activeLineItems.filter(l => l.expected_month == null);
-  const unscheduledTotal = unscheduledLines.reduce((s, l) => s + Number(l.amount), 0);
-  const leviesToCollect = totalOwing;
-  const committedOut = totalCommitted;
-  const fundsOnHand = totalBalance;
-  const levyDueMonth = activeBudget ? new Date(activeBudget.levy_due_date).getMonth() + 1 : null;
-  const levyMonth = levyDueMonth !== null && isRemaining(levyDueMonth) ? levyDueMonth : firstRemaining;
-  const schedule = (() => {
-    let running = fundsOnHand;
-    return FY_MONTHS.map(m => {
-      const live = isRemaining(m);
-      const outAmt = scheduledLines.filter(l => l.expected_month === m).reduce((s, l) => s + Number(l.amount), 0) + (m === firstRemaining ? committedOut : 0);
-      const inAmt = m === levyMonth ? leviesToCollect : 0;
-      if (live) running += inAmt - outAmt;
-      return { month: m, inAmt, outAmt, running, live };
-    });
-  })();
-  const stillOut = committedOut + scheduledLines.filter(l => isRemaining(l.expected_month)).reduce((s, l) => s + Number(l.amount), 0) + unscheduledTotal;
-  const projected = fundsOnHand + leviesToCollect - stillOut;
-
-  const chartData = useMemo(() => {
-    const months = Array.from({ length: 12 }, (_, i) => (6 + i) % 12);
-    return months.map(m => {
-      const label = new Date(2000, m, 1).toLocaleDateString("en-AU", { month: "short" });
-      const matches = (iso: string) => { const d = new Date(iso); return d.getMonth() === m && startYearOf(iso) === year; };
-      const inAmt = yearLevies.filter(l => l.paid_at && matches(l.paid_at)).reduce((s, l) => s + Number(l.amount), 0)
-        + sum(yearTx.filter(t => t.direction === "in" && t.status === "Paid" && matches(t.occurred_on)));
-      const outAmt = sum(yearTx.filter(t => t.direction === "out" && t.status === "Paid" && matches(t.occurred_on)));
-      return { month: label, In: Math.round(inAmt), Out: Math.round(outAmt) };
-    });
-  }, [yearTx, yearLevies, year]);
 
   const visible = yearTx
     .filter(t => filter === "all" || (filter === "in" && t.direction === "in") || (filter === "out" && t.direction === "out") || filter === t.fund_id)
@@ -1321,7 +1292,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
     `At this rate we expect to spend ${money(projectedSpend)} by the end of the year, leaving a projected ${projectedPosition >= 0 ? "surplus" : "shortfall"} of ${money(Math.abs(projectedPosition))}.`,
   ].join("\n");
 
-  const tabs = ["Budget", "Cashflow", "Levies", "Transactions"] as const;
+  const tabs = ["Budget", "Levies", "Cashflow"] as const;
 
   return <div className="space-y-8">
     <PageHead eyebrow="Finance" title="Budget it, track it, see it through" blurb="Build the year's budget, watch spend against it as bills come in, and see the cashflow — all from one spreadsheet."
@@ -1330,7 +1301,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
           <SelectTrigger className="h-9 w-[150px] rounded-full text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>{years.map(y => <SelectItem key={y} value={String(y)}>{fyLabel(y)}</SelectItem>)}</SelectContent>
         </Select>
-        {isCommittee && view === "Transactions" && <Button className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Record money</Button>}
+        {isCommittee && view === "Cashflow" && <Button className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Record money</Button>}
       </div>} />
 
     <div className="flex flex-wrap items-center gap-2">
@@ -1347,9 +1318,18 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
         revertFrom={revertFrom} onSaved={() => { setRevertFrom(null); onChanged(); }} onOpenHistory={() => setHistoryBudget(activeBudget)} />
     </Card>}
 
+    {view === "Levies" && <LeviesTab levies={levies} funds={funds} documents={documents} isCommittee={isCommittee} schemeId={schemeId} onPaid={onMarkLevyPaid} onChanged={onChanged} />}
+
+    {/* Cashflow is one system: the chunk of money in each fund, then the ledger of what
+       moves in and out of it — no separate tab to flip to for the transactions that
+       actually explain the numbers above. */}
     {view === "Cashflow" && <>
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <Button size="sm" variant="outline" className="rounded-full" onClick={() => setForecastOpen(true)}><Send className="size-3.5" />Send forecast</Button>
+    </div>
+
     <div className="grid gap-4 lg:grid-cols-3">
-      {funds.map(f => { const stat = fundStats[f.id]; if (!stat) return null; return <Card key={f.id} className="p-6">
+      {funds.map(f => { const stat = fundStats[f.id]; if (!stat) return null; const fp = fundProjected(f.id); return <Card key={f.id} className="p-6">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{f.name} fund</p>
@@ -1365,100 +1345,13 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
           <Row label="Spent" value={money(stat.spent)} />
           <Row label="Already committed" value={money(stat.committed)} />
           <Row label="Remaining budget" value={money(stat.remaining)} tone={stat.remaining < 0 ? "text-destructive" : ""} />
+          <Row label="Projected year-end" value={money(Math.abs(fp.position))} tone={fp.position < 0 ? "text-destructive" : ""} />
         </div>
-        <p className="mt-3 text-[11px] leading-5 text-muted-foreground/80">"Already committed" is work quoted or approved but not yet paid — it's set aside from the remaining budget so it isn't spent twice.</p>
+        <p className="mt-3 text-[11px] leading-5 text-muted-foreground/80">{fp.position >= 0 ? "Surplus" : "Shortfall"} at this rate, {monthsElapsed} of 12 months counted.</p>
       </Card>;})}
-
-      <Card className="bg-primary p-6 text-primary-foreground">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">Forecast to 30 June {year + 1}</p>
-        <p className="mt-4 text-3xl font-medium tracking-[-0.03em] tabular-nums">{money(projectedSpend)}</p>
-        <p className="mt-1 text-[12px] opacity-80">Expected spend at the current run rate</p>
-        <div className="mt-6 space-y-3 text-[13px]">
-          <div className="flex justify-between opacity-90"><span>{projectedPosition >= 0 ? "Surplus" : "Shortfall"} at this rate</span><span className="font-medium tabular-nums">{money(Math.abs(projectedPosition))}</span></div>
-          <div className="flex justify-between opacity-90"><span>Against budget</span><span className="font-medium tabular-nums">{money(totalBudget - projectedSpend)}</span></div>
-          <div className="flex justify-between opacity-90"><span>Months counted</span><span className="font-medium tabular-nums">{monthsElapsed} of 12</span></div>
-        </div>
-        <div className="mt-6 flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" className="rounded-full" onClick={() => setForecastOpen(true)}><Send />Send forecast</Button>
-        </div>
-      </Card>
     </div>
 
-    <Card className="p-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="font-display text-xl tracking-[-0.02em]">Money in against money out</h2>
-          <p className="mt-1 text-[13px] text-muted-foreground">Levy payments received and bills paid, month by month across {fyLabel(year)}.</p>
-        </div>
-        <div className="flex gap-6 text-[12px]">
-          <span className="flex items-center gap-2"><ArrowUpRight className="size-3.5" />In {money(totalIn)}</span>
-          <span className="flex items-center gap-2"><ArrowDownRight className="size-3.5" />Out {money(totalOut)}</span>
-        </div>
-      </div>
-      <div className="mt-6 h-[280px]">
-        {chartData.some(d => d.In > 0 || d.Out > 0)
-          ? <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={11} />
-                <YAxis tickLine={false} axisLine={false} fontSize={11} tickFormatter={v => money(Number(v))} width={70} />
-                <ChartTooltip formatter={(v: number | string) => money(Number(v))} contentStyle={{ borderRadius: 14, border: "1px solid var(--border)", background: "var(--card)" }} />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="In" fill="var(--primary)" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="Out" fill="var(--muted-foreground)" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          : <div className="flex h-full items-center justify-center rounded-[20px] border border-dashed border-border text-[13px] text-muted-foreground">Nothing recorded for this year yet. Record a payment and it will show here.</div>}
-      </div>
-    </Card>
-
     <Card className="overflow-hidden">
-      <div className="border-b border-border/70 p-6">
-        <h2 className="font-display text-xl tracking-[-0.02em]">Planned schedule</h2>
-        <p className="mt-1 text-[13px] leading-6 text-muted-foreground">When your budgeted costs are due to land, and the running balance across the rest of {fyLabel(year)}.</p>
-      </div>
-      {!activeBudget
-        ? <p className="p-10 text-center text-[13px] text-muted-foreground">Build a budget first and this fills in on its own.</p>
-        : <div className="divide-y divide-border/60">
-            {schedule.filter(t => t.inAmt > 0 || t.outAmt > 0 || t.live).map(t => <div key={t.month} className={`flex items-center gap-3 px-6 py-2.5 text-[12px] ${t.live ? "" : "opacity-45"}`}>
-              <span className="w-20 shrink-0 text-muted-foreground">{monthLabel(t.month, year)}</span>
-              <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">{t.inAmt > 0 ? `+${money(t.inAmt)}` : "—"}</span>
-              <span className="w-24 shrink-0 text-right tabular-nums text-muted-foreground">{t.outAmt > 0 ? `−${money(t.outAmt)}` : "—"}</span>
-              <span className={`flex-1 text-right font-medium tabular-nums ${t.live && t.running < 0 ? "text-destructive" : ""}`}>{t.live ? money(t.running) : "passed"}</span>
-            </div>)}
-            {unscheduledTotal > 0 && <div className="flex items-center justify-between gap-3 bg-secondary/30 px-6 py-3 text-[12px]">
-              <span className="text-muted-foreground">Not yet scheduled</span>
-              <span className="font-medium tabular-nums">{money(unscheduledTotal)}</span>
-            </div>}
-            <div className="flex items-center justify-between gap-3 px-6 py-3.5 text-[13px] font-medium">
-              <span>Projected at 30 June {year + 1}</span>
-              <span className={projected < 0 ? "text-destructive" : ""}>{money(projected)}</span>
-            </div>
-          </div>}
-      <p className="border-t border-border/60 px-6 py-4 text-[11px] leading-5 text-muted-foreground/80">Months already gone are greyed out. Set "When" on a budget line to have it show up here.</p>
-    </Card>
-
-    {needsReporting && <Card className="overflow-hidden border-destructive/30">
-      <div className="border-b border-destructive/20 bg-destructive/5 px-6 py-4">
-        <h2 className="font-display text-lg tracking-[-0.02em]">Needs reporting to the AGM</h2>
-        <p className="mt-1 text-[13px] text-muted-foreground">Spending that wasn't in the budget, or that went over what a line item planned for — call these out when you report back to owners.</p>
-      </div>
-      <div className="divide-y divide-border/60">
-        {overBudgetLines.map(({ line, spent, over }) => <div key={line.id} className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5">
-          <div><p className="text-[13px] font-medium">{line.description}</p><p className="mt-0.5 text-[12px] text-muted-foreground">Budgeted {money(Number(line.amount))} · Spent {money(spent)}</p></div>
-          <span className="text-[13px] font-medium tabular-nums text-destructive">{money(over)} over</span>
-        </div>)}
-        {unbudgetedTx.map(t => <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 px-6 py-3.5">
-          <div><p className="text-[13px] font-medium">{t.description}</p><p className="mt-0.5 text-[12px] text-muted-foreground">{niceDate(t.occurred_on)} · {fundName(funds, t.fund_id)} fund · not budgeted</p></div>
-          <span className="text-[13px] font-medium tabular-nums">{money2(Number(t.amount))}</span>
-        </div>)}
-      </div>
-    </Card>}
-    </>}
-
-    {view === "Levies" && <LeviesTab levies={levies} funds={funds} documents={documents} isCommittee={isCommittee} schemeId={schemeId} onPaid={onMarkLevyPaid} onChanged={onChanged} />}
-
-    {view === "Transactions" && <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 p-6">
         <div>
           <h2 className="font-display text-xl tracking-[-0.02em]">Money movements</h2>
@@ -1502,7 +1395,8 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
               </div>}
             </div>)}
           </div>}
-    </Card>}
+    </Card>
+    </>}
 
     {txOpen && <TxDialog key={editing?.id ?? `new-${recordFundId ?? "any"}`} open={txOpen} onOpenChange={setTxOpen} schemeId={schemeId}
       tx={editing} funds={funds} defaultFundId={recordFundId} lineItems={activeLineItems} onSaved={onChanged} />}
