@@ -19,8 +19,8 @@ import { WorkOrdersSection, WorkOrderTable, type WorkOrder } from "@/components/
 import { CalendarSection } from "@/components/calendar-view";
 import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
-import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment } from "@/components/overview";
-import { FinanceSection, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
+import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment, type BudgetFund } from "@/components/overview";
+import { FinanceSection, ensureDefaultFunds, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
 import { computeFundBalances, currentFinancialYearStart, type Levy } from "@/lib/fund-balance";
@@ -122,7 +122,7 @@ function DashboardPage() {
   const levies = useQuery({
     queryKey: ["levies"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("levies").select("*, lots(lot_number, owner_name, owner_email, entitlement_percent), budgets(financial_year, admin_fund_total, maintenance_fund_total, allocation_method)").order("due_date");
+      const { data, error } = await supabase.from("levies").select("*, lots(lot_number, owner_name, owner_email, entitlement_percent), budgets(financial_year, allocation_method, total_amount, budget_fund_totals(fund_id, total))").order("due_date");
       if (error) throw error;
       return (data ?? []) as unknown as Levy[];
     },
@@ -196,9 +196,17 @@ function DashboardPage() {
   const budgets = useQuery({
     queryKey: ["budgets"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("budgets").select("*").order("financial_year", { ascending: false });
+      const { data, error } = await supabase.from("budgets").select("*, budget_fund_totals(fund_id, total)").order("financial_year", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as FinanceBudget[];
+    },
+  });
+  const budgetFunds = useQuery({
+    queryKey: ["budget-funds"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("budget_funds").select("*").order("sort_order");
+      if (error) throw error;
+      return (data ?? []) as unknown as BudgetFund[];
     },
   });
   const budgetLineItems = useQuery({
@@ -287,6 +295,14 @@ function DashboardPage() {
     if (scheme.data === null && isCommittee) navigate({ to: "/onboarding", replace: true });
   }, [authChecked, userId, scheme.isLoading, scheme.data, roleQuery.isLoading, isCommittee, navigate]);
 
+  const fundsBootstrapped = useRef(false);
+  useEffect(() => {
+    if (!schemeId || budgetFunds.isLoading || fundsBootstrapped.current) return;
+    fundsBootstrapped.current = true;
+    void ensureDefaultFunds(schemeId, budgetFunds.data?.length ?? 0).then(created => { if (created) refresh(["budget-funds"]); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemeId, budgetFunds.isLoading]);
+
   if (!authChecked) return null;
 
   return <div className="relative isolate min-h-screen bg-background">
@@ -306,7 +322,7 @@ function DashboardPage() {
 
     <main className="mx-auto max-w-[1500px] px-4 pb-32 pt-10 sm:px-7 sm:pt-14">
       {active === "Dashboard" && <OverviewSection
-        scheme={scheme.data ?? null} levies={levies.data ?? []} budgets={budgets.data ?? []} transactions={finance.data ?? []}
+        scheme={scheme.data ?? null} levies={levies.data ?? []} funds={budgetFunds.data ?? []} transactions={finance.data ?? []}
         tasks={tasks.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
         widgets={dashboardWidgets.data ?? []} widgetsLoading={dashboardWidgets.isLoading} isCommittee={isCommittee} schemeId={schemeId}
         onTaskStatus={(id,status)=>setTaskStatus.mutate({id,status})}
@@ -318,15 +334,15 @@ function DashboardPage() {
         onChanged={()=>refresh(["repairs"])}/>}
 
       {active === "Actions" && <ComplianceSection tasks={tasks.data ?? []} documents={documents.data ?? []} widgets={complianceWidgets.data ?? []}
-        policies={policies.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []} finance={finance.data ?? []} repairs={repairs.data ?? []}
+        policies={policies.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []} finance={finance.data ?? []} funds={budgetFunds.data ?? []} repairs={repairs.data ?? []}
         drafts={actionDrafts.data ?? []} meetings={agmMeetings.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId}
         onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets","action-drafts","agm-meetings"])}/>}
 
       {active === "Finance" && <FinanceSection transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
-        revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} documents={documents.data ?? []}
+        revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id)=>markLevyPaid.mutate(id)}
-        onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","documents","document-folders"])}/>}
+        onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders"])}/>}
@@ -877,18 +893,23 @@ function WidgetCard({ widget, task, isCommittee, dimmed, dragging, onDragStart, 
   </div>;
 }
 
-function financialStatementsPreview(budgets: FinanceBudget[], levies: Levy[], finance: FinanceTx[]) {
+function financialStatementsPreview(budgets: FinanceBudget[], levies: Levy[], finance: FinanceTx[], funds: BudgetFund[]) {
   const year = currentFinancialYearStart();
   const budget = budgets.find(b => b.financial_year.match(/\d{4}/)?.[0] === String(year));
-  const balances = computeFundBalances(levies, budgets, finance, year);
+  const balances = computeFundBalances(levies, finance, year);
   const paidTx = finance.filter(t => t.status === "Paid" && new Date(t.occurred_on).getFullYear() >= year);
   const spent = paidTx.filter(t => t.direction === "out").reduce((s, t) => s + Number(t.amount), 0);
   const collected = paidTx.filter(t => t.direction === "in").reduce((s, t) => s + Number(t.amount), 0);
+  const fundName = (id: string) => funds.find(f => f.id === id)?.name ?? "Fund";
+  const budgetedByFund = budget
+    ? budget.budget_fund_totals.map(t => `${fundName(t.fund_id)} ${money(t.total)}`).join(" · ")
+    : null;
+  const balanceByFund = Object.entries(balances.byFund).map(([id, v]) => `${fundName(id)} ${money(v)}`).join(" · ");
   return [
     `Financial year: ${budget?.financial_year ?? `${year}/${year + 1}`}`,
-    budget ? `Budgeted: Admin ${money(budget.admin_fund_total)} · Maintenance ${money(budget.maintenance_fund_total)}` : "No budget set for this year yet.",
+    budget ? `Budgeted: ${budgetedByFund}` : "No budget set for this year yet.",
     `Money in: ${money(collected)}`, `Money out: ${money(spent)}`,
-    `Fund balances: Admin ${money(balances.admin)} · Maintenance ${money(balances.maintenance)} · Total ${money(balances.total)}`,
+    `Fund balances: ${balanceByFund}${balanceByFund ? " · " : ""}Total ${money(balances.total)}`,
   ].join("\n");
 }
 
@@ -912,14 +933,14 @@ function maintenancePlanPreview(repairs: Repair[]) {
   return [`Open items: ${open.length}`, "", ...lines].join("\n");
 }
 
-const standardPreview: Record<string, { label: string; text: (ctx: { policies: Policy[]; budgets: FinanceBudget[]; levies: Levy[]; finance: FinanceTx[]; repairs: Repair[] }) => string }> = {
-  financial_statements: { label: "Finance", text: ctx => financialStatementsPreview(ctx.budgets, ctx.levies, ctx.finance) },
+const standardPreview: Record<string, { label: string; text: (ctx: { policies: Policy[]; budgets: FinanceBudget[]; levies: Levy[]; finance: FinanceTx[]; repairs: Repair[]; funds: BudgetFund[] }) => string }> = {
+  financial_statements: { label: "Finance", text: ctx => financialStatementsPreview(ctx.budgets, ctx.levies, ctx.finance, ctx.funds) },
   insurance_renewal: { label: "Insurance", text: ctx => insuranceRenewalPreview(ctx.policies) },
   maintenance_plan: { label: "Work orders", text: ctx => maintenancePlanPreview(ctx.repairs) },
 };
 
-function ComplianceSection({ tasks, documents, widgets, policies, budgets, levies, finance, repairs, drafts, meetings, isCommittee, schemeId, onChanged }: {
-  tasks: Task[]; documents: Doc[]; widgets: ComplianceWidget[]; policies: Policy[]; budgets: FinanceBudget[]; levies: Levy[]; finance: FinanceTx[]; repairs: Repair[];
+function ComplianceSection({ tasks, documents, widgets, policies, budgets, levies, finance, funds, repairs, drafts, meetings, isCommittee, schemeId, onChanged }: {
+  tasks: Task[]; documents: Doc[]; widgets: ComplianceWidget[]; policies: Policy[]; budgets: FinanceBudget[]; levies: Levy[]; finance: FinanceTx[]; funds: BudgetFund[]; repairs: Repair[];
   drafts: ActionDraft[]; meetings: AgmMeeting[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1020,7 +1041,7 @@ function ComplianceSection({ tasks, documents, widgets, policies, budgets, levie
       <ActionWorkspaceDialog open={open} onOpenChange={setOpen} widget={selected} task={currentTaskFor(selected, tasks)}
         schemeId={schemeId} isCommittee={isCommittee}
         previewLabel={standardPreview[selected.standard_key]!.label}
-        previewText={standardPreview[selected.standard_key]!.text({ policies, budgets, levies, finance, repairs })}
+        previewText={standardPreview[selected.standard_key]!.text({ policies, budgets, levies, finance, repairs, funds })}
         draft={drafts.find(d => d.standard_key === selected.standard_key) ?? null}
         onChanged={onChanged} key={selected.id} />}
 

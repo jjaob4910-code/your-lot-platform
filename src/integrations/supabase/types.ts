@@ -98,8 +98,9 @@ export type Database = {
           created_at: string
           description: string
           expected_month: number | null
-          fund: string
+          fund_id: string
           id: string
+          occurrence: string
           scheme_id: string
           updated_at: string
         }
@@ -110,8 +111,9 @@ export type Database = {
           created_at?: string
           description: string
           expected_month?: number | null
-          fund?: string
+          fund_id: string
           id?: string
+          occurrence?: string
           scheme_id: string
           updated_at?: string
         }
@@ -122,8 +124,9 @@ export type Database = {
           created_at?: string
           description?: string
           expected_month?: number | null
-          fund?: string
+          fund_id?: string
           id?: string
+          occurrence?: string
           scheme_id?: string
           updated_at?: string
         }
@@ -136,10 +139,85 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "budget_line_items_fund_id_fkey"
+            columns: ["fund_id"]
+            isOneToOne: false
+            referencedRelation: "budget_funds"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "budget_line_items_scheme_id_fkey"
             columns: ["scheme_id"]
             isOneToOne: false
             referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      budget_funds: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          scheme_id: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          scheme_id: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          scheme_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_funds_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      budget_fund_totals: {
+        Row: {
+          budget_id: string
+          fund_id: string
+          id: string
+          total: number
+        }
+        Insert: {
+          budget_id: string
+          fund_id: string
+          id?: string
+          total?: number
+        }
+        Update: {
+          budget_id?: string
+          fund_id?: string
+          id?: string
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_fund_totals_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budget_fund_totals_fund_id_fkey"
+            columns: ["fund_id"]
+            isOneToOne: false
+            referencedRelation: "budget_funds"
             referencedColumns: ["id"]
           },
         ]
@@ -151,16 +229,16 @@ export type Database = {
           created_by: string | null
           id: string
           levies_recalculated: boolean
-          new_admin_fund_total: number
           new_allocation_method: string
+          new_fund_totals: Json
           new_levy_due_date: string
           new_line_items: Json
-          new_maintenance_fund_total: number
-          previous_admin_fund_total: number
+          new_total: number
           previous_allocation_method: string
+          previous_fund_totals: Json
           previous_levy_due_date: string
           previous_line_items: Json
-          previous_maintenance_fund_total: number
+          previous_total: number
           reason: string
           scheme_id: string
         }
@@ -170,16 +248,16 @@ export type Database = {
           created_by?: string | null
           id?: string
           levies_recalculated?: boolean
-          new_admin_fund_total: number
           new_allocation_method: string
+          new_fund_totals?: Json
           new_levy_due_date: string
           new_line_items?: Json
-          new_maintenance_fund_total: number
-          previous_admin_fund_total: number
+          new_total: number
           previous_allocation_method: string
+          previous_fund_totals?: Json
           previous_levy_due_date: string
           previous_line_items?: Json
-          previous_maintenance_fund_total: number
+          previous_total: number
           reason: string
           scheme_id: string
         }
@@ -189,16 +267,16 @@ export type Database = {
           created_by?: string | null
           id?: string
           levies_recalculated?: boolean
-          new_admin_fund_total?: number
           new_allocation_method?: string
+          new_fund_totals?: Json
           new_levy_due_date?: string
           new_line_items?: Json
-          new_maintenance_fund_total?: number
-          previous_admin_fund_total?: number
+          new_total?: number
           previous_allocation_method?: string
+          previous_fund_totals?: Json
           previous_levy_due_date?: string
           previous_line_items?: Json
-          previous_maintenance_fund_total?: number
+          previous_total?: number
           reason?: string
           scheme_id?: string
         }
@@ -221,34 +299,31 @@ export type Database = {
       }
       budgets: {
         Row: {
-          admin_fund_total: number
           allocation_method: string
           created_at: string
           financial_year: string
           id: string
           levy_due_date: string
-          maintenance_fund_total: number
           scheme_id: string
+          total_amount: number
         }
         Insert: {
-          admin_fund_total?: number
           allocation_method?: string
           created_at?: string
           financial_year: string
           id?: string
           levy_due_date?: string
-          maintenance_fund_total?: number
           scheme_id: string
+          total_amount?: number
         }
         Update: {
-          admin_fund_total?: number
           allocation_method?: string
           created_at?: string
           financial_year?: string
           id?: string
           levy_due_date?: string
-          maintenance_fund_total?: number
           scheme_id?: string
+          total_amount?: number
         }
         Relationships: [
           {
@@ -715,7 +790,7 @@ export type Database = {
           created_at: string
           description: string
           direction: string
-          fund: string
+          fund_id: string
           id: string
           notes: string | null
           occurred_on: string
@@ -732,7 +807,7 @@ export type Database = {
           created_at?: string
           description: string
           direction?: string
-          fund?: string
+          fund_id: string
           id?: string
           notes?: string | null
           occurred_on?: string
@@ -749,7 +824,7 @@ export type Database = {
           created_at?: string
           description?: string
           direction?: string
-          fund?: string
+          fund_id?: string
           id?: string
           notes?: string | null
           occurred_on?: string
@@ -765,6 +840,13 @@ export type Database = {
             columns: ["budget_line_item_id"]
             isOneToOne: false
             referencedRelation: "budget_line_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_transactions_fund_id_fkey"
+            columns: ["fund_id"]
+            isOneToOne: false
+            referencedRelation: "budget_funds"
             referencedColumns: ["id"]
           },
           {
