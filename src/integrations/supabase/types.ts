@@ -51,34 +51,43 @@ export type Database = {
           agenda: Json
           created_at: string
           id: string
+          location: string | null
           meeting_date: string | null
+          meeting_time: string | null
           notes: string
           published_at: string | null
           scheme_id: string
           status: string
           title: string
+          video_link: string | null
         }
         Insert: {
           agenda?: Json
           created_at?: string
           id?: string
+          location?: string | null
           meeting_date?: string | null
+          meeting_time?: string | null
           notes?: string
           published_at?: string | null
           scheme_id: string
           status?: string
           title: string
+          video_link?: string | null
         }
         Update: {
           agenda?: Json
           created_at?: string
           id?: string
+          location?: string | null
           meeting_date?: string | null
+          meeting_time?: string | null
           notes?: string
           published_at?: string | null
           scheme_id?: string
           status?: string
           title?: string
+          video_link?: string | null
         }
         Relationships: [
           {

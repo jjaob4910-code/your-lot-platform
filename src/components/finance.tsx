@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ArrowDownRight, ArrowUpRight, Coins, History, Paperclip, Plus, Send, Settings2, Trash2, Undo2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import type { DocFile } from "@/components/documents";
-import { levyShareForFund, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
+import { computeFundBalances, currentFinancialYearStart, levyShareForFund, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 import type { BudgetFund } from "@/components/overview";
+import {
+  currentTaskFor, ensureStandardWidget, publishActionDocument, urgencyTone,
+  type ActionDraft, type ComplianceWidget, type Task,
+} from "@/lib/action-publish";
 
 export type { BudgetFund } from "@/components/overview";
 
@@ -188,6 +192,96 @@ export async function sendLevies(levies: Levy[], funds: BudgetFund[], schemeId: 
 
 export const shareAmount = (method: string, entitlementPercent: number, lotCount: number, total: number) =>
   Math.round((method === "Equal" ? total / Math.max(1, lotCount) : (entitlementPercent / 100) * total) * 100) / 100;
+
+const FINANCIAL_STATEMENTS_WIDGET = { key: "financial_statements", label: "Financial Statements", detail: "Prepare the annual financial statements: what came in, what went out." };
+
+function financialStatementsPreview(budgets: FinanceBudget[], levies: Levy[], finance: FinanceTx[], funds: BudgetFund[]) {
+  const year = currentFinancialYearStart();
+  const budget = budgets.find(b => b.financial_year.match(/\d{4}/)?.[0] === String(year));
+  const balances = computeFundBalances(levies, finance, year);
+  const paidTx = finance.filter(t => t.status === "Paid" && new Date(t.occurred_on).getFullYear() >= year);
+  const spent = paidTx.filter(t => t.direction === "out").reduce((s, t) => s + Number(t.amount), 0);
+  const collected = paidTx.filter(t => t.direction === "in").reduce((s, t) => s + Number(t.amount), 0);
+  const fundNameFor = (id: string) => funds.find(f => f.id === id)?.name ?? "Fund";
+  const budgetedByFund = budget
+    ? budget.budget_fund_totals.map(t => `${fundNameFor(t.fund_id)} ${money(t.total)}`).join(" · ")
+    : null;
+  const balanceByFund = Object.entries(balances.byFund).map(([id, v]) => `${fundNameFor(id)} ${money(v)}`).join(" · ");
+  return [
+    `Financial year: ${budget?.financial_year ?? `${year}/${year + 1}`}`,
+    budget ? `Budgeted: ${budgetedByFund}` : "No budget set for this year yet.",
+    `Money in: ${money(collected)}`, `Money out: ${money(spent)}`,
+    `Fund balances: ${balanceByFund}${balanceByFund ? " · " : ""}Total ${money(balances.total)}`,
+  ].join("\n");
+}
+
+function FinanceObligationCard({ budgets, levies, transactions, funds, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onChanged }: {
+  budgets: FinanceBudget[]; levies: Levy[]; transactions: FinanceTx[]; funds: BudgetFund[]; isCommittee: boolean; schemeId?: string | undefined;
+  tasks: Task[]; complianceWidgets: ComplianceWidget[]; actionDrafts: ActionDraft[]; onChanged: () => void;
+}) {
+  const bootstrapped = useRef(false);
+  useEffect(() => {
+    if (!schemeId || bootstrapped.current) return;
+    bootstrapped.current = true;
+    void ensureStandardWidget(schemeId, complianceWidgets, FINANCIAL_STATEMENTS_WIDGET).then(created => { if (created) onChanged(); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemeId]);
+
+  const widget = complianceWidgets.find(w => w.standard_key === "financial_statements");
+  const task = widget ? currentTaskFor(widget, tasks) : undefined;
+  const draft = actionDrafts.find(d => d.standard_key === "financial_statements") ?? null;
+  const tone = urgencyTone(task?.due_date, task?.status === "Complete");
+  const previewText = financialStatementsPreview(budgets, levies, transactions, funds);
+
+  const [content, setContent] = useState(draft?.content ?? "");
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+
+  if (!isCommittee) return null;
+
+  const saveDraft = async () => {
+    if (!schemeId) return;
+    setSaving(true);
+    const { error } = draft
+      ? await supabase.from("action_drafts").update({ content }).eq("id", draft.id)
+      : await supabase.from("action_drafts").insert({ scheme_id: schemeId, standard_key: "financial_statements", content });
+    setSaving(false);
+    if (error) { toast("Could not save the draft", { description: error.message }); return; }
+    onChanged(); toast("Draft saved");
+  };
+
+  const publish = async () => {
+    if (!schemeId || !widget) return;
+    setPublishing(true);
+    const text = [previewText, content.trim() ? `\n\nCommittee notes:\n${content.trim()}` : ""].join("");
+    try {
+      await publishActionDocument(schemeId, widget, task?.id ?? null, text);
+      onChanged();
+      toast("Published", { description: "Filed in Documents and marked complete." });
+    } catch (err) {
+      toast("Could not publish", { description: (err as Error).message });
+    } finally { setPublishing(false); }
+  };
+
+  return <Card className="p-6">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm font-medium">Financial Statements</p>
+      <span className={`text-[12px] ${tone.className}`}>{tone.label}</span>
+    </div>
+    <details className="mt-3">
+      <summary className="cursor-pointer text-[12px] text-muted-foreground">Preview</summary>
+      <pre className="mt-2 max-h-52 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-border/70 bg-secondary/40 p-3 text-[12px] leading-6">{previewText}</pre>
+    </details>
+    <div className="mt-3 space-y-2">
+      <Label htmlFor="finance_obligation_notes" className="text-[11px]">Committee notes (optional)</Label>
+      <Textarea id="finance_obligation_notes" rows={3} value={content} onChange={e => setContent(e.target.value)} placeholder="Anything to add before this goes out" />
+    </div>
+    <div className="mt-3 flex flex-wrap justify-end gap-2">
+      <Button type="button" size="sm" variant="outline" className="rounded-full" disabled={saving} onClick={() => void saveDraft()}>{saving ? "Saving…" : "Save draft"}</Button>
+      <Button type="button" size="sm" className="rounded-full" disabled={publishing} onClick={() => void publish()}>{publishing ? "Publishing…" : "Publish"}</Button>
+    </div>
+  </Card>;
+}
 
 export type DraftLine = {
   id: string; fundId: string; costType: "Fixed" | "Variable"; occurrence: Occurrence;
@@ -1172,9 +1266,10 @@ function MarkPaidDialog({ levy, funds, onOpenChange, onConfirm }: {
   </Dialog>;
 }
 
-export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged }: {
+export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onMarkLevyPaid, onChanged }: {
   transactions: FinanceTx[]; budgets: FinanceBudget[]; lineItems: BudgetLineItem[]; levies: Levy[]; revisions: BudgetRevision[]; lots: FinLot[];
   funds: BudgetFund[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
+  tasks?: Task[]; complianceWidgets?: ComplianceWidget[]; actionDrafts?: ActionDraft[];
   onMarkLevyPaid: (id: string, paidAt: string) => void; onChanged: () => void;
 }) {
   const today = new Date();
@@ -1303,6 +1398,9 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
         </Select>
         {isCommittee && view === "Cashflow" && <Button className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Record money</Button>}
       </div>} />
+
+    {isCommittee && <FinanceObligationCard budgets={budgets} levies={levies} transactions={transactions} funds={funds} isCommittee={isCommittee} schemeId={schemeId}
+      tasks={tasks ?? []} complianceWidgets={complianceWidgets ?? []} actionDrafts={actionDrafts ?? []} onChanged={onChanged}/>}
 
     <div className="flex flex-wrap items-center gap-2">
       {tabs.map(t => <button key={t} type="button" onClick={() => setView(t)}

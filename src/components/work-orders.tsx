@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ImagePlus, Plus, ThumbsDown, ThumbsUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import {
+  currentTaskFor, ensureStandardWidget, publishActionDocument, urgencyTone,
+  type ActionDraft, type ComplianceWidget, type Task,
+} from "@/lib/action-publish";
 
 export type WorkOrder = {
   id: string;
@@ -36,6 +40,82 @@ const niceStamp = (value: string) => new Date(value).toLocaleString("en-AU", { d
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <section className={`soft-shadow rounded-3xl border border-border/70 bg-card ${className}`}>{children}</section>;
+}
+
+const MAINTENANCE_PLAN_WIDGET = { key: "maintenance_plan", label: "Maintenance Plan", detail: "Keep a maintenance plan for the building's common property up to date, including fire safety certification." };
+
+function maintenancePlanPreview(repairs: WorkOrder[]) {
+  const open = repairs.filter(r => r.status !== "Complete");
+  if (open.length === 0) return "No open maintenance or work orders right now.";
+  const lines = open.map(r => `- ${r.title} (${r.status})`);
+  return [`Open items: ${open.length}`, "", ...lines].join("\n");
+}
+
+function MaintenanceObligationCard({ orders, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onChanged }: {
+  orders: WorkOrder[]; isCommittee: boolean; schemeId?: string | undefined; tasks: Task[]; complianceWidgets: ComplianceWidget[]; actionDrafts: ActionDraft[]; onChanged: () => void;
+}) {
+  const bootstrapped = useRef(false);
+  useEffect(() => {
+    if (!schemeId || bootstrapped.current) return;
+    bootstrapped.current = true;
+    void ensureStandardWidget(schemeId, complianceWidgets, MAINTENANCE_PLAN_WIDGET).then(created => { if (created) onChanged(); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemeId]);
+
+  const widget = complianceWidgets.find(w => w.standard_key === "maintenance_plan");
+  const task = widget ? currentTaskFor(widget, tasks) : undefined;
+  const draft = actionDrafts.find(d => d.standard_key === "maintenance_plan") ?? null;
+  const tone = urgencyTone(task?.due_date, task?.status === "Complete");
+  const previewText = maintenancePlanPreview(orders);
+
+  const [content, setContent] = useState(draft?.content ?? "");
+  const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+
+  if (!isCommittee) return null;
+
+  const saveDraft = async () => {
+    if (!schemeId) return;
+    setSaving(true);
+    const { error } = draft
+      ? await supabase.from("action_drafts").update({ content }).eq("id", draft.id)
+      : await supabase.from("action_drafts").insert({ scheme_id: schemeId, standard_key: "maintenance_plan", content });
+    setSaving(false);
+    if (error) { toast("Could not save the draft", { description: error.message }); return; }
+    onChanged(); toast("Draft saved");
+  };
+
+  const publish = async () => {
+    if (!schemeId || !widget) return;
+    setPublishing(true);
+    const text = [previewText, content.trim() ? `\n\nCommittee notes:\n${content.trim()}` : ""].join("");
+    try {
+      await publishActionDocument(schemeId, widget, task?.id ?? null, text);
+      onChanged();
+      toast("Published", { description: "Filed in Documents and marked complete." });
+    } catch (err) {
+      toast("Could not publish", { description: (err as Error).message });
+    } finally { setPublishing(false); }
+  };
+
+  return <Card className="p-6">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm font-medium">Maintenance Plan</p>
+      <span className={`text-[12px] ${tone.className}`}>{tone.label}</span>
+    </div>
+    <details className="mt-3">
+      <summary className="cursor-pointer text-[12px] text-muted-foreground">Preview</summary>
+      <pre className="mt-2 max-h-52 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-border/70 bg-secondary/40 p-3 text-[12px] leading-6">{previewText}</pre>
+    </details>
+    <div className="mt-3 space-y-2">
+      <Label htmlFor="maintenance_notes" className="text-[11px]">Committee notes (optional)</Label>
+      <Textarea id="maintenance_notes" rows={3} value={content} onChange={e => setContent(e.target.value)} placeholder="Anything to add before this goes out" />
+    </div>
+    <div className="mt-3 flex flex-wrap justify-end gap-2">
+      <Button type="button" size="sm" variant="outline" className="rounded-full" disabled={saving} onClick={() => void saveDraft()}>{saving ? "Saving…" : "Save draft"}</Button>
+      <Button type="button" size="sm" className="rounded-full" disabled={publishing} onClick={() => void publish()}>{publishing ? "Publishing…" : "Publish"}</Button>
+    </div>
+  </Card>;
 }
 
 export function WorkOrderPill({ status }: { status: string }) {
@@ -73,9 +153,9 @@ export function WorkOrderTable({ orders, onOpen }: { orders: WorkOrder[]; onOpen
   </div>;
 }
 
-export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, onChanged }: {
+export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, tasks, complianceWidgets, actionDrafts, onChanged }: {
   orders: WorkOrder[]; lots: WorkOrderLot[]; isCommittee: boolean; myLot: WorkOrderLot | null;
-  schemeId?: string | undefined; onChanged: () => void;
+  schemeId?: string | undefined; tasks?: Task[]; complianceWidgets?: ComplianceWidget[]; actionDrafts?: ActionDraft[]; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [viewing, setViewing] = useState<WorkOrder | null>(null);
@@ -159,6 +239,11 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
           </form>
         </DialogContent>
       </Dialog>}/>
+
+    {isCommittee && <div className="mt-10">
+      <MaintenanceObligationCard orders={orders} isCommittee={isCommittee} schemeId={schemeId}
+        tasks={tasks ?? []} complianceWidgets={complianceWidgets ?? []} actionDrafts={actionDrafts ?? []} onChanged={onChanged}/>
+    </div>}
 
     <Card className="mt-10 overflow-hidden"><WorkOrderTable orders={orders} onOpen={setViewing}/></Card>
 
