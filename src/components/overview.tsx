@@ -14,12 +14,12 @@ import { computeFundBalances, currentFinancialYearStart, type Levy, type FundTx 
 export type BudgetFund = { id: string; name: string; sort_order: number };
 
 export type DashboardWidget = { id: string; scheme_id: string; widget_type: string; sort_order: number };
-export type Notice = { id: string; scheme_id: string; title: string; message: string; pinned: boolean; created_at: string };
+export type Notice = { id: string; scheme_id: string; title: string; message: string; pinned: boolean; created_at: string; lot_id: string | null };
 export type NoticeComment = { id: string; notice_id: string; scheme_id: string; author_name: string | null; message: string; created_at: string };
 
 type OvScheme = { address: string; next_agm_date: string | null };
 type OvTask = { id: string; task_name: string; due_date: string; status: string };
-type OvLot = { lot_number: number; owner_name: string | null; entitlement_percent: number };
+type OvLot = { id: string; lot_number: number; owner_name: string | null; entitlement_percent: number };
 type OvLevy = Levy;
 
 const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
@@ -244,6 +244,10 @@ export function OverviewSection({ scheme, levies, funds, transactions, tasks, re
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schemeId, widgetsLoading, widgets.length]);
 
+  // A lot-targeted notice (e.g. "your levy is ready") is only for that lot's owner;
+  // committee members see everything, matching how they can post/moderate notices.
+  const visibleNotices = isCommittee ? notices : notices.filter(n => !n.lot_id || n.lot_id === myLot?.id);
+
   const sorted = widgets.slice().sort((a, b) => a.sort_order - b.sort_order);
   const present = new Set(sorted.map(w => w.widget_type));
   const available = Object.keys(WIDGET_CATALOG).filter(k => !present.has(k));
@@ -318,7 +322,7 @@ export function OverviewSection({ scheme, levies, funds, transactions, tasks, re
         switch (widget.widget_type) {
           case "cash": return <WidgetShell key={widget.id} {...shared} title="Current cash" icon={Coins}><CashWidgetBody levies={levies} funds={funds} transactions={transactions} goTo={goTo} /></WidgetShell>;
           case "next_meeting": return <WidgetShell key={widget.id} {...shared} title="Next meeting" icon={CalendarClock}><NextMeetingWidgetBody scheme={scheme} goTo={goTo} /></WidgetShell>;
-          case "notices": return <WidgetShell key={widget.id} {...shared} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={notices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetShell>;
+          case "notices": return <WidgetShell key={widget.id} {...shared} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={visibleNotices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetShell>;
           case "levies_chart": return <WidgetShell key={widget.id} {...shared} title="Levy payments" icon={Landmark} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance")}>Open <ChevronRight className="size-3.5" /></Button>}><LeviesChartWidgetBody levies={levies} /></WidgetShell>;
           case "obligations": return <WidgetShell key={widget.id} {...shared} title="Yearly obligations" icon={FileCheck2} tone="primary" action={<span className="font-display text-lg text-primary-foreground">{tasks.filter(t => t.status === "Complete").length}/{tasks.length}</span>}><ObligationsWidgetBody tasks={tasks} isCommittee={isCommittee} onTaskStatus={onTaskStatus} /></WidgetShell>;
           case "work_orders": return <WidgetShell key={widget.id} {...shared} title="Work orders" icon={Wrench} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Work orders")}>Open <ChevronRight className="size-3.5" /></Button>}><WorkOrdersWidgetBody repairs={repairs} goTo={goTo} /></WidgetShell>;

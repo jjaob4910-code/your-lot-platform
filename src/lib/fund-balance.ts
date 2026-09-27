@@ -8,6 +8,7 @@
 export type BudgetFundTotal = { fund_id: string; total: number };
 export type Levy = {
   id: string; lot_id: string; budget_id: string; amount: number; due_date: string; status: string; paid_at: string | null;
+  notified_at: string | null; notified_amount: number | null;
   lots: { lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number } | null;
   budgets: { financial_year: string; allocation_method: string | null; total_amount: number; budget_fund_totals: BudgetFundTotal[] } | null;
 };
@@ -30,6 +31,18 @@ export function levyShareForFund(levy: Levy, fundId: string) {
   if (grand <= 0) return 0;
   const fundTotal = totals.find(t => t.fund_id === fundId)?.total ?? 0;
   return Number(levy.amount) * (Number(fundTotal) / grand);
+}
+
+// Splits a levy's amount into one row per fund it was raised against, rounded to cents,
+// with any rounding remainder folded into the last row so the rows sum to levy.amount
+// exactly — used to create one finance_transactions row per fund when a levy is paid.
+export function splitLevyAcrossFunds(levy: Levy): { fund_id: string; amount: number }[] {
+  const totals = (levy.budgets?.budget_fund_totals ?? []).filter(t => Number(t.total) > 0);
+  if (totals.length === 0) return [];
+  const rounded = totals.map(t => ({ fund_id: t.fund_id, amount: Math.round(levyShareForFund(levy, t.fund_id) * 100) / 100 }));
+  const remainder = Math.round((Number(levy.amount) - rounded.reduce((s, r) => s + r.amount, 0)) * 100) / 100;
+  if (remainder !== 0) rounded[rounded.length - 1]!.amount = Math.round((rounded[rounded.length - 1]!.amount + remainder) * 100) / 100;
+  return rounded;
 }
 
 export function computeFundBalances(levies: Levy[], transactions: FundTx[], year: number) {

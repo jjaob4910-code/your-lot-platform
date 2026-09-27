@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import type { DocFile } from "@/components/documents";
-import { levyShareForFund, type Levy } from "@/lib/fund-balance";
+import { levyShareForFund, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 import type { BudgetFund } from "@/components/overview";
 
 export type { BudgetFund } from "@/components/overview";
@@ -134,6 +134,57 @@ function reminderText(levy: Levy, status: string) {
   return status === "Overdue"
     ? `Hi ${who},\n\nA quick friendly note: the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} was due on ${niceDate(levy.due_date)} and is still showing as unpaid on our records.\n\nIf you have already paid, please ignore this and let us know so we can update the books. Otherwise, whenever you get a chance is fine.\n\nThanks,\nYour owners corporation committee`
     : `Hi ${who},\n\nJust a friendly reminder that the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} is due on ${niceDate(levy.due_date)}.\n\nNo action needed if it is already on its way.\n\nThanks,\nYour owners corporation committee`;
+}
+
+// A levy is "sent" purely from the Levies tab (never automatically from a budget save):
+// posting an in-app Notice for the owner's lot, plus a mailto for the committee to also
+// send a real email, and snapshotting the amount at send time so a later budget-driven
+// recalculation can be flagged as "amount changed since sent" (see isLevyStale).
+export function levySendText(levy: Levy, funds: BudgetFund[]): { title: string; message: string } {
+  const year = levy.budgets?.financial_year ? ` for ${levy.budgets.financial_year}` : "";
+  const lot = levy.lots?.lot_number ?? "";
+  const breakdown = funds.map(f => `${f.name}: ${money(levyShareForFund(levy, f.id))}`).join(" · ");
+  return {
+    title: `Levy issued${year} — Lot ${lot}`,
+    message: `Your levy${year} for Lot ${lot} is ${money(Number(levy.amount))}, due ${niceDate(levy.due_date)}.${breakdown ? `\n\n${breakdown}` : ""}`,
+  };
+}
+export function isLevyStale(levy: Levy): boolean {
+  return levy.notified_at != null && levy.notified_amount != null && Number(levy.notified_amount) !== Number(levy.amount);
+}
+// A single levy gets a specific, accurate mailto (one real amount). Bulk sends can't
+// carry a different amount per recipient in one mailto body, so the bulk email stays
+// generic — the accurate number always lives in each owner's in-app Notice instead.
+export function levyMailto(levies: Levy[]): string {
+  if (levies.length === 1) {
+    const levy = levies[0]!;
+    const { title, message } = levySendText(levy, []);
+    return levy.lots?.owner_email ? `mailto:${levy.lots.owner_email}?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(message)}` : "";
+  }
+  const emails = levies.map(l => l.lots?.owner_email).filter((e): e is string => !!e);
+  const year = levies[0]?.budgets?.financial_year ? ` for ${levies[0].budgets.financial_year}` : "";
+  const subject = `Levies issued${year}`;
+  const body = `Your levy${year} is now available to view.\n\nCheck your dashboard for your exact amount and due date.\n\nThanks,\nYour owners corporation committee`;
+  return emails.length ? `mailto:?bcc=${encodeURIComponent(emails.join(","))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` : "";
+}
+export async function sendLevies(levies: Levy[], funds: BudgetFund[], schemeId: string): Promise<{ failures: string[] }> {
+  const failures: string[] = [];
+  const byLot = new Map<string, Levy>();
+  for (const levy of levies) if (levy.lot_id) byLot.set(levy.lot_id, levy);
+  const noticeRows = [...byLot.values()].map(levy => {
+    const { title, message } = levySendText(levy, funds);
+    return { scheme_id: schemeId, lot_id: levy.lot_id, levy_id: levy.id, title, message };
+  });
+  if (noticeRows.length > 0) {
+    const { error } = await supabase.from("notices").insert(noticeRows);
+    if (error) failures.push(`Could not post the notice${noticeRows.length === 1 ? "" : "s"}: ${error.message}`);
+  }
+  const now = new Date().toISOString();
+  for (const levy of levies) {
+    const { error } = await supabase.from("levies").update({ notified_at: now, notified_amount: levy.amount }).eq("id", levy.id);
+    if (error) failures.push(`Could not mark Lot ${levy.lots?.lot_number ?? "?"} as sent: ${error.message}`);
+  }
+  return { failures };
 }
 
 export const shareAmount = (method: string, entitlementPercent: number, lotCount: number, total: number) =>
@@ -880,11 +931,14 @@ const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getT
 
 function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, onChanged }: {
   levies: Levy[]; funds: BudgetFund[]; documents: DocFile[];
-  isCommittee: boolean; schemeId?: string | undefined; onPaid: (id: string) => void; onChanged: () => void;
+  isCommittee: boolean; schemeId?: string | undefined; onPaid: (id: string, paidAt: string) => void; onChanged: () => void;
 }) {
   const [invoice, setInvoice] = useState<Levy | null>(null);
   const [reminder, setReminder] = useState<Levy | null>(null);
   const [showPaid, setShowPaid] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [sending, setSending] = useState<Levy[] | null>(null);
+  const [markingPaid, setMarkingPaid] = useState<Levy | null>(null);
 
   const years = Array.from(new Set(levies.map(l => l.budgets?.financial_year ?? "Unallocated")));
   const [year, setYear] = useState("All years");
@@ -910,6 +964,9 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
   const levyDocsFor = (id: string) => documents.filter(d => d.levy_id === id);
 
   const rows = showPaid ? [...unpaid, ...paid] : unpaid;
+  const sendable = rows.filter(l => l.status !== "Paid");
+  const toggleSelected = (id: string) => setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const selectedLevies = sendable.filter(l => selected.has(l.id));
 
   return <div>
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -917,12 +974,19 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
         <h2 className="font-display text-xl tracking-[-0.02em]">Levies</h2>
         <p className="mt-2 text-[13px] leading-6 text-muted-foreground">Track exactly who still owes and how close they are to their due date. Budgets are set from the Budget tab, which is what raises these.</p>
       </div>
+      {isCommittee && selectedLevies.length > 0 && <Button size="sm" className="rounded-full" onClick={() => setSending(selectedLevies)}>
+        <Send className="size-3.5" />Send {selectedLevies.length} {selectedLevies.length === 1 ? "levy" : "levies"}
+      </Button>}
     </div>
 
     <div className="mt-6 flex flex-wrap items-center gap-2">
       {["All years", ...years].map(option =>
         <button key={option} type="button" onClick={() => setYear(option)}
           className={`rounded-full px-4 py-2 text-[12px] font-medium transition ${year === option ? "bg-primary text-primary-foreground" : "border border-border/70 bg-card text-muted-foreground hover:text-foreground"}`}>{option}</button>)}
+      {isCommittee && sendable.length > 0 && <button type="button" onClick={() => setSelected(new Set(sendable.map(l => l.id)))}
+        className="rounded-full border border-border/70 bg-card px-4 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground">
+        Select all pending
+      </button>}
       <button type="button" onClick={() => setShowPaid(v => !v)}
         className="ml-auto rounded-full border border-border/70 bg-card px-4 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground">
         {showPaid ? "Hide the lots that have paid" : `Show the ${paid.length} lots that have paid`}
@@ -949,16 +1013,25 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
           : left <= 14 ? { tone: "bg-primary text-primary-foreground", text: left === 0 ? "Due today" : `Due in ${left} days` }
           : { tone: "bg-secondary text-muted-foreground", text: `Due in ${left} days` };
         const docs = levyDocsFor(levy.id);
+        const stale = isLevyStale(levy);
+        const sendState = status === "Paid" ? null
+          : stale ? { tone: "bg-amber-100 text-amber-800", text: "Amount changed since sent — resend" }
+          : levy.notified_at ? { tone: "bg-secondary text-muted-foreground", text: `Sent ${niceDate(levy.notified_at)}` }
+          : { tone: "bg-secondary text-muted-foreground", text: "Not sent yet" };
         return <div key={levy.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">{levy.lots ? `Lot ${levy.lots.lot_number}${levy.lots.owner_name ? ` · ${levy.lots.owner_name}` : ""}` : "Your levy"}</p>
-            <p className="mt-1 text-[12px] text-muted-foreground">
-              {levy.budgets?.financial_year ? `${levy.budgets.financial_year} · ` : ""}Due {niceDate(levy.due_date)}
-              {levy.status === "Paid" && levy.paid_at ? ` · Paid ${niceDate(levy.paid_at)}` : ""}
-            </p>
-            {docs.length > 0 && <div className="mt-2 flex flex-wrap gap-2">
-              {docs.map(d => <button key={d.id} onClick={() => void openFinanceDoc(d)} className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-secondary/70">{d.name}</button>)}
-            </div>}
+          <div className="flex min-w-0 items-start gap-3">
+            {isCommittee && status !== "Paid" && <input type="checkbox" className="mt-1 size-4 shrink-0 rounded border-border" checked={selected.has(levy.id)} onChange={() => toggleSelected(levy.id)} aria-label={`Select levy for Lot ${levy.lots?.lot_number ?? ""}`} />}
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{levy.lots ? `Lot ${levy.lots.lot_number}${levy.lots.owner_name ? ` · ${levy.lots.owner_name}` : ""}` : "Your levy"}</p>
+              <p className="mt-1 text-[12px] text-muted-foreground">
+                {levy.budgets?.financial_year ? `${levy.budgets.financial_year} · ` : ""}Due {niceDate(levy.due_date)}
+                {levy.status === "Paid" && levy.paid_at ? ` · Paid ${niceDate(levy.paid_at)}` : ""}
+              </p>
+              {sendState && <p className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${sendState.tone}`}>{sendState.text}</p>}
+              {docs.length > 0 && <div className="mt-2 flex flex-wrap gap-2">
+                {docs.map(d => <button key={d.id} onClick={() => void openFinanceDoc(d)} className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-secondary/70">{d.name}</button>)}
+              </div>}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="font-display text-lg">{money(Number(levy.amount))}</span>
@@ -968,8 +1041,9 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
             {isCommittee && <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Attach payment proof">
               <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attachProof(levy, f); e.currentTarget.value = ""; }} /></label>
             </Button>}
+            {isCommittee && status !== "Paid" && <Button size="sm" variant={stale ? "default" : "ghost"} className="rounded-full" onClick={() => setSending([levy])}>{levy.notified_at ? "Re-send" : "Send"}</Button>}
             {isCommittee && status !== "Paid" && <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setReminder(levy)}>Send a reminder</Button>}
-            {isCommittee && status !== "Paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => onPaid(levy.id)}>Mark paid</Button>}
+            {isCommittee && status !== "Paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setMarkingPaid(levy)}>Mark paid</Button>}
           </div>
         </div>;
       })}
@@ -1026,13 +1100,83 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
         </div>}
       </DialogContent>
     </Dialog>
+
+    {schemeId && <SendLevyDialog levies={sending} funds={funds} schemeId={schemeId} onOpenChange={(o) => { if (!o) setSending(null); }}
+      onSent={() => { setSending(null); setSelected(new Set()); onChanged(); }} />}
+    <MarkPaidDialog levy={markingPaid} funds={funds} onOpenChange={(o) => { if (!o) setMarkingPaid(null); }}
+      onConfirm={(paidAt) => { onPaid(markingPaid!.id, paidAt); setMarkingPaid(null); }} />
   </div>;
+}
+
+function SendLevyDialog({ levies, funds, schemeId, onOpenChange, onSent }: {
+  levies: Levy[] | null; funds: BudgetFund[]; schemeId: string; onOpenChange: (v: boolean) => void; onSent: () => void;
+}) {
+  const [sending, setSending] = useState(false);
+  const list = levies ?? [];
+  const mailto = list.length > 0 ? levyMailto(list) : "";
+
+  const confirm = async () => {
+    setSending(true);
+    const { failures } = await sendLevies(list, funds, schemeId);
+    setSending(false);
+    if (failures.length > 0) { toast("Some levies could not be sent", { description: failures.join(" ") }); }
+    onSent();
+    if (mailto) window.location.href = mailto;
+    toast(failures.length > 0 ? "Notices posted, with some issues" : "Levies sent", { description: mailto ? "Your email app should also open." : "No owner email on file to open a mailto." });
+  };
+
+  return <Dialog open={!!levies} onOpenChange={onOpenChange}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle className="font-display tracking-[-0.02em]">Send {list.length === 1 ? "this levy" : `${list.length} levies`}</DialogTitle>
+        <DialogDescription>Posts a notice each owner sees on their dashboard, and opens an email ready to send.</DialogDescription>
+      </DialogHeader>
+      <div className="max-h-64 space-y-2 overflow-y-auto">
+        {list.map(l => <div key={l.id} className="flex items-center justify-between rounded-2xl border border-border/70 px-4 py-2.5 text-[13px]">
+          <span>Lot {l.lots?.lot_number ?? "?"}{l.lots?.owner_name ? ` · ${l.lots.owner_name}` : ""}</span>
+          <span className="font-medium tabular-nums">{money(Number(l.amount))} · due {niceDate(l.due_date)}</span>
+        </div>)}
+      </div>
+      <div className="flex justify-end gap-2 pt-2">
+        <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button type="button" className="rounded-full" disabled={sending || list.length === 0} onClick={() => void confirm()}>{sending ? "Sending…" : "Post notice(s) + open email"}</Button>
+      </div>
+    </DialogContent>
+  </Dialog>;
+}
+
+function MarkPaidDialog({ levy, funds, onOpenChange, onConfirm }: {
+  levy: Levy | null; funds: BudgetFund[]; onOpenChange: (v: boolean) => void; onConfirm: (paidAt: string) => void;
+}) {
+  const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 10));
+  return <Dialog open={!!levy} onOpenChange={(o) => { if (o && levy) setPaidAt(new Date().toISOString().slice(0, 10)); onOpenChange(o); }}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle className="font-display tracking-[-0.02em]">Mark this levy paid</DialogTitle>
+        <DialogDescription>Records the payment date and files it against Finance so Cashflow reflects it.</DialogDescription>
+      </DialogHeader>
+      {levy && <div className="space-y-4">
+        <div className="space-y-2"><Label htmlFor="paid_at">Payment date</Label><Input id="paid_at" type="date" value={paidAt} onChange={e => setPaidAt(e.target.value)} /></div>
+        <div className="space-y-2">
+          <Label>Transactions to be recorded</Label>
+          {splitLevyAcrossFunds(levy).map(s => <div key={s.fund_id} className="flex justify-between border-b border-border/60 py-2 text-[13px]">
+            <span className="text-muted-foreground">{funds.find(f => f.id === s.fund_id)?.name ?? "Fund"}</span>
+            <span className="font-medium">{money(s.amount)}</span>
+          </div>)}
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="button" className="rounded-full" onClick={() => onConfirm(paidAt)}>Mark paid</Button>
+        </div>
+      </div>}
+    </DialogContent>
+  </Dialog>;
 }
 
 export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged }: {
   transactions: FinanceTx[]; budgets: FinanceBudget[]; lineItems: BudgetLineItem[]; levies: Levy[]; revisions: BudgetRevision[]; lots: FinLot[];
   funds: BudgetFund[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
-  onMarkLevyPaid: (id: string) => void; onChanged: () => void;
+  onMarkLevyPaid: (id: string, paidAt: string) => void; onChanged: () => void;
 }) {
   const today = new Date();
   const currentFy = today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1;
