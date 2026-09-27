@@ -160,7 +160,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
   for (const task of compliance.data ?? []) {
     const left = daysUntil(task.due_date);
     if (left > 14) continue;
-    items.push({ id: `task-${task.id}`, category: "Actions", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: "Actions" });
+    items.push({ id: `task-${task.id}`, category: "AGM", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: "AGM" });
   }
 
   for (const event of events.data ?? []) {
@@ -192,7 +192,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
     items.push({ id: `unbudgeted-${tx.id}`, category: "Unbudgeted spend", icon: AlertTriangle, text: tx.description, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(tx.amount))} · not in the budget`, tab: "Finance", timestamp: tx.created_at });
   }
 
-  const categoryOrder = ["Approval needed", "Unbudgeted spend", "Work order update", "Levy due", "Actions", "Upcoming event", "Message"];
+  const categoryOrder = ["Approval needed", "Unbudgeted spend", "Work order update", "Levy due", "AGM", "Upcoming event", "Message"];
   items.sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 
   const isUnread = (item: NotificationItem) => !!item.timestamp && (!lastReadAt || item.timestamp > lastReadAt);

@@ -90,7 +90,7 @@ export function CalendarSection({ scheme, tasks, levies, orders, goTo }: {
     for (const task of tasks) list.push({
       key: `task-${task.id}`, date: task.due_date, title: task.task_name,
       detail: task.detail ?? `Compliance obligation, currently ${task.status.toLowerCase()}.`,
-      tone: "compliance", movable: true, goTo: "Actions", source: "Compliance",
+      tone: "compliance", movable: true, goTo: "AGM", source: "AGM",
     });
     const dueDates = [...new Set(levies.filter(l => l.status !== "Paid").map(l => l.due_date))];
     for (const date of dueDates) {
