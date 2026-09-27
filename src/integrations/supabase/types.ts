@@ -90,6 +90,74 @@ export type Database = {
           },
         ]
       }
+      budget_fund_totals: {
+        Row: {
+          budget_id: string
+          fund_id: string
+          id: string
+          total: number
+        }
+        Insert: {
+          budget_id: string
+          fund_id: string
+          id?: string
+          total?: number
+        }
+        Update: {
+          budget_id?: string
+          fund_id?: string
+          id?: string
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_fund_totals_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "budget_fund_totals_fund_id_fkey"
+            columns: ["fund_id"]
+            isOneToOne: false
+            referencedRelation: "budget_funds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      budget_funds: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          scheme_id: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          scheme_id: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          scheme_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_funds_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       budget_line_items: {
         Row: {
           amount: number
@@ -150,74 +218,6 @@ export type Database = {
             columns: ["scheme_id"]
             isOneToOne: false
             referencedRelation: "schemes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      budget_funds: {
-        Row: {
-          created_at: string
-          id: string
-          name: string
-          scheme_id: string
-          sort_order: number
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          name: string
-          scheme_id: string
-          sort_order?: number
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          name?: string
-          scheme_id?: string
-          sort_order?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "budget_funds_scheme_id_fkey"
-            columns: ["scheme_id"]
-            isOneToOne: false
-            referencedRelation: "schemes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      budget_fund_totals: {
-        Row: {
-          budget_id: string
-          fund_id: string
-          id: string
-          total: number
-        }
-        Insert: {
-          budget_id: string
-          fund_id: string
-          id?: string
-          total?: number
-        }
-        Update: {
-          budget_id?: string
-          fund_id?: string
-          id?: string
-          total?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "budget_fund_totals_budget_id_fkey"
-            columns: ["budget_id"]
-            isOneToOne: false
-            referencedRelation: "budgets"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "budget_fund_totals_fund_id_fkey"
-            columns: ["fund_id"]
-            isOneToOne: false
-            referencedRelation: "budget_funds"
             referencedColumns: ["id"]
           },
         ]
@@ -450,136 +450,6 @@ export type Database = {
           },
         ]
       }
-      dashboard_widgets: {
-        Row: {
-          created_at: string
-          id: string
-          scheme_id: string
-          sort_order: number
-          updated_at: string
-          widget_type: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          scheme_id: string
-          sort_order?: number
-          updated_at?: string
-          widget_type: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          scheme_id?: string
-          sort_order?: number
-          updated_at?: string
-          widget_type?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "dashboard_widgets_scheme_id_fkey"
-            columns: ["scheme_id"]
-            isOneToOne: false
-            referencedRelation: "schemes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      notice_comments: {
-        Row: {
-          author_name: string | null
-          created_at: string
-          id: string
-          message: string
-          notice_id: string
-          scheme_id: string
-        }
-        Insert: {
-          author_name?: string | null
-          created_at?: string
-          id?: string
-          message: string
-          notice_id: string
-          scheme_id: string
-        }
-        Update: {
-          author_name?: string | null
-          created_at?: string
-          id?: string
-          message?: string
-          notice_id?: string
-          scheme_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "notice_comments_notice_id_fkey"
-            columns: ["notice_id"]
-            isOneToOne: false
-            referencedRelation: "notices"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "notice_comments_scheme_id_fkey"
-            columns: ["scheme_id"]
-            isOneToOne: false
-            referencedRelation: "schemes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      notices: {
-        Row: {
-          created_at: string
-          id: string
-          message: string
-          pinned: boolean
-          scheme_id: string
-          title: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          message: string
-          pinned?: boolean
-          scheme_id: string
-          title: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          message?: string
-          pinned?: boolean
-          scheme_id?: string
-          title?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "notices_scheme_id_fkey"
-            columns: ["scheme_id"]
-            isOneToOne: false
-            referencedRelation: "schemes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      notification_reads: {
-        Row: {
-          last_read_at: string
-          user_id: string
-        }
-        Insert: {
-          last_read_at?: string
-          user_id: string
-        }
-        Update: {
-          last_read_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       compliance_widgets: {
         Row: {
           created_at: string
@@ -620,6 +490,41 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "compliance_widgets_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dashboard_widgets: {
+        Row: {
+          created_at: string
+          id: string
+          scheme_id: string
+          sort_order: number
+          updated_at: string
+          widget_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          scheme_id: string
+          sort_order?: number
+          updated_at?: string
+          widget_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          scheme_id?: string
+          sort_order?: number
+          updated_at?: string
+          widget_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_widgets_scheme_id_fkey"
             columns: ["scheme_id"]
             isOneToOne: false
             referencedRelation: "schemes"
@@ -792,6 +697,7 @@ export type Database = {
           direction: string
           fund_id: string
           id: string
+          levy_id: string | null
           notes: string | null
           occurred_on: string
           scheme_id: string
@@ -809,6 +715,7 @@ export type Database = {
           direction?: string
           fund_id: string
           id?: string
+          levy_id?: string | null
           notes?: string | null
           occurred_on?: string
           scheme_id: string
@@ -826,6 +733,7 @@ export type Database = {
           direction?: string
           fund_id?: string
           id?: string
+          levy_id?: string | null
           notes?: string | null
           occurred_on?: string
           scheme_id?: string
@@ -847,6 +755,13 @@ export type Database = {
             columns: ["fund_id"]
             isOneToOne: false
             referencedRelation: "budget_funds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_transactions_levy_id_fkey"
+            columns: ["levy_id"]
+            isOneToOne: false
+            referencedRelation: "levies"
             referencedColumns: ["id"]
           },
           {
@@ -935,6 +850,8 @@ export type Database = {
           due_date: string
           id: string
           lot_id: string
+          notified_amount: number | null
+          notified_at: string | null
           paid_at: string | null
           status: Database["public"]["Enums"]["levy_status"]
         }
@@ -945,6 +862,8 @@ export type Database = {
           due_date: string
           id?: string
           lot_id: string
+          notified_amount?: number | null
+          notified_at?: string | null
           paid_at?: string | null
           status?: Database["public"]["Enums"]["levy_status"]
         }
@@ -955,6 +874,8 @@ export type Database = {
           due_date?: string
           id?: string
           lot_id?: string
+          notified_amount?: number | null
+          notified_at?: string | null
           paid_at?: string | null
           status?: Database["public"]["Enums"]["levy_status"]
         }
@@ -1096,6 +1017,121 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      notice_comments: {
+        Row: {
+          author_name: string | null
+          created_at: string
+          id: string
+          message: string
+          notice_id: string
+          scheme_id: string
+        }
+        Insert: {
+          author_name?: string | null
+          created_at?: string
+          id?: string
+          message: string
+          notice_id: string
+          scheme_id: string
+        }
+        Update: {
+          author_name?: string | null
+          created_at?: string
+          id?: string
+          message?: string
+          notice_id?: string
+          scheme_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notice_comments_notice_id_fkey"
+            columns: ["notice_id"]
+            isOneToOne: false
+            referencedRelation: "notices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notice_comments_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notices: {
+        Row: {
+          created_at: string
+          id: string
+          levy_id: string | null
+          lot_id: string | null
+          message: string
+          pinned: boolean
+          scheme_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          levy_id?: string | null
+          lot_id?: string | null
+          message: string
+          pinned?: boolean
+          scheme_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          levy_id?: string | null
+          lot_id?: string | null
+          message?: string
+          pinned?: boolean
+          scheme_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notices_levy_id_fkey"
+            columns: ["levy_id"]
+            isOneToOne: false
+            referencedRelation: "levies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notices_lot_id_fkey"
+            columns: ["lot_id"]
+            isOneToOne: false
+            referencedRelation: "lots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notices_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notification_reads: {
+        Row: {
+          last_read_at: string
+          user_id: string
+        }
+        Insert: {
+          last_read_at?: string
+          user_id: string
+        }
+        Update: {
+          last_read_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {

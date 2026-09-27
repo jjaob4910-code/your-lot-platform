@@ -23,7 +23,7 @@ import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment,
 import { FinanceSection, ensureDefaultFunds, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
-import { computeFundBalances, currentFinancialYearStart, type Levy } from "@/lib/fund-balance";
+import { computeFundBalances, currentFinancialYearStart, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
@@ -279,12 +279,22 @@ function DashboardPage() {
     onError: (e: Error) => toast("Could not update", { description: e.message }),
   });
   const markLevyPaid = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("levies").update({ status: "Paid", paid_at: new Date().toISOString() }).eq("id", id);
+    mutationFn: async ({ id, paidAt }: { id: string; paidAt: string }) => {
+      const levy = (levies.data ?? []).find(l => l.id === id);
+      const { error } = await supabase.from("levies").update({ status: "Paid", paid_at: paidAt }).eq("id", id);
       if (error) throw error;
+      if (!levy) return;
+      const shares = splitLevyAcrossFunds(levy);
+      if (shares.length === 0) return;
+      const { error: txError } = await supabase.from("finance_transactions").insert(shares.map(s => ({
+        scheme_id: schemeId!, direction: "in", fund_id: s.fund_id, amount: s.amount, occurred_on: paidAt, status: "Paid",
+        category: "Levy contribution", description: `Levy — Lot ${levy.lots?.lot_number ?? "?"} (${levy.budgets?.financial_year ?? ""})`,
+        levy_id: levy.id,
+      })));
+      if (txError) throw txError;
     },
-    onSuccess: () => { refresh(["levies"]); toast("Marked as paid"); },
-    onError: (e: Error) => toast("Could not update", { description: e.message }),
+    onSuccess: () => { refresh(["levies", "finance"]); toast("Marked as paid"); },
+    onError: (e: Error) => { refresh(["levies"]); toast("Marked as paid, but could not record the transaction", { description: e.message }); },
   });
 
   const isCommittee = roleQuery.data === "Committee";
@@ -341,7 +351,7 @@ function DashboardPage() {
 
       {active === "Finance" && <FinanceSection transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
-        isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id)=>markLevyPaid.mutate(id)}
+        isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
         onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}

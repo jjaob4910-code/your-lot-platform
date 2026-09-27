@@ -103,9 +103,9 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
     queryKey: ["notif-notices", schemeId],
     queryFn: async () => {
       const since = new Date(Date.now() - 7 * 86400000).toISOString();
-      const { data, error } = await supabase.from("notices").select("id, title, created_at").eq("scheme_id", schemeId!).gte("created_at", since).order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("notices").select("id, title, created_at, lot_id").eq("scheme_id", schemeId!).gte("created_at", since).order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as { id: string; title: string; created_at: string }[];
+      return (data ?? []) as { id: string; title: string; created_at: string; lot_id: string | null }[];
     },
     enabled: !!schemeId,
   });
@@ -170,6 +170,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
   }
 
   for (const notice of notices.data ?? []) {
+    if (!isCommittee && notice.lot_id && notice.lot_id !== myLot?.id) continue;
     items.push({ id: `notice-${notice.id}`, category: "Message", icon: MessageSquare, text: notice.title, sub: `Posted ${relativeDay(notice.created_at)}`, tab: "Dashboard", timestamp: notice.created_at });
   }
 
