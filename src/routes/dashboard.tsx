@@ -25,7 +25,7 @@ import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/comp
 import { NotificationsBell } from "@/components/notifications";
 import { splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 import { AgmSection, type AgmMeeting } from "@/components/agm";
-import { currentTaskFor, type ActionDraft, type ComplianceWidget, type Task } from "@/lib/action-publish";
+import { currentTaskFor, type ComplianceWidget, type Task } from "@/lib/action-publish";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [
@@ -61,7 +61,7 @@ function DashboardPage() {
   const navigate = useNavigate();
   const [active, setActive] = useState("Dashboard");
   const [financeView, setFinanceView] = useState<FinanceView>("Budget");
-  // Deep links elsewhere in the app use "Tab" or "Finance/Levies" to open a specific Finance view.
+  // Deep links elsewhere in the app use "Tab" or "Finance/Levies" to open and scroll to a Finance section.
   const goTo = (target: string) => {
     const [tab, sub] = target.split("/");
     if (tab === "Finance" && (sub === "Budget" || sub === "Levies" || sub === "Cashflow")) setFinanceView(sub);
@@ -251,14 +251,6 @@ function DashboardPage() {
       return (data ?? []) as unknown as FinanceTx[];
     },
   });
-  const actionDrafts = useQuery({
-    queryKey: ["action-drafts"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("action_drafts").select("*");
-      if (error) throw error;
-      return (data ?? []) as unknown as ActionDraft[];
-    },
-  });
   const agmMeetings = useQuery({
     queryKey: ["agm-meetings"],
     queryFn: async () => {
@@ -362,9 +354,8 @@ function DashboardPage() {
 
       {active === "Finance" && <FinanceSection view={financeView} onViewChange={setFinanceView} transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
-        tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} actionDrafts={actionDrafts.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
-        onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders","tasks","compliance-widgets","action-drafts"])}/>}
+        onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","insurance-claims","documents","document-folders"])}
