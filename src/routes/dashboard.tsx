@@ -271,14 +271,6 @@ function DashboardPage() {
 
   const refresh = (keys: string[]) => keys.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
 
-  const setTaskStatus = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase.from("compliance_tasks").update({ status: status as "Not Started" | "In Progress" | "Complete" }).eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => { refresh(["tasks"]); toast("Compliance updated"); },
-    onError: (e: Error) => toast("Could not update", { description: e.message }),
-  });
   const markLevyPaid = useMutation({
     mutationFn: async ({ id, paidAt }: { id: string; paidAt: string }) => {
       const levy = (levies.data ?? []).find(l => l.id === id);
@@ -337,9 +329,8 @@ function DashboardPage() {
     <main className="mx-auto max-w-[1500px] px-4 pb-32 pt-10 sm:px-7 sm:pt-14">
       {active === "Dashboard" && <OverviewSection
         scheme={scheme.data ?? null} levies={levies.data ?? []} funds={budgetFunds.data ?? []} transactions={finance.data ?? []}
-        tasks={tasks.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
+        tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
         widgets={dashboardWidgets.data ?? []} widgetsLoading={dashboardWidgets.isLoading} isCommittee={isCommittee} schemeId={schemeId}
-        onTaskStatus={(id,status)=>setTaskStatus.mutate({id,status})}
         onChanged={()=>refresh(["dashboard-widgets","notices","notice-comments"])} goTo={goTo}/>}
 
       {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots"])}/>}
