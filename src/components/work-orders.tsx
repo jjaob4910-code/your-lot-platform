@@ -14,10 +14,6 @@ import { toast } from "sonner";
 import { DocPreviewTile } from "@/components/insurance";
 import type { DocFile } from "@/components/documents";
 import type { BudgetFund } from "@/components/overview";
-import {
-  currentTaskFor, ensureStandardWidget, publishActionDocument, urgencyTone,
-  type ActionDraft, type ComplianceWidget, type Task,
-} from "@/lib/action-publish";
 
 export type WorkOrderStep = {
   id: string; work_order_id: string; position: number; label: string;
@@ -174,83 +170,6 @@ function ConfirmDialog({ open, onOpenChange, title, body, confirmLabel, destruct
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{children}</p>;
 }
-
-const MAINTENANCE_PLAN_WIDGET = { key: "maintenance_plan", label: "Maintenance Plan", detail: "Keep a maintenance plan for the building's common property up to date, including fire safety certification." };
-
-function maintenancePlanPreview(repairs: WorkOrder[]) {
-  const open = repairs.filter(r => r.status !== "Complete");
-  if (open.length === 0) return "No open maintenance or work orders right now.";
-  const lines = open.map(r => `- ${r.title} (${r.status})`);
-  return [`Open items: ${open.length}`, "", ...lines].join("\n");
-}
-
-function MaintenanceObligationCard({ orders, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onChanged }: {
-  orders: WorkOrder[]; isCommittee: boolean; schemeId?: string | undefined; tasks: Task[]; complianceWidgets: ComplianceWidget[]; actionDrafts: ActionDraft[]; onChanged: () => void;
-}) {
-  const bootstrapped = useRef(false);
-  useEffect(() => {
-    if (!schemeId || bootstrapped.current) return;
-    bootstrapped.current = true;
-    void ensureStandardWidget(schemeId, complianceWidgets, MAINTENANCE_PLAN_WIDGET).then(created => { if (created) onChanged(); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemeId]);
-
-  const widget = complianceWidgets.find(w => w.standard_key === "maintenance_plan");
-  const task = widget ? currentTaskFor(widget, tasks) : undefined;
-  const draft = actionDrafts.find(d => d.standard_key === "maintenance_plan") ?? null;
-  const tone = urgencyTone(task?.due_date, task?.status === "Complete");
-  const previewText = maintenancePlanPreview(orders);
-
-  const [content, setContent] = useState(draft?.content ?? "");
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-
-  if (!isCommittee) return null;
-
-  const saveDraft = async () => {
-    if (!schemeId) return;
-    setSaving(true);
-    const { error } = draft
-      ? await supabase.from("action_drafts").update({ content }).eq("id", draft.id)
-      : await supabase.from("action_drafts").insert({ scheme_id: schemeId, standard_key: "maintenance_plan", content });
-    setSaving(false);
-    if (error) { toast("Could not save the draft", { description: error.message }); return; }
-    onChanged(); toast("Draft saved");
-  };
-
-  const publish = async () => {
-    if (!schemeId || !widget) return;
-    setPublishing(true);
-    const text = [previewText, content.trim() ? `\n\nCommittee notes:\n${content.trim()}` : ""].join("");
-    try {
-      await publishActionDocument(schemeId, widget, task?.id ?? null, text);
-      onChanged();
-      toast("Published", { description: "Filed in Documents and marked complete." });
-    } catch (err) {
-      toast("Could not publish", { description: (err as Error).message });
-    } finally { setPublishing(false); }
-  };
-
-  return <Card className="p-6">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-sm font-medium">Maintenance Plan</p>
-      <span className={`text-[12px] ${tone.className}`}>{tone.label}</span>
-    </div>
-    <details className="mt-3">
-      <summary className="cursor-pointer text-[12px] text-muted-foreground">Preview</summary>
-      <pre className="mt-2 max-h-52 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-border/70 bg-secondary/40 p-3 text-[12px] leading-6">{previewText}</pre>
-    </details>
-    <div className="mt-3 space-y-2">
-      <Label htmlFor="maintenance_notes" className="text-[11px]">Committee notes (optional)</Label>
-      <Textarea id="maintenance_notes" rows={3} value={content} onChange={e => setContent(e.target.value)} placeholder="Anything to add before this goes out" />
-    </div>
-    <div className="mt-3 flex flex-wrap justify-end gap-2">
-      <Button type="button" size="sm" variant="outline" className="rounded-full" disabled={saving} onClick={() => void saveDraft()}>{saving ? "Saving…" : "Save draft"}</Button>
-      <Button type="button" size="sm" className="rounded-full" disabled={publishing} onClick={() => void publish()}>{publishing ? "Publishing…" : "Publish"}</Button>
-    </div>
-  </Card>;
-}
-
 
 export function WorkOrderPill({ status }: { status: string }) {
   const tone = status === "Complete" ? "bg-primary/10 text-primary"
@@ -601,41 +520,44 @@ function ContractorsList({ contractors, orders, isCommittee, schemeId, onChanged
       </div>
       {isCommittee && <Button variant="outline" className="rounded-full" onClick={() => { setEditing(null); setFormOpen(true); }}><Plus/> Add contractor</Button>}
     </div>
-    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {contractors.map(c => {
-        const theirs = quotes.filter(q => q.contractor_id === c.id);
-        const jobs = theirs.filter(q => q.status === "Accepted").length;
-        return <Card key={c.id} className="p-5">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
+    <Card className="mt-4 overflow-hidden">
+      <div className="divide-y divide-border/70">
+        {contractors.map(c => {
+          const theirs = quotes.filter(q => q.contractor_id === c.id);
+          const jobs = theirs.filter(q => q.status === "Accepted").length;
+          return <div key={c.id} className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:gap-6 sm:px-7">
+            <div className="min-w-0 sm:w-56 sm:shrink-0">
               <p className="truncate text-sm font-medium">{c.name}</p>
-              <p className="text-[12px] text-muted-foreground">{c.trade ?? "Trade not recorded"}</p>
+              <p className="text-[12px] text-muted-foreground">{c.trade ?? "Trade not recorded"}{c.abn ? ` · ABN ${c.abn}` : ""}</p>
             </div>
-            {isCommittee && <div className="flex shrink-0">
+            <div className="min-w-0 flex-1 break-words text-[12px] text-muted-foreground">
+              {[c.phone, c.email].filter(Boolean).length > 0
+                ? <p className="flex flex-wrap gap-x-4 gap-y-0.5">
+                    {c.phone && <a className="hover:text-foreground" href={`tel:${c.phone}`}>{c.phone}</a>}
+                    {c.email && <a className="hover:text-foreground" href={`mailto:${c.email}`}>{c.email}</a>}
+                  </p>
+                : <p>No contact details</p>}
+              {c.notes && <p className="mt-0.5 truncate" title={c.notes}>{c.notes}</p>}
+            </div>
+            <p className="shrink-0 text-[12px] text-muted-foreground sm:w-28 sm:text-right">{theirs.length} quote{theirs.length === 1 ? "" : "s"} · {jobs} job{jobs === 1 ? "" : "s"}</p>
+            {isCommittee && <div className="flex shrink-0 sm:justify-end">
               <Button variant="ghost" size="icon" className="size-8 rounded-full" aria-label={`Edit ${c.name}`} onClick={() => { setEditing(c); setFormOpen(true); }}><Pencil className="size-3.5"/></Button>
               <Button variant="ghost" size="icon" className="size-8 rounded-full text-muted-foreground hover:text-destructive" aria-label={`Remove ${c.name}`} onClick={() => setRemoving(c)}><Trash2 className="size-3.5"/></Button>
             </div>}
-          </div>
-          <div className="mt-3 space-y-0.5 break-words text-[12px] text-muted-foreground">
-            {c.phone && <p><a className="hover:text-foreground" href={`tel:${c.phone}`}>{c.phone}</a></p>}
-            {c.email && <p><a className="hover:text-foreground" href={`mailto:${c.email}`}>{c.email}</a></p>}
-            {c.abn && <p>ABN {c.abn}</p>}
-            {c.notes && <p className="pt-1 whitespace-pre-line">{c.notes}</p>}
-          </div>
-          <p className="mt-3 text-[11px] text-muted-foreground">{theirs.length} quote{theirs.length === 1 ? "" : "s"} · {jobs} job{jobs === 1 ? "" : "s"}</p>
-        </Card>;
-      })}
-      {contractors.length === 0 && <Card className="p-8 text-center sm:col-span-2 lg:col-span-3"><p className="text-sm text-muted-foreground">No contractors yet.{isCommittee ? " Add one here or while recording a quote." : ""}</p></Card>}
-    </div>
+          </div>;
+        })}
+        {contractors.length === 0 && <p className="px-7 py-8 text-center text-sm text-muted-foreground">No contractors yet.{isCommittee ? " Add one here or while recording a quote." : ""}</p>}
+      </div>
+    </Card>
     <ContractorDialog open={formOpen} onOpenChange={setFormOpen} schemeId={schemeId} contractor={editing} onSaved={() => onChanged()}/>
     <ConfirmDialog open={!!removing} onOpenChange={o => { if (!o) setRemoving(null); }} title="Remove contractor"
       body={`Remove ${removing?.name ?? "this contractor"} from the list? Their past quotes stay on the work orders.`} confirmLabel="Remove" destructive busy={busy} onConfirm={() => void remove()}/>
   </div>;
 }
 
-export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, tasks, complianceWidgets, actionDrafts, documents = [], funds = [], contractors = [], onChanged }: {
+export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, documents = [], funds = [], contractors = [], onChanged }: {
   orders: WorkOrder[]; lots: WorkOrderLot[]; isCommittee: boolean; myLot: WorkOrderLot | null;
-  schemeId?: string | undefined; tasks?: Task[]; complianceWidgets?: ComplianceWidget[]; actionDrafts?: ActionDraft[];
+  schemeId?: string | undefined;
   documents?: DocFile[]; funds?: BudgetFund[]; contractors?: Contractor[]; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -658,11 +580,6 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
     <NewWorkOrderDialog open={open} onOpenChange={setOpen} lots={lots} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
       onCreated={result => { onChanged(); if (result.approvalLots.length > 0) setPendingNotify(result); }}/>
     <NotifyOwnersDialog pending={pendingNotify} schemeId={schemeId} onClose={() => setPendingNotify(null)} onSent={onChanged}/>
-
-    {isCommittee && <div className="mt-10">
-      <MaintenanceObligationCard orders={orders} isCommittee={isCommittee} schemeId={schemeId}
-        tasks={tasks ?? []} complianceWidgets={complianceWidgets ?? []} actionDrafts={actionDrafts ?? []} onChanged={onChanged}/>
-    </div>}
 
     <Card className="mt-10 overflow-hidden">
       <div className="border-b border-border/70 px-5 py-4 sm:px-7"><p className="text-sm font-medium">Active <span className="text-muted-foreground">· {active.length}</span></p></div>

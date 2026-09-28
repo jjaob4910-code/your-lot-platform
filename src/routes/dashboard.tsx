@@ -344,9 +344,8 @@ function DashboardPage() {
       {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots"])}/>}
 
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
-        tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} actionDrafts={actionDrafts.data ?? []}
         documents={documents.data ?? []} funds={budgetFunds.data ?? []} contractors={contractors.data ?? []}
-        onChanged={()=>refresh(["repairs","tasks","documents","document-folders","compliance-widgets","action-drafts","finance","notices","contractors"])}/>}
+        onChanged={()=>refresh(["repairs","documents","document-folders","finance","notices","contractors"])}/>}
 
       {active === "AGM" && <AgmSection schemeId={schemeId} isCommittee={isCommittee} meetings={agmMeetings.data ?? []}
         task={currentAgmTask} widgets={complianceWidgets.data ?? []} lots={lots.data ?? []}
