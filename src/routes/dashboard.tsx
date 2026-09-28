@@ -48,8 +48,8 @@ type Repair = WorkOrder;
 type Doc = DocFile;
 
 const sections = [
-  ["Dashboard", LayoutDashboard], ["Lots", Building2], ["Work orders", Wrench],
-  ["Finance", Coins], ["Insurance", ShieldCheck], ["AGM", Gavel], ["Calendar", CalendarDays],
+  ["Dashboard", LayoutDashboard], ["Lots", Building2], ["Insurance", ShieldCheck],
+  ["Work orders", Wrench], ["Finance", Coins], ["AGM", Gavel], ["Calendar", CalendarDays],
   ["Documents", Files],
 ] as const;
 
