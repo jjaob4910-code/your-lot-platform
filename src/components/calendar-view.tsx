@@ -102,7 +102,7 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
       list.push({
         key: `levy-${date}`, date, title: "Levies due",
         detail: `${owing.length} lot${owing.length === 1 ? "" : "s"} still to pay for this instalment.`,
-        tone: "levy", movable: false, goTo: "Finance", source: "Levies",
+        tone: "levy", movable: false, goTo: "Finance/Levies", source: "Levies",
       });
     }
     for (const order of orders) if (order.target_date && order.status !== "Complete") list.push({

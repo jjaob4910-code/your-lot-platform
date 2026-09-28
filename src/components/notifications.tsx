@@ -179,18 +179,18 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
     const dueSoon = (duelevies.data ?? []).filter(l => daysUntil(l.due_date) <= 14);
     if (isCommittee) {
       if (dueSoon.length > 0) {
-        items.push({ id: "levies-aggregate", category: "Levy due", icon: Coins, text: `${dueSoon.length} levy${dueSoon.length === 1 ? "" : "ies"} coming due`, sub: "Across the scheme", tab: "Finance" });
+        items.push({ id: "levies-aggregate", category: "Levy due", icon: Coins, text: `${dueSoon.length} levy${dueSoon.length === 1 ? "" : "ies"} coming due`, sub: "Across the scheme", tab: "Finance/Levies" });
       }
     } else if (myLot) {
       for (const levy of dueSoon.filter(l => l.lot_id === myLot.id)) {
         const left = daysUntil(levy.due_date);
-        items.push({ id: `levy-${levy.id}`, category: "Levy due", icon: Coins, text: `Levy due ${left < 0 ? `${Math.abs(left)} days ago` : left === 0 ? "today" : `in ${left} days`}`, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(levy.amount))}`, tab: "Finance" });
+        items.push({ id: `levy-${levy.id}`, category: "Levy due", icon: Coins, text: `Levy due ${left < 0 ? `${Math.abs(left)} days ago` : left === 0 ? "today" : `in ${left} days`}`, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(levy.amount))}`, tab: "Finance/Levies" });
       }
     }
   }
 
   for (const tx of unbudgetedSpend.data ?? []) {
-    items.push({ id: `unbudgeted-${tx.id}`, category: "Unbudgeted spend", icon: AlertTriangle, text: tx.description, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(tx.amount))} · not in the budget`, tab: "Finance", timestamp: tx.created_at });
+    items.push({ id: `unbudgeted-${tx.id}`, category: "Unbudgeted spend", icon: AlertTriangle, text: tx.description, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(tx.amount))} · not in the budget`, tab: "Finance/Cashflow", timestamp: tx.created_at });
   }
 
   const categoryOrder = ["Approval needed", "Unbudgeted spend", "Work order update", "Levy due", "Obligations", "Upcoming event", "Message"];

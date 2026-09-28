@@ -75,7 +75,7 @@ function CashWidgetBody({ levies, funds, transactions, goTo }: { levies: Levy[];
         <span className="text-muted-foreground">{f.name}</span><span className="font-medium tabular-nums">{money(byFund[f.id] ?? 0)}</span>
       </div>)}
     </div>
-    <Button size="sm" variant="ghost" className="mt-4 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance")}>Open Finance <ChevronRight className="size-3.5" /></Button>
+    <Button size="sm" variant="ghost" className="mt-4 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance/Cashflow")}>Open cashflow <ChevronRight className="size-3.5" /></Button>
   </div>;
 }
 
@@ -323,7 +323,7 @@ export function OverviewSection({ scheme, levies, funds, transactions, tasks, re
           case "cash": return <WidgetShell key={widget.id} {...shared} title="Current cash" icon={Coins}><CashWidgetBody levies={levies} funds={funds} transactions={transactions} goTo={goTo} /></WidgetShell>;
           case "next_meeting": return <WidgetShell key={widget.id} {...shared} title="Next meeting" icon={CalendarClock}><NextMeetingWidgetBody scheme={scheme} goTo={goTo} /></WidgetShell>;
           case "notices": return <WidgetShell key={widget.id} {...shared} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={visibleNotices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetShell>;
-          case "levies_chart": return <WidgetShell key={widget.id} {...shared} title="Levy payments" icon={Landmark} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance")}>Open <ChevronRight className="size-3.5" /></Button>}><LeviesChartWidgetBody levies={levies} /></WidgetShell>;
+          case "levies_chart": return <WidgetShell key={widget.id} {...shared} title="Levy payments" icon={Landmark} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance/Levies")}>Open levies <ChevronRight className="size-3.5" /></Button>}><LeviesChartWidgetBody levies={levies} /></WidgetShell>;
           case "obligations": return <WidgetShell key={widget.id} {...shared} title="Yearly obligations" icon={FileCheck2} tone="primary" action={<span className="font-display text-lg text-primary-foreground">{tasks.filter(t => t.status === "Complete").length}/{tasks.length}</span>}><ObligationsWidgetBody tasks={tasks} isCommittee={isCommittee} onTaskStatus={onTaskStatus} /></WidgetShell>;
           case "work_orders": return <WidgetShell key={widget.id} {...shared} title="Work orders" icon={Wrench} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Work orders")}>Open <ChevronRight className="size-3.5" /></Button>}><WorkOrdersWidgetBody repairs={repairs} goTo={goTo} /></WidgetShell>;
           case "my_lot": return <WidgetShell key={widget.id} {...shared} title="Your lot" icon={Building2}><MyLotWidgetBody myLot={myLot} /></WidgetShell>;
