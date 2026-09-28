@@ -64,7 +64,7 @@ async function pdfFirstPage(url: string, width: number) {
 
 // Tiles load their own signed URL so an image or PDF can show inline; anything
 // else falls back to a file icon. Clicking always opens the full file.
-function DocPreviewTile({ doc, canRemove, onOpen, onRemove }: {
+export function DocPreviewTile({ doc, canRemove, onOpen, onRemove }: {
   doc: DocFile; canRemove: boolean; onOpen: (doc: DocFile) => void; onRemove: (doc: DocFile) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);

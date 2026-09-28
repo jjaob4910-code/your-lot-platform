@@ -1477,7 +1477,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
                 {t.direction === "in" ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}
               </span>
               <div className="min-w-[180px] flex-1">
-                <p className="text-sm font-medium">{t.description}</p>
+                <p className="text-sm font-medium">{t.description}{t.work_order_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Work order</span>}</p>
                 <p className="mt-0.5 text-[12px] text-muted-foreground">{[niceDate(t.occurred_on), t.category, t.supplier, `${fundName(funds, t.fund_id)} fund`].filter(Boolean).join(" · ")}
                   {t.direction === "out" && t.status === "Paid" && !t.budget_line_item_id && <span className="ml-1.5 text-destructive">· not budgeted</span>}</p>
                 {docsFor(t.id).length > 0 && <div className="mt-2 flex flex-wrap gap-2">
