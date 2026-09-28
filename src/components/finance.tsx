@@ -1336,7 +1336,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
   const showEditor = !activeBudget || editingBudget;
 
   return <div className="space-y-6">
-    <PageHead eyebrow="Finance" title="Budget it, track it, see it through" blurb="Your budget, levies and cashflow for the year, on one page. Fold away what you don't need and open it again when you do."
+    <PageHead eyebrow="Your property" title="Finance" blurb="Your budget, levies and cashflow for the year, on one page. Fold away what you don't need and open it again when you do."
       action={<Select value={String(year)} onValueChange={v => { setYear(Number(v)); setEditingBudget(false); }}>
         <SelectTrigger className="h-9 w-[150px] rounded-full text-xs" aria-label="Financial year"><SelectValue /></SelectTrigger>
         <SelectContent>{years.map(y => <SelectItem key={y} value={String(y)}>{fyLabel(y)}</SelectItem>)}</SelectContent>
