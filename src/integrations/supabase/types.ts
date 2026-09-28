@@ -642,6 +642,7 @@ export type Database = {
           finance_transaction_id: string | null
           folder_id: string | null
           id: string
+          insurance_claim_id: string | null
           insurance_policy_id: string | null
           levy_id: string | null
           mime_type: string | null
@@ -662,6 +663,7 @@ export type Database = {
           finance_transaction_id?: string | null
           folder_id?: string | null
           id?: string
+          insurance_claim_id?: string | null
           insurance_policy_id?: string | null
           levy_id?: string | null
           mime_type?: string | null
@@ -682,6 +684,7 @@ export type Database = {
           finance_transaction_id?: string | null
           folder_id?: string | null
           id?: string
+          insurance_claim_id?: string | null
           insurance_policy_id?: string | null
           levy_id?: string | null
           mime_type?: string | null
@@ -721,6 +724,13 @@ export type Database = {
             columns: ["folder_id"]
             isOneToOne: false
             referencedRelation: "document_folders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_insurance_claim_id_fkey"
+            columns: ["insurance_claim_id"]
+            isOneToOne: false
+            referencedRelation: "insurance_claims"
             referencedColumns: ["id"]
           },
           {
@@ -770,6 +780,7 @@ export type Database = {
           direction: string
           fund_id: string
           id: string
+          insurance_claim_id: string | null
           levy_id: string | null
           notes: string | null
           occurred_on: string
@@ -788,6 +799,7 @@ export type Database = {
           direction?: string
           fund_id: string
           id?: string
+          insurance_claim_id?: string | null
           levy_id?: string | null
           notes?: string | null
           occurred_on?: string
@@ -806,6 +818,7 @@ export type Database = {
           direction?: string
           fund_id?: string
           id?: string
+          insurance_claim_id?: string | null
           levy_id?: string | null
           notes?: string | null
           occurred_on?: string
@@ -831,6 +844,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "finance_transactions_insurance_claim_id_fkey"
+            columns: ["insurance_claim_id"]
+            isOneToOne: false
+            referencedRelation: "insurance_claims"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "finance_transactions_levy_id_fkey"
             columns: ["levy_id"]
             isOneToOne: false
@@ -846,6 +866,158 @@ export type Database = {
           },
           {
             foreignKeyName: "finance_transactions_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insurance_claim_updates: {
+        Row: {
+          author_label: string | null
+          claim_id: string
+          created_at: string
+          id: string
+          note: string
+          status_at_time: string | null
+        }
+        Insert: {
+          author_label?: string | null
+          claim_id: string
+          created_at?: string
+          id?: string
+          note: string
+          status_at_time?: string | null
+        }
+        Update: {
+          author_label?: string | null
+          claim_id?: string
+          created_at?: string
+          id?: string
+          note?: string
+          status_at_time?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insurance_claim_updates_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "insurance_claims"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      insurance_claims: {
+        Row: {
+          approved_amount: number | null
+          claim_amount: number | null
+          claim_number: string | null
+          created_at: string
+          decision_date: string | null
+          decision_notes: string | null
+          description: string | null
+          excess: number | null
+          finance_transaction_id: string | null
+          id: string
+          incident_date: string | null
+          insurer_contact_email: string | null
+          insurer_contact_name: string | null
+          insurer_contact_phone: string | null
+          lodged_date: string | null
+          payout_received_at: string | null
+          policy_id: string | null
+          responsible_lot_id: string | null
+          responsible_name: string | null
+          scheme_id: string
+          status: string
+          title: string
+          updated_at: string
+          work_order_id: string | null
+        }
+        Insert: {
+          approved_amount?: number | null
+          claim_amount?: number | null
+          claim_number?: string | null
+          created_at?: string
+          decision_date?: string | null
+          decision_notes?: string | null
+          description?: string | null
+          excess?: number | null
+          finance_transaction_id?: string | null
+          id?: string
+          incident_date?: string | null
+          insurer_contact_email?: string | null
+          insurer_contact_name?: string | null
+          insurer_contact_phone?: string | null
+          lodged_date?: string | null
+          payout_received_at?: string | null
+          policy_id?: string | null
+          responsible_lot_id?: string | null
+          responsible_name?: string | null
+          scheme_id: string
+          status?: string
+          title: string
+          updated_at?: string
+          work_order_id?: string | null
+        }
+        Update: {
+          approved_amount?: number | null
+          claim_amount?: number | null
+          claim_number?: string | null
+          created_at?: string
+          decision_date?: string | null
+          decision_notes?: string | null
+          description?: string | null
+          excess?: number | null
+          finance_transaction_id?: string | null
+          id?: string
+          incident_date?: string | null
+          insurer_contact_email?: string | null
+          insurer_contact_name?: string | null
+          insurer_contact_phone?: string | null
+          lodged_date?: string | null
+          payout_received_at?: string | null
+          policy_id?: string | null
+          responsible_lot_id?: string | null
+          responsible_name?: string | null
+          scheme_id?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          work_order_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "insurance_claims_finance_transaction_id_fkey"
+            columns: ["finance_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "finance_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insurance_claims_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "insurance_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insurance_claims_responsible_lot_id_fkey"
+            columns: ["responsible_lot_id"]
+            isOneToOne: false
+            referencedRelation: "lots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insurance_claims_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "insurance_claims_work_order_id_fkey"
             columns: ["work_order_id"]
             isOneToOne: false
             referencedRelation: "maintenance_requests"

@@ -555,10 +555,10 @@ function ContractorsList({ contractors, orders, isCommittee, schemeId, onChanged
   </div>;
 }
 
-export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, documents = [], funds = [], contractors = [], onChanged }: {
+export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, documents = [], funds = [], contractors = [], claims = [], onChanged }: {
   orders: WorkOrder[]; lots: WorkOrderLot[]; isCommittee: boolean; myLot: WorkOrderLot | null;
   schemeId?: string | undefined;
-  documents?: DocFile[]; funds?: BudgetFund[]; contractors?: Contractor[]; onChanged: () => void;
+  documents?: DocFile[]; funds?: BudgetFund[]; contractors?: Contractor[]; claims?: LinkedClaim[]; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -600,7 +600,7 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
     <Dialog open={!!current} onOpenChange={o => { if (!o) setViewing(null); }}>
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto overflow-x-hidden">
         {current && <WorkOrderDetail order={current} lots={lots} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
-          documents={documents} funds={funds} contractors={contractors} onChanged={onChanged} onDeleted={() => setViewing(null)}/>}
+          documents={documents} funds={funds} contractors={contractors} claims={claims.filter(c => c.work_order_id === current.id)} onChanged={onChanged} onDeleted={() => setViewing(null)}/>}
       </DialogContent>
     </Dialog>
   </div>;
@@ -730,9 +730,11 @@ function AddQuoteForm({ order, contractors, schemeId, onAddContractor, pendingCo
   </div>;
 }
 
-export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, documents, funds, contractors, onChanged, onDeleted }: {
+export type LinkedClaim = { id: string; title: string; status: string; work_order_id: string | null };
+
+export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, documents, funds, contractors, claims = [], onChanged, onDeleted }: {
   order: WorkOrder; lots: WorkOrderLot[]; isCommittee: boolean; myLot: WorkOrderLot | null; schemeId?: string | undefined;
-  documents: DocFile[]; funds: BudgetFund[]; contractors: Contractor[]; onChanged: () => void; onDeleted: () => void;
+  documents: DocFile[]; funds: BudgetFund[]; contractors: Contractor[]; claims?: LinkedClaim[]; onChanged: () => void; onDeleted: () => void;
 }) {
   const queryClient = useQueryClient();
   const [note, setNote] = useState("");
@@ -978,6 +980,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
         </div>
       </div>
 
+      {claims.map(c => <p key={c.id} className="rounded-xl bg-secondary px-4 py-3 text-[13px]"><span className="font-medium">Insurance claim:</span> {c.title} ({c.status})</p>)}
       {order.description && <div><SectionLabel>Details</SectionLabel><p className="mt-2 whitespace-pre-line text-[13px] leading-6">{order.description}</p></div>}
 
       {order.kind === "Request" && isCommittee && isOpen && steps.length > 0 && <div>
