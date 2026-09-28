@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Lot } from "@/routes/dashboard";
+import { obligationTab } from "@/lib/action-publish";
 
 const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 const relativeDay = (value: string) => {
@@ -82,9 +83,9 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
   const compliance = useQuery({
     queryKey: ["notif-compliance", schemeId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("compliance_tasks").select("id, task_name, due_date, status").eq("scheme_id", schemeId!).neq("status", "Complete");
+      const { data, error } = await supabase.from("compliance_tasks").select("id, task_name, due_date, status, compliance_widgets(standard_key)").eq("scheme_id", schemeId!).neq("status", "Complete");
       if (error) throw error;
-      return (data ?? []) as { id: string; task_name: string; due_date: string; status: string }[];
+      return (data ?? []) as unknown as { id: string; task_name: string; due_date: string; status: string; compliance_widgets: { standard_key: string | null } | null }[];
     },
     enabled: !!schemeId,
   });
@@ -160,7 +161,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
   for (const task of compliance.data ?? []) {
     const left = daysUntil(task.due_date);
     if (left > 14) continue;
-    items.push({ id: `task-${task.id}`, category: "AGM", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: "AGM" });
+    items.push({ id: `task-${task.id}`, category: "Obligations", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: obligationTab(task.compliance_widgets?.standard_key) });
   }
 
   for (const event of events.data ?? []) {
@@ -192,7 +193,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
     items.push({ id: `unbudgeted-${tx.id}`, category: "Unbudgeted spend", icon: AlertTriangle, text: tx.description, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(tx.amount))} · not in the budget`, tab: "Finance", timestamp: tx.created_at });
   }
 
-  const categoryOrder = ["Approval needed", "Unbudgeted spend", "Work order update", "Levy due", "AGM", "Upcoming event", "Message"];
+  const categoryOrder = ["Approval needed", "Unbudgeted spend", "Work order update", "Levy due", "Obligations", "Upcoming event", "Message"];
   items.sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 
   const isUnread = (item: NotificationItem) => !!item.timestamp && (!lastReadAt || item.timestamp > lastReadAt);

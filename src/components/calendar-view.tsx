@@ -9,9 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { obligationTab, type ComplianceWidget } from "@/lib/action-publish";
 
 export type CalendarScheme = { id: string; next_agm_date: string | null } | null;
-export type CalendarTask = { id: string; task_name: string; detail: string | null; due_date: string; status: string };
+export type CalendarTask = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null };
 export type CalendarLevy = { id: string; due_date: string; status: string; amount: number };
 export type CalendarOrder = { id: string; title: string; status: string; target_date: string | null };
 
@@ -51,8 +52,8 @@ function Card({ children, className = "" }: { children: ReactNode; className?: s
   return <section className={`soft-shadow rounded-3xl border border-border/70 bg-card ${className}`}>{children}</section>;
 }
 
-export function CalendarSection({ scheme, tasks, levies, orders, goTo }: {
-  scheme: CalendarScheme; tasks: CalendarTask[]; levies: CalendarLevy[]; orders: CalendarOrder[];
+export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }: {
+  scheme: CalendarScheme; tasks: CalendarTask[]; widgets: ComplianceWidget[]; levies: CalendarLevy[]; orders: CalendarOrder[];
   goTo: (section: string) => void;
 }) {
   const queryClient = useQueryClient();
@@ -87,11 +88,14 @@ export function CalendarSection({ scheme, tasks, levies, orders, goTo }: {
       key: `agm`, date: scheme.next_agm_date, title: "Annual general meeting", detail: "Your yearly owners meeting.",
       tone: "meeting", movable: true, goTo: "AGM", source: "Meeting",
     });
-    for (const task of tasks) list.push({
-      key: `task-${task.id}`, date: task.due_date, title: task.task_name,
-      detail: task.detail ?? `Compliance obligation, currently ${task.status.toLowerCase()}.`,
-      tone: "compliance", movable: true, goTo: "AGM", source: "AGM",
-    });
+    for (const task of tasks) {
+      const tab = obligationTab(widgets.find(w => w.id === task.widget_id)?.standard_key);
+      list.push({
+        key: `task-${task.id}`, date: task.due_date, title: task.task_name,
+        detail: task.detail ?? `Yearly obligation, currently ${task.status.toLowerCase()}.`,
+        tone: "compliance", movable: true, goTo: tab, source: tab,
+      });
+    }
     const dueDates = [...new Set(levies.filter(l => l.status !== "Paid").map(l => l.due_date))];
     for (const date of dueDates) {
       const owing = levies.filter(l => l.due_date === date && l.status !== "Paid");
@@ -112,7 +116,7 @@ export function CalendarSection({ scheme, tasks, levies, orders, goTo }: {
       tone: row.kind === "Reminder" ? "reminder" : "event", movable: true, eventRow: row, source: row.kind,
     });
     return list.sort((a, b) => a.date.localeCompare(b.date));
-  }, [scheme, tasks, levies, orders, events.data]);
+  }, [scheme, tasks, widgets, levies, orders, events.data]);
 
   const move = async (item: Item, date: string) => {
     if (item.date === date) return;
