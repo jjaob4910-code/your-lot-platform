@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { FileText, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,10 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import type { DocFile } from "@/components/documents";
-import {
-  currentTaskFor, ensureStandardWidget, publishActionDocument, urgencyTone,
-  type ActionDraft, type ComplianceWidget, type Task,
-} from "@/lib/action-publish";
 
 export type Policy = {
   id: string; scheme_id: string; policy_type: string; insurer: string | null; broker: string | null;
@@ -49,86 +45,52 @@ function Field({ label, value }: { label: string; value: string }) {
   </div>;
 }
 
-const INSURANCE_RENEWAL_WIDGET = { key: "insurance_renewal", label: "Insurance Renewal", detail: "Keep building insurance current, renewed before the policy lapses." };
-
-function insuranceRenewalPreview(policies: Policy[]) {
-  if (policies.length === 0) return "No insurance policies recorded yet.";
-  const dated = policies.filter(p => p.renewal_date).sort((a, b) => a.renewal_date! < b.renewal_date! ? -1 : 1);
-  const lines = policies.map(p => {
-    const bits = [p.policy_type, p.insurer ? `Insurer: ${p.insurer}` : null, p.premium != null ? `Premium: ${money(p.premium)}` : null,
-      p.sum_insured != null ? `Sum insured: ${money(p.sum_insured)}` : null,
-      p.renewal_date ? `Renews ${niceDate(p.renewal_date)} (${daysUntil(p.renewal_date) < 0 ? "overdue" : `${daysUntil(p.renewal_date)} days away`})` : null];
-    return "- " + bits.filter(Boolean).join(" · ");
-  });
-  const next = dated[0];
-  return [next ? `Next renewal: ${next.policy_type} on ${niceDate(next.renewal_date!)}` : "No renewal dates recorded.", "", "Policies:", ...lines].join("\n");
+// Draws a PDF's first page to a data URL. pdf.js is loaded on demand so it only
+// costs anything when a PDF is actually on screen.
+async function pdfFirstPage(url: string, width: number) {
+  const pdfjs = await import("pdfjs-dist");
+  const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+  pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  const pdf = await pdfjs.getDocument(url).promise;
+  const page = await pdf.getPage(1);
+  const base = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: (width * 2) / base.width });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width; canvas.height = viewport.height;
+  await page.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
+  void pdf.destroy();
+  return canvas.toDataURL("image/png");
 }
 
-function InsuranceObligationCard({ policies, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onChanged }: {
-  policies: Policy[]; isCommittee: boolean; schemeId?: string | undefined; tasks: Task[]; complianceWidgets: ComplianceWidget[]; actionDrafts: ActionDraft[]; onChanged: () => void;
+// Tiles load their own signed URL so an image or PDF can show inline; anything
+// else falls back to a file icon. Clicking always opens the full file.
+function DocPreviewTile({ doc, canRemove, onOpen, onRemove }: {
+  doc: DocFile; canRemove: boolean; onOpen: (doc: DocFile) => void; onRemove: (doc: DocFile) => void;
 }) {
-  const bootstrapped = useRef(false);
+  const [url, setUrl] = useState<string | null>(null);
+  const isImage = doc.mime_type?.startsWith("image/") ?? /\.(png|jpe?g|gif|webp)$/i.test(doc.name);
+  const isPdf = doc.mime_type === "application/pdf" || /\.pdf$/i.test(doc.name);
   useEffect(() => {
-    if (!schemeId || bootstrapped.current) return;
-    bootstrapped.current = true;
-    void ensureStandardWidget(schemeId, complianceWidgets, INSURANCE_RENEWAL_WIDGET).then(created => { if (created) onChanged(); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemeId]);
+    if (!doc.storage_path || !(isImage || isPdf)) return;
+    let cancelled = false;
+    void supabase.storage.from("documents").createSignedUrl(doc.storage_path, 600).then(async ({ data }) => {
+      if (cancelled || !data) return;
+      if (isImage) { setUrl(data.signedUrl); return; }
+      try { const png = await pdfFirstPage(data.signedUrl, 144); if (!cancelled) setUrl(png); } catch { /* falls back to the file icon */ }
+    });
+    return () => { cancelled = true; };
+  }, [doc.storage_path, isImage, isPdf]);
 
-  const widget = complianceWidgets.find(w => w.standard_key === "insurance_renewal");
-  const task = widget ? currentTaskFor(widget, tasks) : undefined;
-  const draft = actionDrafts.find(d => d.standard_key === "insurance_renewal") ?? null;
-  const tone = urgencyTone(task?.due_date, task?.status === "Complete");
-  const previewText = insuranceRenewalPreview(policies);
-
-  const [content, setContent] = useState(draft?.content ?? "");
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-
-  if (!isCommittee) return null;
-
-  const saveDraft = async () => {
-    if (!schemeId) return;
-    setSaving(true);
-    const { error } = draft
-      ? await supabase.from("action_drafts").update({ content }).eq("id", draft.id)
-      : await supabase.from("action_drafts").insert({ scheme_id: schemeId, standard_key: "insurance_renewal", content });
-    setSaving(false);
-    if (error) { toast("Could not save the draft", { description: error.message }); return; }
-    onChanged(); toast("Draft saved");
-  };
-
-  const publish = async () => {
-    if (!schemeId || !widget) return;
-    setPublishing(true);
-    const text = [previewText, content.trim() ? `\n\nCommittee notes:\n${content.trim()}` : ""].join("");
-    try {
-      await publishActionDocument(schemeId, widget, task?.id ?? null, text);
-      onChanged();
-      toast("Published", { description: "Filed in Documents and marked complete." });
-    } catch (err) {
-      toast("Could not publish", { description: (err as Error).message });
-    } finally { setPublishing(false); }
-  };
-
-  return <Card className="p-6">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-sm font-medium">Insurance Renewal</p>
-      <span className={`text-[12px] ${tone.className}`}>{tone.label}</span>
-    </div>
-    <details className="mt-3">
-      <summary className="cursor-pointer text-[12px] text-muted-foreground">Preview</summary>
-      <pre className="mt-2 max-h-52 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-border/70 bg-secondary/40 p-3 text-[12px] leading-6">{previewText}</pre>
-    </details>
-    <div className="mt-3 space-y-2">
-      <Label htmlFor="insurance_notes" className="text-[11px]">Committee notes (optional)</Label>
-      <Textarea id="insurance_notes" rows={3} value={content} onChange={e => setContent(e.target.value)} placeholder="Anything to add before this goes out" />
-    </div>
-    <div className="mt-3 flex flex-wrap justify-end gap-2">
-      <Button type="button" size="sm" variant="outline" className="rounded-full" disabled={saving} onClick={() => void saveDraft()}>{saving ? "Saving…" : "Save draft"}</Button>
-      <Button type="button" size="sm" className="rounded-full" disabled={publishing} onClick={() => void publish()}>{publishing ? "Publishing…" : "Publish"}</Button>
-    </div>
-  </Card>;
+  return <div className="group relative w-36">
+    <button type="button" onClick={() => onOpen(doc)} aria-label={`Open ${doc.name}`}
+      className="block h-44 w-36 overflow-hidden rounded-2xl border border-border/70 bg-secondary/50 transition hover:border-border">
+      {url && <img src={url} alt="" className={`h-full w-full ${isPdf ? "bg-white object-contain object-top" : "object-cover"}`} />}
+      {!url && <span className="grid h-full w-full place-items-center"><FileText className="h-7 w-7 text-muted-foreground" /></span>}
+    </button>
+    <p className="mt-1.5 truncate text-[11px] text-muted-foreground" title={doc.name}>{doc.name}</p>
+    {canRemove && <button type="button" aria-label={`Remove ${doc.name}`} onClick={() => onRemove(doc)}
+      className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-full bg-background/90 text-[13px] text-muted-foreground shadow-sm hover:text-destructive">×</button>}
+  </div>;
 }
 
 function RenewalNote({ date }: { date: string | null }) {
@@ -199,9 +161,8 @@ function PolicyDialog({ open, onOpenChange, schemeId, policy, onSaved }: {
   </Dialog>;
 }
 
-export function InsuranceSection({ policies, documents, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onChanged }: {
-  policies: Policy[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
-  tasks?: Task[]; complianceWidgets?: ComplianceWidget[]; actionDrafts?: ActionDraft[]; onChanged: () => void;
+export function InsuranceSection({ policies, documents, isCommittee, schemeId, onChanged }: {
+  policies: Policy[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Policy | null>(null);
@@ -265,13 +226,8 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, t
   };
 
   return <div>
-    <PageHead eyebrow="Your property" title="Insurance" blurb="Every policy on your building in one place: who underwrites it, what it cost, the policy number and when it renews. Attach the certificate of currency and it files itself under Insurance in your documents."
+    <PageHead eyebrow="Your property" title="Insurance" blurb="Every policy on your building in one place: who underwrites it, what it cost, the policy number and when it renews. Attach the policy documents and they file themselves under Insurance in your documents."
       action={isCommittee ? <Button className="rounded-full" onClick={()=>{ setEditing(null); setOpen(true); }}><Plus/> Add a policy</Button> : undefined}/>
-
-    {isCommittee && <div className="mt-10">
-      <InsuranceObligationCard policies={policies} isCommittee={isCommittee} schemeId={schemeId}
-        tasks={tasks ?? []} complianceWidgets={complianceWidgets ?? []} actionDrafts={actionDrafts ?? []} onChanged={onChanged}/>
-    </div>}
 
     <div className="mt-10 grid gap-4 sm:grid-cols-3">
       <Card className="p-6">
@@ -330,14 +286,10 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, t
 
           {policy.notes && <p className="mt-5 text-[13px] leading-6 text-muted-foreground">{policy.notes}</p>}
 
-          <div className="mt-5 flex flex-wrap gap-2">
-            {files.map(doc => <span key={doc.id} className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1.5 text-[12px]">
-              <FileText className="h-3.5 w-3.5 text-muted-foreground"/>
-              <button type="button" className="underline-offset-4 hover:underline" onClick={()=>{ void openDoc(doc); }}>{doc.name}</button>
-              {isCommittee && <button type="button" aria-label={`Remove ${doc.name}`} className="text-muted-foreground hover:text-destructive" onClick={()=>{ void removeDoc(doc); }}>×</button>}
-            </span>)}
-            {files.length === 0 && <span className="text-[12px] text-muted-foreground">No certificate of currency attached yet.</span>}
-          </div>
+          {files.length > 0 && <div className="mt-6 flex flex-wrap gap-3 border-t border-border/70 pt-6">
+            {files.map(doc => <DocPreviewTile key={doc.id} doc={doc} canRemove={isCommittee}
+              onOpen={d => { void openDoc(d); }} onRemove={d => { void removeDoc(d); }}/>)}
+          </div>}
         </Card>;
       })}
       {policies.length === 0 && <Card className="p-10 text-center">

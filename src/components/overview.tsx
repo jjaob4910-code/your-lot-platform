@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { WorkOrderTable, type WorkOrder } from "@/components/work-orders";
 import { computeFundBalances, currentFinancialYearStart, type Levy, type FundTx } from "@/lib/fund-balance";
-import { currentTaskFor, obligationTab, type ComplianceWidget, type Task } from "@/lib/action-publish";
+import { currentTaskFor, isRetiredObligation, obligationTab, type ComplianceWidget, type Task } from "@/lib/action-publish";
 
 export type BudgetFund = { id: string; name: string; sort_order: number };
 
@@ -251,7 +251,7 @@ export function OverviewSection({ scheme, levies, funds, transactions, tasks, co
   // A lot-targeted notice (e.g. "your levy is ready") is only for that lot's owner;
   // committee members see everything, matching how they can post/moderate notices.
   const obligations: Obligation[] = complianceWidgets
-    .filter(w => w.is_standard && w.enabled)
+    .filter(w => w.is_standard && w.enabled && !isRetiredObligation(w.standard_key))
     .sort((a, b) => a.sort_order - b.sort_order)
     .map(widget => ({ widget, task: currentTaskFor(widget, tasks) }));
 

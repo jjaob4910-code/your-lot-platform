@@ -350,8 +350,7 @@ function DashboardPage() {
         onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders","tasks","compliance-widgets","action-drafts"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
-        tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} actionDrafts={actionDrafts.data ?? []}
-        schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders","tasks","compliance-widgets","action-drafts"])}/>}
+        schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders"])}/>}
       {active === "Calendar" && <CalendarSection scheme={scheme.data ?? null} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []} levies={levies.data ?? []}
         orders={repairs.data ?? []} goTo={goTo}/>}
       {active === "Documents" && <DocumentsSection documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["documents"])}/>}

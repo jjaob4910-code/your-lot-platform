@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Lot } from "@/routes/dashboard";
-import { obligationTab } from "@/lib/action-publish";
+import { isRetiredObligation, obligationTab } from "@/lib/action-publish";
 
 const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 const relativeDay = (value: string) => {
@@ -160,7 +160,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
 
   for (const task of compliance.data ?? []) {
     const left = daysUntil(task.due_date);
-    if (left > 14) continue;
+    if (left > 14 || isRetiredObligation(task.compliance_widgets?.standard_key)) continue;
     items.push({ id: `task-${task.id}`, category: "Obligations", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: obligationTab(task.compliance_widgets?.standard_key) });
   }
 
