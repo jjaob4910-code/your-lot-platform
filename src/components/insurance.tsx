@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import type { DocFile } from "@/components/documents";
+import { ClaimsSection, CLOSED_CLAIM_STATUSES, type Claim, type ClaimFund, type ClaimLot, type ClaimOrder } from "@/components/insurance-claims";
 
 export type Policy = {
   id: string; scheme_id: string; policy_type: string; insurer: string | null; broker: string | null;
@@ -161,9 +162,11 @@ function PolicyDialog({ open, onOpenChange, schemeId, policy, onSaved }: {
   </Dialog>;
 }
 
-export function InsuranceSection({ policies, documents, isCommittee, schemeId, onChanged }: {
+export function InsuranceSection({ policies, documents, isCommittee, schemeId, onChanged, claims = [], lots = [], orders = [], funds = [], onClaimsChanged }: {
   policies: Policy[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
+  claims?: Claim[]; lots?: ClaimLot[]; orders?: ClaimOrder[]; funds?: ClaimFund[]; onClaimsChanged?: () => void;
 }) {
+  const [logFor, setLogFor] = useState<string | null | undefined>(undefined);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Policy | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -251,6 +254,7 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
     <div className="mt-6 space-y-4">
       {policies.map(policy => {
         const files = documents.filter(d => d.insurance_policy_id === policy.id);
+        const openClaims = claims.filter(c => c.policy_id === policy.id && !CLOSED_CLAIM_STATUSES.includes(c.status)).length;
         return <Card key={policy.id} className="p-7">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-3">
@@ -258,9 +262,10 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
               <div>
                 <p className="text-base font-medium">{policy.policy_type}</p>
                 <p className="mt-1 text-[12px] text-muted-foreground">{policy.insurer ?? "Underwriter not recorded"}{policy.policy_number ? ` · Policy ${policy.policy_number}` : ""}</p>
+                {openClaims > 0 && <p className="mt-1.5 inline-flex rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium">{openClaims} open {openClaims === 1 ? "claim" : "claims"}</p>}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <RenewalNote date={policy.renewal_date}/>
               {isCommittee && <>
                 <Button asChild variant="outline" size="sm" className="rounded-full">
@@ -268,6 +273,7 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
                     <input type="file" multiple className="sr-only" onChange={e => { void attach(policy, e.target.files); e.target.value = ""; }}/>
                   </label>
                 </Button>
+                <Button variant="outline" size="sm" className="rounded-full" onClick={() => setLogFor(policy.id)}>Log a claim</Button>
                 <Button variant="ghost" size="icon" className="rounded-full" aria-label={`Edit ${policy.policy_type}`} onClick={()=>{ setEditing(policy); setOpen(true); }}><Pencil className="h-4 w-4"/></Button>
                 <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-destructive" aria-label={`Remove ${policy.policy_type}`} onClick={()=>{ void removePolicy(policy); }}><Trash2 className="h-4 w-4"/></Button>
               </>}
@@ -297,6 +303,9 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
         <p className="text-sm text-muted-foreground">No policies recorded yet. Add your building cover first, then public liability and office bearers.</p>
       </Card>}
     </div>
+
+    <ClaimsSection claims={claims} policies={policies} lots={lots} orders={orders} funds={funds} documents={documents}
+      isCommittee={isCommittee} schemeId={schemeId} onChanged={onClaimsChanged ?? onChanged} logFor={logFor} onLogHandled={() => setLogFor(undefined)}/>
 
     <PolicyDialog open={open} onOpenChange={setOpen} schemeId={schemeId} policy={editing} onSaved={onChanged} key={editing?.id ?? "new"}/>
   </div>;

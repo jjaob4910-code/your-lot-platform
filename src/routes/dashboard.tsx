@@ -18,6 +18,7 @@ import { WorkOrdersSection, WorkOrderTable, type Contractor, type WorkOrder } fr
 import { CalendarSection } from "@/components/calendar-view";
 import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
+import type { Claim } from "@/components/insurance-claims";
 import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment, type BudgetFund } from "@/components/overview";
 import { FinanceSection, ensureDefaultFunds, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
@@ -169,6 +170,14 @@ function DashboardPage() {
     },
   });
 
+  const claims = useQuery({
+    queryKey: ["insurance-claims"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("insurance_claims").select("*, insurance_claim_updates(*)").order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as Claim[];
+    },
+  });
   const policies = useQuery({
     queryKey: ["insurance"],
     queryFn: async () => {
@@ -344,7 +353,7 @@ function DashboardPage() {
       {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots"])}/>}
 
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
-        documents={documents.data ?? []} funds={budgetFunds.data ?? []} contractors={contractors.data ?? []}
+        documents={documents.data ?? []} funds={budgetFunds.data ?? []} contractors={contractors.data ?? []} claims={claims.data ?? []}
         onChanged={()=>refresh(["repairs","documents","document-folders","finance","notices","contractors"])}/>}
 
       {active === "AGM" && <AgmSection schemeId={schemeId} isCommittee={isCommittee} meetings={agmMeetings.data ?? []}
@@ -358,7 +367,9 @@ function DashboardPage() {
         onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders","tasks","compliance-widgets","action-drafts"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
-        schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders"])}/>}
+        schemeId={schemeId} onChanged={()=>refresh(["insurance","insurance-claims","documents","document-folders"])}
+        claims={claims.data ?? []} lots={lots.data ?? []} orders={repairs.data ?? []} funds={budgetFunds.data ?? []}
+        onClaimsChanged={()=>refresh(["insurance-claims","documents","document-folders","finance"])}/>}
       {active === "Calendar" && <CalendarSection scheme={scheme.data ?? null} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []} levies={levies.data ?? []}
         orders={repairs.data ?? []} goTo={goTo}/>}
       {active === "Documents" && <DocumentsSection documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["documents"])}/>}
