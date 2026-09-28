@@ -359,7 +359,7 @@ function OnboardingPage() {
         : <p className="text-sm text-muted-foreground">No levies yet — once you create a budget (on the previous step, or later from the Levies tab), each lot's share is issued automatically based on its entitlement.</p>}
     </StepShell>}
 
-    {step === 6 && <StepShell index={6} title="Compliance, tracked automatically." blurb="Loty already keeps an eye on the obligations every owners corporation has: your AGM notice, insurance renewal, financial statements and maintenance plan. You'll see reminders on the Compliance tab as dates approach."
+    {step === 6 && <StepShell index={6} title="Your yearly obligations, tracked." blurb="Loty keeps an eye on the obligations every owners corporation has. Your AGM has its own tab for the agenda, notes and notice to owners. Insurance renewal, financial statements and the maintenance plan each sit at the top of the Insurance, Finance and Work orders tabs, ready to publish when they're due."
       footer={<><BackButton index={6}/><Button className="rounded-full" onClick={finish}><Check className="size-3.5"/>Finish setup</Button></>}>
       <div className="space-y-2 text-sm">
         {["AGM Notice", "Insurance Renewal", "Financial Statements", "Maintenance Plan"].map(w =>

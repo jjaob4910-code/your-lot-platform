@@ -73,3 +73,10 @@ export async function ensureStandardWidget(schemeId: string, existing: Complianc
   if (error) throw error;
   return true;
 }
+
+// Each standing obligation is managed on the tab it's about, so reminders for it
+// (notification bell, calendar) should deep-link there rather than all to AGM.
+const OBLIGATION_TAB: Record<string, string> = {
+  agm_notice: "AGM", insurance_renewal: "Insurance", financial_statements: "Finance", maintenance_plan: "Work orders",
+};
+export const obligationTab = (standardKey: string | null | undefined) => (standardKey && OBLIGATION_TAB[standardKey]) || "AGM";
