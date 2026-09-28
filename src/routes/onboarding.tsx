@@ -359,10 +359,10 @@ function OnboardingPage() {
         : <p className="text-sm text-muted-foreground">No levies yet — once you create a budget (on the previous step, or later from the Levies tab), each lot's share is issued automatically based on its entitlement.</p>}
     </StepShell>}
 
-    {step === 6 && <StepShell index={6} title="Your yearly obligations, tracked." blurb="Loty keeps an eye on the obligations every owners corporation has. Your AGM has its own tab for the agenda, notes and notice to owners. Financial statements sit at the top of the Finance tab, ready to publish when they're due. Policy renewal dates show on the Insurance tab."
+    {step === 6 && <StepShell index={6} title="Your yearly obligations, tracked." blurb="Loty keeps an eye on the obligations every owners corporation has. Your AGM has its own tab for the agenda, notes and notice to owners. Policy renewal dates show on the Insurance tab."
       footer={<><BackButton index={6}/><Button className="rounded-full" onClick={finish}><Check className="size-3.5"/>Finish setup</Button></>}>
       <div className="space-y-2 text-sm">
-        {["AGM Notice", "Financial Statements"].map(w =>
+        {["AGM Notice"].map(w =>
           <div key={w} className="flex items-center gap-2 rounded-2xl border border-border/70 px-4 py-2.5"><Check className="size-3.5 text-primary"/><span>{w}</span></div>)}
       </div>
     </StepShell>}

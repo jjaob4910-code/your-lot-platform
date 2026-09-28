@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { ArrowDownRight, ArrowUpRight, Coins, History, Paperclip, Plus, Send, Settings2, Trash2, Undo2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Paperclip, Plus, Send, Settings2, Trash2, Undo2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,12 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import type { DocFile } from "@/components/documents";
-import { computeFundBalances, currentFinancialYearStart, levyShareForFund, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
+import { levyShareForFund, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 import type { BudgetFund } from "@/components/overview";
-import {
-  currentTaskFor, ensureStandardWidget, publishActionDocument, urgencyTone,
-  type ActionDraft, type ComplianceWidget, type Task,
-} from "@/lib/action-publish";
 
 export type { BudgetFund } from "@/components/overview";
 
@@ -194,95 +190,6 @@ export async function sendLevies(levies: Levy[], funds: BudgetFund[], schemeId: 
 export const shareAmount = (method: string, entitlementPercent: number, lotCount: number, total: number) =>
   Math.round((method === "Equal" ? total / Math.max(1, lotCount) : (entitlementPercent / 100) * total) * 100) / 100;
 
-const FINANCIAL_STATEMENTS_WIDGET = { key: "financial_statements", label: "Financial Statements", detail: "Prepare the annual financial statements: what came in, what went out." };
-
-function financialStatementsPreview(budgets: FinanceBudget[], levies: Levy[], finance: FinanceTx[], funds: BudgetFund[]) {
-  const year = currentFinancialYearStart();
-  const budget = budgets.find(b => b.financial_year.match(/\d{4}/)?.[0] === String(year));
-  const balances = computeFundBalances(levies, finance, year);
-  const paidTx = finance.filter(t => t.status === "Paid" && new Date(t.occurred_on).getFullYear() >= year);
-  const spent = paidTx.filter(t => t.direction === "out").reduce((s, t) => s + Number(t.amount), 0);
-  const collected = paidTx.filter(t => t.direction === "in").reduce((s, t) => s + Number(t.amount), 0);
-  const fundNameFor = (id: string) => funds.find(f => f.id === id)?.name ?? "Fund";
-  const budgetedByFund = budget
-    ? budget.budget_fund_totals.map(t => `${fundNameFor(t.fund_id)} ${money(t.total)}`).join(" · ")
-    : null;
-  const balanceByFund = Object.entries(balances.byFund).map(([id, v]) => `${fundNameFor(id)} ${money(v)}`).join(" · ");
-  return [
-    `Financial year: ${budget?.financial_year ?? `${year}/${year + 1}`}`,
-    budget ? `Budgeted: ${budgetedByFund}` : "No budget set for this year yet.",
-    `Money in: ${money(collected)}`, `Money out: ${money(spent)}`,
-    `Fund balances: ${balanceByFund}${balanceByFund ? " · " : ""}Total ${money(balances.total)}`,
-  ].join("\n");
-}
-
-function FinanceObligationCard({ budgets, levies, transactions, funds, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onChanged }: {
-  budgets: FinanceBudget[]; levies: Levy[]; transactions: FinanceTx[]; funds: BudgetFund[]; isCommittee: boolean; schemeId?: string | undefined;
-  tasks: Task[]; complianceWidgets: ComplianceWidget[]; actionDrafts: ActionDraft[]; onChanged: () => void;
-}) {
-  const bootstrapped = useRef(false);
-  useEffect(() => {
-    if (!schemeId || bootstrapped.current) return;
-    bootstrapped.current = true;
-    void ensureStandardWidget(schemeId, complianceWidgets, FINANCIAL_STATEMENTS_WIDGET).then(created => { if (created) onChanged(); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemeId]);
-
-  const widget = complianceWidgets.find(w => w.standard_key === "financial_statements");
-  const task = widget ? currentTaskFor(widget, tasks) : undefined;
-  const draft = actionDrafts.find(d => d.standard_key === "financial_statements") ?? null;
-  const tone = urgencyTone(task?.due_date, task?.status === "Complete");
-  const previewText = financialStatementsPreview(budgets, levies, transactions, funds);
-
-  const [content, setContent] = useState(draft?.content ?? "");
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-
-  if (!isCommittee) return null;
-
-  const saveDraft = async () => {
-    if (!schemeId) return;
-    setSaving(true);
-    const { error } = draft
-      ? await supabase.from("action_drafts").update({ content }).eq("id", draft.id)
-      : await supabase.from("action_drafts").insert({ scheme_id: schemeId, standard_key: "financial_statements", content });
-    setSaving(false);
-    if (error) { toast("Could not save the draft", { description: error.message }); return; }
-    onChanged(); toast("Draft saved");
-  };
-
-  const publish = async () => {
-    if (!schemeId || !widget) return;
-    setPublishing(true);
-    const text = [previewText, content.trim() ? `\n\nCommittee notes:\n${content.trim()}` : ""].join("");
-    try {
-      await publishActionDocument(schemeId, widget, task?.id ?? null, text);
-      onChanged();
-      toast("Published", { description: "Filed in Documents and marked complete." });
-    } catch (err) {
-      toast("Could not publish", { description: (err as Error).message });
-    } finally { setPublishing(false); }
-  };
-
-  return <Card className="p-6">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <p className="text-sm font-medium">Financial Statements</p>
-      <span className={`text-[12px] ${tone.className}`}>{tone.label}</span>
-    </div>
-    <details className="mt-3">
-      <summary className="cursor-pointer text-[12px] text-muted-foreground">Preview</summary>
-      <pre className="mt-2 max-h-52 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-border/70 bg-secondary/40 p-3 text-[12px] leading-6">{previewText}</pre>
-    </details>
-    <div className="mt-3 space-y-2">
-      <Label htmlFor="finance_obligation_notes" className="text-[11px]">Committee notes (optional)</Label>
-      <Textarea id="finance_obligation_notes" rows={3} value={content} onChange={e => setContent(e.target.value)} placeholder="Anything to add before this goes out" />
-    </div>
-    <div className="mt-3 flex flex-wrap justify-end gap-2">
-      <Button type="button" size="sm" variant="outline" className="rounded-full" disabled={saving} onClick={() => void saveDraft()}>{saving ? "Saving…" : "Save draft"}</Button>
-      <Button type="button" size="sm" className="rounded-full" disabled={publishing} onClick={() => void publish()}>{publishing ? "Publishing…" : "Publish"}</Button>
-    </div>
-  </Card>;
-}
 
 export type DraftLine = {
   id: string; fundId: string; costType: "Fixed" | "Variable"; occurrence: Occurrence;
@@ -1064,10 +971,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
 
   return <div>
     <div className="flex flex-wrap items-end justify-between gap-4">
-      <div className="max-w-2xl">
-        <h2 className="font-display text-xl tracking-[-0.02em]">Levies</h2>
-        <p className="mt-2 text-[13px] leading-6 text-muted-foreground">Track exactly who still owes and how close they are to their due date. Budgets are set from the Budget tab, which is what raises these.</p>
-      </div>
+      <p className="max-w-2xl text-[13px] leading-6 text-muted-foreground">Who still owes and how close they are to their due date. Setting the budget above is what raises these.</p>
       {isCommittee && selectedLevies.length > 0 && <Button size="sm" className="rounded-full" onClick={() => setSending(selectedLevies)}>
         <Send className="size-3.5" />Send {selectedLevies.length} {selectedLevies.length === 1 ? "levy" : "levies"}
       </Button>}
@@ -1267,12 +1171,36 @@ function MarkPaidDialog({ levy, funds, onOpenChange, onConfirm }: {
   </Dialog>;
 }
 
-export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onMarkLevyPaid, onChanged, view, onViewChange }: {
+const COLLAPSE_KEY = "loty-finance-collapsed";
+const readCollapsed = (): FinanceView[] => {
+  try { const v: unknown = JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? "[]"); return Array.isArray(v) ? (v as FinanceView[]) : []; } catch { return []; }
+};
+
+// One Finance page: each part is a card whose header folds it away and brings it back.
+function FinancePanel({ id, title, summary, open, onToggle, actions, children }: {
+  id: FinanceView; title: string; summary: string; open: boolean; onToggle: () => void; actions?: ReactNode; children: ReactNode;
+}) {
+  return <section id={`finance-${id.toLowerCase()}`} className="scroll-mt-24 rounded-[28px] border border-border/70 bg-card shadow-[0_1px_0_rgba(0,0,0,0.02)]">
+    <div className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`} />
+        <span className="min-w-0">
+          <span className="block font-display text-xl tracking-[-0.02em]">{title}</span>
+          <span className="mt-0.5 block text-[12px] text-muted-foreground">{summary}</span>
+        </span>
+      </button>
+      {open && actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+    {open && <div className="border-t border-border/70 p-4 sm:p-6">{children}</div>}
+  </section>;
+}
+
+export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged, view, onViewChange }: {
   transactions: FinanceTx[]; budgets: FinanceBudget[]; lineItems: BudgetLineItem[]; levies: Levy[]; revisions: BudgetRevision[]; lots: FinLot[];
   funds: BudgetFund[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
-  tasks?: Task[]; complianceWidgets?: ComplianceWidget[]; actionDrafts?: ActionDraft[];
   onMarkLevyPaid: (id: string, paidAt: string) => void; onChanged: () => void;
-  view: FinanceView; onViewChange: (v: FinanceView) => void;
+  /** Section to bring into view, e.g. from a "Finance/Levies" deep link. */
+  view?: FinanceView | undefined; onViewChange?: (v: FinanceView) => void;
 }) {
   const today = new Date();
   const currentFy = today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1;
@@ -1282,7 +1210,25 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
     budgets.forEach(b => set.add(budgetStartYear(b.financial_year)));
     return [...set].sort((a, b) => b - a);
   }, [transactions, budgets, currentFy]);
-  const setView = onViewChange;
+  const [collapsed, setCollapsed] = useState<FinanceView[]>(readCollapsed);
+  const [editingBudget, setEditingBudget] = useState(false);
+  const isOpen = (v: FinanceView) => !collapsed.includes(v);
+  const toggle = (v: FinanceView) => setCollapsed(prev => {
+    const next = prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v];
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { /* storage unavailable */ }
+    return next;
+  });
+  // A deep link opens its section and scrolls to it; the Budget default just lands at the top.
+  useEffect(() => {
+    if (!view || view === "Budget") return;
+    setCollapsed(prev => prev.filter(x => x !== view));
+    const t = window.setTimeout(() => {
+      document.getElementById(`finance-${view.toLowerCase()}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      onViewChange?.("Budget"); // consumed, so opening Finance normally later starts at the top
+    }, 80);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
   const [year, setYear] = useState(currentFy);
   const [txOpen, setTxOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceTx | null>(null);
@@ -1336,12 +1282,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
     return { projectedSpend, position };
   };
 
-  // Budget-vs-actual, per line item — surfaces anything paid that either wasn't
-  // budgeted for at all, or has pushed a specific line past what it budgeted.
-  // Cashflow no longer renders an "AGM reporting" card for this (simplified down
-  // to fund summary + ledger); the natural future home is the Actions/Compliance
-  // Financial Statements preview in dashboard.tsx, so this stays computed here
-  // rather than being deleted, ready to be threaded through when that lands.
+  // Budget-vs-actual, per line item: what's been paid against each budgeted line.
   const activeLineItems = activeBudget ? lineItems.filter(li => li.budget_id === activeBudget.id) : [];
   const paidOutTx = yearTx.filter(t => t.direction === "out" && t.status === "Paid");
   const spentAgainstLine = (lineId: string) => sum(paidOutTx.filter(t => t.budget_line_item_id === lineId));
@@ -1389,45 +1330,70 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
     `At this rate we expect to spend ${money(projectedSpend)} by the end of the year, leaving a projected ${projectedPosition >= 0 ? "surplus" : "shortfall"} of ${money(Math.abs(projectedPosition))}.`,
   ].join("\n");
 
-  const tabs = ["Budget", "Levies", "Cashflow"] as const;
+  const unpaidLevies = levies.filter(l => l.status !== "Paid");
+  const owingTotal = unpaidLevies.reduce((s, l) => s + Number(l.amount), 0);
+  const spentPct = totalBudget > 0 ? Math.round((totalOut + totalCommitted) / totalBudget * 100) : 0;
+  const showEditor = !activeBudget || editingBudget;
 
-  return <div className="space-y-8">
-    <PageHead eyebrow="Finance" title="Budget it, track it, see it through" blurb="Build the year's budget, watch spend against it as bills come in, and see the cashflow — all from one spreadsheet."
-      action={<div className="flex flex-wrap items-center gap-2">
-        <Select value={String(year)} onValueChange={v => setYear(Number(v))}>
-          <SelectTrigger className="h-9 w-[150px] rounded-full text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>{years.map(y => <SelectItem key={y} value={String(y)}>{fyLabel(y)}</SelectItem>)}</SelectContent>
-        </Select>
-        {isCommittee && view === "Cashflow" && <Button className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Record money</Button>}
-      </div>} />
+  return <div className="space-y-6">
+    <PageHead eyebrow="Finance" title="Budget it, track it, see it through" blurb="Your budget, levies and cashflow for the year, on one page. Fold away what you don't need and open it again when you do."
+      action={<Select value={String(year)} onValueChange={v => { setYear(Number(v)); setEditingBudget(false); }}>
+        <SelectTrigger className="h-9 w-[150px] rounded-full text-xs" aria-label="Financial year"><SelectValue /></SelectTrigger>
+        <SelectContent>{years.map(y => <SelectItem key={y} value={String(y)}>{fyLabel(y)}</SelectItem>)}</SelectContent>
+      </Select>} />
 
-    {isCommittee && <FinanceObligationCard budgets={budgets} levies={levies} transactions={transactions} funds={funds} isCommittee={isCommittee} schemeId={schemeId}
-      tasks={tasks ?? []} complianceWidgets={complianceWidgets ?? []} actionDrafts={actionDrafts ?? []} onChanged={onChanged}/>}
+    <FinancePanel id="Budget" title="Budget" open={isOpen("Budget")} onToggle={() => toggle("Budget")}
+      summary={activeBudget ? `${money(totalBudget)} budgeted · ${spentPct}% spent or committed` : `No budget set for ${fyLabel(year)} yet`}
+      actions={isCommittee ? <>
+        {activeBudget && !editingBudget && <Button size="sm" className="rounded-full" onClick={() => setEditingBudget(true)}><Pencil className="size-3.5" />Edit budget</Button>}
+        {activeBudget && editingBudget && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setEditingBudget(false)}>Back to overview</Button>}
+        <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setManageFundsOpen(true)}><Settings2 className="size-3.5" />Manage funds</Button>
+      </> : undefined}>
+      {/* Building a new budget and editing one are the same spreadsheet. Once a budget is set,
+         the overview is the resting state and the spreadsheet opens on demand. */}
+      {showEditor && isCommittee
+        ? <BudgetEditorForm schemeId={schemeId} budget={activeBudget} lots={lots} funds={funds} levies={levies} lineItems={lineItems}
+            spentAgainstLine={spentAgainstLine} priorLineItems={priorLineItems} financialYearHint={fyLabel(year)}
+            revertFrom={revertFrom} onSaved={() => { setRevertFrom(null); setEditingBudget(false); onChanged(); }} onOpenHistory={() => setHistoryBudget(activeBudget)} />
+        : !activeBudget
+          ? <p className="py-6 text-center text-[13px] text-muted-foreground">The committee hasn't set a budget for {fyLabel(year)} yet.</p>
+          : <div className="space-y-6">
+              <div className="grid gap-5 sm:grid-cols-3">
+                <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Budget {activeBudget.financial_year}</p>
+                  <p className="mt-2 text-3xl font-medium tracking-[-0.03em] tabular-nums">{money(totalBudget)}</p>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{activeLineItems.length} line {activeLineItems.length === 1 ? "item" : "items"}{activeBudget.allocation_method ? ` · split ${activeBudget.allocation_method === "Equal" ? "equally" : "by entitlement"}` : ""}</p></div>
+                <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Spent</p>
+                  <p className="mt-2 text-3xl font-medium tracking-[-0.03em] tabular-nums">{money(totalOut)}</p>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{money(totalCommitted)} more committed</p></div>
+                <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Left to spend</p>
+                  <p className={`mt-2 text-3xl font-medium tracking-[-0.03em] tabular-nums ${totalBudget - totalOut - totalCommitted < 0 ? "text-destructive" : ""}`}>{money(totalBudget - totalOut - totalCommitted)}</p>
+                  <p className="mt-1 text-[12px] text-muted-foreground">Levies due {niceDate(activeBudget.levy_due_date)}</p></div>
+              </div>
+              <div className="space-y-3">
+                {funds.map(f => { const st = fundStats[f.id]; if (!st) return null; const used = st.spent + st.committed; const pct = st.budget > 0 ? Math.min(100, used / st.budget * 100) : 0;
+                  return <div key={f.id}>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 text-[13px]"><span className="font-medium">{f.name} fund</span>
+                      <span className="tabular-nums text-muted-foreground">{money(used)} of {money(st.budget)}</span></div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-secondary"><div className={`h-full rounded-full ${used > st.budget ? "bg-destructive" : "bg-primary"}`} style={{ width: `${pct}%` }} /></div>
+                  </div>; })}
+              </div>
+              <Button size="sm" variant="ghost" className="rounded-full px-3 text-[12px]" onClick={() => setHistoryBudget(activeBudget)}><History className="size-3.5" />Budget history</Button>
+            </div>}
+    </FinancePanel>
 
-    <div className="flex flex-wrap items-center gap-2">
-      {tabs.map(t => <button key={t} type="button" onClick={() => setView(t)}
-        className={`rounded-full px-4 py-2 text-[12px] font-medium transition ${view === t ? "bg-primary text-primary-foreground" : "border border-border/70 bg-card text-muted-foreground hover:text-foreground"}`}>{t}</button>)}
-      {isCommittee && view === "Budget" && <Button size="sm" variant="ghost" className="ml-auto rounded-full" onClick={() => setManageFundsOpen(true)}><Settings2 className="size-3.5" />Manage funds</Button>}
-    </div>
+    <FinancePanel id="Levies" title="Levies" open={isOpen("Levies")} onToggle={() => toggle("Levies")}
+      summary={levies.length === 0 ? "No levies issued yet" : unpaidLevies.length === 0 ? "All levies paid" : `${unpaidLevies.length} unpaid · ${money(owingTotal)} owing`}>
+      <LeviesTab levies={levies} funds={funds} documents={documents} isCommittee={isCommittee} schemeId={schemeId} onPaid={onMarkLevyPaid} onChanged={onChanged} />
+    </FinancePanel>
 
-    {/* The Budget tab is always the live, editable spreadsheet — building a brand-new budget
-       and editing an existing one are the same view, never a separate modal step. */}
-    {view === "Budget" && <Card className="p-6">
-      <BudgetEditorForm schemeId={schemeId} budget={activeBudget} lots={lots} funds={funds} levies={levies} lineItems={lineItems}
-        spentAgainstLine={spentAgainstLine} priorLineItems={priorLineItems} financialYearHint={fyLabel(year)}
-        revertFrom={revertFrom} onSaved={() => { setRevertFrom(null); onChanged(); }} onOpenHistory={() => setHistoryBudget(activeBudget)} />
-    </Card>}
-
-    {view === "Levies" && <LeviesTab levies={levies} funds={funds} documents={documents} isCommittee={isCommittee} schemeId={schemeId} onPaid={onMarkLevyPaid} onChanged={onChanged} />}
-
-    {/* Cashflow is one system: the chunk of money in each fund, then the ledger of what
-       moves in and out of it — no separate tab to flip to for the transactions that
-       actually explain the numbers above. */}
-    {view === "Cashflow" && <>
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <Button size="sm" variant="outline" className="rounded-full" onClick={() => setForecastOpen(true)}><Send className="size-3.5" />Send forecast</Button>
-    </div>
-
+    {/* Cashflow is one system: the money in each fund, then the ledger that explains it. */}
+    <FinancePanel id="Cashflow" title="Cashflow" open={isOpen("Cashflow")} onToggle={() => toggle("Cashflow")}
+      summary={`Balance ${money(totalBalance)} · ${money(totalIn)} in, ${money(totalOut)} out`}
+      actions={<>
+        <Button size="sm" variant="outline" className="rounded-full" onClick={() => setForecastOpen(true)}><Send className="size-3.5" />Send forecast</Button>
+        {isCommittee && <Button size="sm" className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Record money</Button>}
+      </>}>
+    <div className="space-y-6">
     <div className="grid gap-4 lg:grid-cols-3">
       {funds.map(f => { const stat = fundStats[f.id]; if (!stat) return null; const fp = fundProjected(f.id); return <Card key={f.id} className="p-6">
         <div className="flex items-center justify-between">
@@ -1496,7 +1462,8 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
             </div>)}
           </div>}
     </Card>
-    </>}
+    </div>
+    </FinancePanel>
 
     {txOpen && <TxDialog key={editing?.id ?? `new-${recordFundId ?? "any"}`} open={txOpen} onOpenChange={setTxOpen} schemeId={schemeId}
       tx={editing} funds={funds} defaultFundId={recordFundId} lineItems={activeLineItems} onSaved={onChanged} />}
