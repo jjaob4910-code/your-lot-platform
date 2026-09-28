@@ -21,6 +21,7 @@ export type DocFile = {
   storage_path: string | null; file_size: number | null; mime_type: string | null;
   shared_with_owners: boolean; uploaded_at: string; updated_at: string; compliance_task_id?: string | null; insurance_policy_id?: string | null;
   finance_transaction_id?: string | null; budget_line_item_id?: string | null; levy_id?: string | null;
+  work_order_id?: string | null; work_order_quote_id?: string | null;
 };
 
 const icons = {

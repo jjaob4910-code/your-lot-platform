@@ -506,6 +506,50 @@ export type Database = {
           },
         ]
       }
+      contractors: {
+        Row: {
+          abn: string | null
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          notes: string | null
+          phone: string | null
+          scheme_id: string
+          trade: string | null
+        }
+        Insert: {
+          abn?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          phone?: string | null
+          scheme_id: string
+          trade?: string | null
+        }
+        Update: {
+          abn?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          scheme_id?: string
+          trade?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contractors_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dashboard_widgets: {
         Row: {
           created_at: string
@@ -607,6 +651,8 @@ export type Database = {
           storage_path: string | null
           updated_at: string
           uploaded_at: string
+          work_order_id: string | null
+          work_order_quote_id: string | null
         }
         Insert: {
           budget_line_item_id?: string | null
@@ -625,6 +671,8 @@ export type Database = {
           storage_path?: string | null
           updated_at?: string
           uploaded_at?: string
+          work_order_id?: string | null
+          work_order_quote_id?: string | null
         }
         Update: {
           budget_line_item_id?: string | null
@@ -643,6 +691,8 @@ export type Database = {
           storage_path?: string | null
           updated_at?: string
           uploaded_at?: string
+          work_order_id?: string | null
+          work_order_quote_id?: string | null
         }
         Relationships: [
           {
@@ -692,6 +742,20 @@ export type Database = {
             columns: ["scheme_id"]
             isOneToOne: false
             referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_work_order_quote_id_fkey"
+            columns: ["work_order_quote_id"]
+            isOneToOne: false
+            referencedRelation: "work_order_quotes"
             referencedColumns: ["id"]
           },
         ]
@@ -965,9 +1029,11 @@ export type Database = {
           id: string
           kind: string
           location: string | null
+          lot_ids: string[]
           outcome: string | null
           priority: string
           scheme_id: string
+          scope_of_works: string | null
           status: Database["public"]["Enums"]["maintenance_status"]
           submitted_by_lot_id: string | null
           target_date: string | null
@@ -983,9 +1049,11 @@ export type Database = {
           id?: string
           kind?: string
           location?: string | null
+          lot_ids?: string[]
           outcome?: string | null
           priority?: string
           scheme_id: string
+          scope_of_works?: string | null
           status?: Database["public"]["Enums"]["maintenance_status"]
           submitted_by_lot_id?: string | null
           target_date?: string | null
@@ -1001,9 +1069,11 @@ export type Database = {
           id?: string
           kind?: string
           location?: string | null
+          lot_ids?: string[]
           outcome?: string | null
           priority?: string
           scheme_id?: string
+          scope_of_works?: string | null
           status?: Database["public"]["Enums"]["maintenance_status"]
           submitted_by_lot_id?: string | null
           target_date?: string | null
@@ -1325,6 +1395,102 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "work_order_photos_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_order_quotes: {
+        Row: {
+          amount: number
+          contractor_id: string | null
+          created_at: string
+          finance_transaction_id: string | null
+          id: string
+          notes: string | null
+          paid_at: string | null
+          status: string
+          work_order_id: string
+        }
+        Insert: {
+          amount?: number
+          contractor_id?: string | null
+          created_at?: string
+          finance_transaction_id?: string | null
+          id?: string
+          notes?: string | null
+          paid_at?: string | null
+          status?: string
+          work_order_id: string
+        }
+        Update: {
+          amount?: number
+          contractor_id?: string | null
+          created_at?: string
+          finance_transaction_id?: string | null
+          id?: string
+          notes?: string | null
+          paid_at?: string | null
+          status?: string
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_quotes_contractor_id_fkey"
+            columns: ["contractor_id"]
+            isOneToOne: false
+            referencedRelation: "contractors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_quotes_finance_transaction_id_fkey"
+            columns: ["finance_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "finance_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "work_order_quotes_work_order_id_fkey"
+            columns: ["work_order_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      work_order_steps: {
+        Row: {
+          created_at: string
+          done_at: string | null
+          id: string
+          label: string
+          position: number
+          step_type: string
+          work_order_id: string
+        }
+        Insert: {
+          created_at?: string
+          done_at?: string | null
+          id?: string
+          label: string
+          position: number
+          step_type?: string
+          work_order_id: string
+        }
+        Update: {
+          created_at?: string
+          done_at?: string | null
+          id?: string
+          label?: string
+          position?: number
+          step_type?: string
+          work_order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_order_steps_work_order_id_fkey"
             columns: ["work_order_id"]
             isOneToOne: false
             referencedRelation: "maintenance_requests"

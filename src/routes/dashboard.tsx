@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
-import { WorkOrdersSection, WorkOrderTable, type WorkOrder } from "@/components/work-orders";
+import { WorkOrdersSection, WorkOrderTable, type Contractor, type WorkOrder } from "@/components/work-orders";
 import { CalendarSection } from "@/components/calendar-view";
 import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
@@ -147,9 +147,17 @@ function DashboardPage() {
   const repairs = useQuery({
     queryKey: ["repairs"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("maintenance_requests").select("*, lots(lot_number)").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("maintenance_requests").select("*, lots(lot_number), work_order_steps(*), work_order_quotes(*, finance_transactions(fund_id))").order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Repair[];
+    },
+  });
+  const contractors = useQuery({
+    queryKey: ["contractors"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("contractors").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Contractor[];
     },
   });
   const documents = useQuery({
@@ -337,7 +345,8 @@ function DashboardPage() {
 
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
         tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} actionDrafts={actionDrafts.data ?? []}
-        onChanged={()=>refresh(["repairs","tasks","documents","document-folders","compliance-widgets","action-drafts"])}/>}
+        documents={documents.data ?? []} funds={budgetFunds.data ?? []} contractors={contractors.data ?? []}
+        onChanged={()=>refresh(["repairs","tasks","documents","document-folders","compliance-widgets","action-drafts","finance","notices","contractors"])}/>}
 
       {active === "AGM" && <AgmSection schemeId={schemeId} isCommittee={isCommittee} meetings={agmMeetings.data ?? []}
         task={currentAgmTask} widgets={complianceWidgets.data ?? []} lots={lots.data ?? []}
