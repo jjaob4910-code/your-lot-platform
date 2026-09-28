@@ -80,3 +80,8 @@ const OBLIGATION_TAB: Record<string, string> = {
   agm_notice: "AGM", insurance_renewal: "Insurance", financial_statements: "Finance", maintenance_plan: "Work orders",
 };
 export const obligationTab = (standardKey: string | null | undefined) => (standardKey && OBLIGATION_TAB[standardKey]) || "AGM";
+
+// Obligations no longer managed anywhere in the app. Their old rows stay in the
+// database but are hidden from the checklist, bell and calendar.
+const RETIRED_OBLIGATIONS = new Set(["insurance_renewal"]);
+export const isRetiredObligation = (standardKey: string | null | undefined) => !!standardKey && RETIRED_OBLIGATIONS.has(standardKey);

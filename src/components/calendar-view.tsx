@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { obligationTab, type ComplianceWidget } from "@/lib/action-publish";
+import { isRetiredObligation, obligationTab, type ComplianceWidget } from "@/lib/action-publish";
 
 export type CalendarScheme = { id: string; next_agm_date: string | null } | null;
 export type CalendarTask = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null };
@@ -89,7 +89,9 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
       tone: "meeting", movable: true, goTo: "AGM", source: "Meeting",
     });
     for (const task of tasks) {
-      const tab = obligationTab(widgets.find(w => w.id === task.widget_id)?.standard_key);
+      const key = widgets.find(w => w.id === task.widget_id)?.standard_key;
+      if (isRetiredObligation(key)) continue;
+      const tab = obligationTab(key);
       list.push({
         key: `task-${task.id}`, date: task.due_date, title: task.task_name,
         detail: task.detail ?? `Yearly obligation, currently ${task.status.toLowerCase()}.`,
