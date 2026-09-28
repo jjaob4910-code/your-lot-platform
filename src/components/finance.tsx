@@ -22,7 +22,7 @@ export type { BudgetFund } from "@/components/overview";
 export type FinanceTx = {
   id: string; scheme_id: string; direction: string; fund_id: string; category: string | null;
   description: string; supplier: string | null; amount: number; occurred_on: string;
-  status: string; work_order_id: string | null; notes: string | null; budget_line_item_id: string | null;
+  status: string; work_order_id: string | null; notes: string | null; budget_line_item_id: string | null; levy_id: string | null;
 };
 export type BudgetLineItem = {
   id: string; budget_id: string; scheme_id: string; fund_id: string; description: string; amount: number;
@@ -41,6 +41,7 @@ export type BudgetRevision = {
   levies_recalculated: boolean; created_at: string;
 };
 type DraftLineItemJson = { fund: string; description: string; amount: number };
+export type FinanceView = "Budget" | "Levies" | "Cashflow";
 export type FinLot = { id: string; lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number };
 
 const FINANCE_FOLDER = "Finance";
@@ -1266,11 +1267,12 @@ function MarkPaidDialog({ levy, funds, onOpenChange, onConfirm }: {
   </Dialog>;
 }
 
-export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onMarkLevyPaid, onChanged }: {
+export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, tasks, complianceWidgets, actionDrafts, onMarkLevyPaid, onChanged, view, onViewChange }: {
   transactions: FinanceTx[]; budgets: FinanceBudget[]; lineItems: BudgetLineItem[]; levies: Levy[]; revisions: BudgetRevision[]; lots: FinLot[];
   funds: BudgetFund[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
   tasks?: Task[]; complianceWidgets?: ComplianceWidget[]; actionDrafts?: ActionDraft[];
   onMarkLevyPaid: (id: string, paidAt: string) => void; onChanged: () => void;
+  view: FinanceView; onViewChange: (v: FinanceView) => void;
 }) {
   const today = new Date();
   const currentFy = today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1;
@@ -1280,7 +1282,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
     budgets.forEach(b => set.add(budgetStartYear(b.financial_year)));
     return [...set].sort((a, b) => b - a);
   }, [transactions, budgets, currentFy]);
-  const [view, setView] = useState<"Budget" | "Levies" | "Cashflow">("Budget");
+  const setView = onViewChange;
   const [year, setYear] = useState(currentFy);
   const [txOpen, setTxOpen] = useState(false);
   const [editing, setEditing] = useState<FinanceTx | null>(null);
@@ -1304,7 +1306,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
   const perFund = (fundId: string) => {
     const paidLevies = yearLevies.filter(l => l.status === "Paid");
     const collected = paidLevies.reduce((s, l) => s + levyShareForFund(l, fundId), 0)
-      + sum(yearTx.filter(t => t.direction === "in" && t.fund_id === fundId && t.status === "Paid"));
+      + sum(yearTx.filter(t => t.direction === "in" && t.fund_id === fundId && t.status === "Paid" && !t.levy_id));
     const owing = yearLevies.filter(l => l.status !== "Paid").reduce((s, l) => s + levyShareForFund(l, fundId), 0);
     const spent = sum(yearTx.filter(t => t.direction === "out" && t.fund_id === fundId && t.status === "Paid"));
     const committed = sum(yearTx.filter(t => t.direction === "out" && t.fund_id === fundId && t.status !== "Paid"));

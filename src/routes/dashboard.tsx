@@ -19,7 +19,7 @@ import { CalendarSection } from "@/components/calendar-view";
 import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
 import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment, type BudgetFund } from "@/components/overview";
-import { FinanceSection, ensureDefaultFunds, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
+import { FinanceSection, ensureDefaultFunds, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
 import { splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
@@ -59,6 +59,13 @@ function DashboardPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [active, setActive] = useState("Dashboard");
+  const [financeView, setFinanceView] = useState<FinanceView>("Budget");
+  // Deep links elsewhere in the app use "Tab" or "Finance/Levies" to open a specific Finance view.
+  const goTo = (target: string) => {
+    const [tab, sub] = target.split("/");
+    if (tab === "Finance" && (sub === "Budget" || sub === "Levies" || sub === "Cashflow")) setFinanceView(sub);
+    setActive(tab!);
+  };
 
   const [session, setSession] = useState<Session | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -264,14 +271,6 @@ function DashboardPage() {
 
   const refresh = (keys: string[]) => keys.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
 
-  const setTaskStatus = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase.from("compliance_tasks").update({ status: status as "Not Started" | "In Progress" | "Complete" }).eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => { refresh(["tasks"]); toast("Compliance updated"); },
-    onError: (e: Error) => toast("Could not update", { description: e.message }),
-  });
   const markLevyPaid = useMutation({
     mutationFn: async ({ id, paidAt }: { id: string; paidAt: string }) => {
       const levy = (levies.data ?? []).find(l => l.id === id);
@@ -320,9 +319,9 @@ function DashboardPage() {
         <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Dashboard sections">{sections.map(([label])=><Button key={label} size="sm" variant={active===label?"default":"ghost"} className="rounded-full px-3.5 text-xs font-medium transition-all duration-300" onClick={()=>setActive(label)}>{label}</Button>)}</nav>
         <div className="ml-auto flex items-center gap-1">
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings" onClick={()=>setActive("Settings")}><Settings /></Button>
-          <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={setActive}/>
+          <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={()=>{ void supabase.auth.signOut().then(()=>navigate({ to: "/", replace: true })); }}><LogOut /></Button>
-          <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav></SheetContent></Sheet>
+          <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav><div className="mt-4 border-t border-border/70 pt-4"><Button variant={active==="Settings"?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive("Settings")}><Settings/>Settings</Button></div></SheetContent></Sheet>
         </div>
       </div>
     </header>
@@ -330,10 +329,9 @@ function DashboardPage() {
     <main className="mx-auto max-w-[1500px] px-4 pb-32 pt-10 sm:px-7 sm:pt-14">
       {active === "Dashboard" && <OverviewSection
         scheme={scheme.data ?? null} levies={levies.data ?? []} funds={budgetFunds.data ?? []} transactions={finance.data ?? []}
-        tasks={tasks.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
+        tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
         widgets={dashboardWidgets.data ?? []} widgetsLoading={dashboardWidgets.isLoading} isCommittee={isCommittee} schemeId={schemeId}
-        onTaskStatus={(id,status)=>setTaskStatus.mutate({id,status})}
-        onChanged={()=>refresh(["dashboard-widgets","notices","notice-comments"])} goTo={setActive}/>}
+        onChanged={()=>refresh(["dashboard-widgets","notices","notice-comments"])} goTo={goTo}/>}
 
       {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots"])}/>}
 
@@ -345,7 +343,7 @@ function DashboardPage() {
         task={currentAgmTask} widgets={complianceWidgets.data ?? []} lots={lots.data ?? []}
         onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets","agm-meetings"])}/>}
 
-      {active === "Finance" && <FinanceSection transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
+      {active === "Finance" && <FinanceSection view={financeView} onViewChange={setFinanceView} transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
         tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} actionDrafts={actionDrafts.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
@@ -355,7 +353,7 @@ function DashboardPage() {
         tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} actionDrafts={actionDrafts.data ?? []}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","documents","document-folders","tasks","compliance-widgets","action-drafts"])}/>}
       {active === "Calendar" && <CalendarSection scheme={scheme.data ?? null} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []} levies={levies.data ?? []}
-        orders={repairs.data ?? []} goTo={setActive}/>}
+        orders={repairs.data ?? []} goTo={goTo}/>}
       {active === "Documents" && <DocumentsSection documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["documents"])}/>}
 
       {active === "Settings" && <SettingsSection scheme={scheme.data ?? null} lots={lots.data ?? []}

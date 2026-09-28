@@ -13,7 +13,10 @@ export type Levy = {
   budgets: { financial_year: string; allocation_method: string | null; total_amount: number; budget_fund_totals: BudgetFundTotal[] } | null;
 };
 export type FundBudget = { financial_year: string; total_amount: number; budget_fund_totals: BudgetFundTotal[] };
-export type FundTx = { direction: string; fund_id: string; status: string; amount: number; occurred_on: string };
+// levy_id is set on money-in rows recorded automatically when a levy is marked paid.
+// Those levies are already counted via their own paid status, so balances skip these
+// rows to avoid counting the same payment twice.
+export type FundTx = { direction: string; fund_id: string; status: string; amount: number; occurred_on: string; levy_id?: string | null };
 
 export const currentFinancialYearStart = () => {
   const today = new Date();
@@ -57,7 +60,7 @@ export function computeFundBalances(levies: Levy[], transactions: FundTx[], year
   const byFund: Record<string, number> = {};
   for (const fundId of fundIds) {
     const collected = yearLevies.filter(l => l.status === "Paid").reduce((s, l) => s + levyShareForFund(l, fundId), 0)
-      + sum(yearTx.filter(t => t.direction === "in" && t.fund_id === fundId && t.status === "Paid"));
+      + sum(yearTx.filter(t => t.direction === "in" && t.fund_id === fundId && t.status === "Paid" && !t.levy_id));
     const spent = sum(yearTx.filter(t => t.direction === "out" && t.fund_id === fundId && t.status === "Paid"));
     byFund[fundId] = collected - spent;
   }

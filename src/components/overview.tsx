@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { WorkOrderTable, type WorkOrder } from "@/components/work-orders";
 import { computeFundBalances, currentFinancialYearStart, type Levy, type FundTx } from "@/lib/fund-balance";
+import { currentTaskFor, obligationTab, type ComplianceWidget, type Task } from "@/lib/action-publish";
 
 export type BudgetFund = { id: string; name: string; sort_order: number };
 
@@ -18,7 +19,7 @@ export type Notice = { id: string; scheme_id: string; title: string; message: st
 export type NoticeComment = { id: string; notice_id: string; scheme_id: string; author_name: string | null; message: string; created_at: string };
 
 type OvScheme = { address: string; next_agm_date: string | null };
-type OvTask = { id: string; task_name: string; due_date: string; status: string };
+type Obligation = { widget: ComplianceWidget; task: Task | undefined };
 type OvLot = { id: string; lot_number: number; owner_name: string | null; entitlement_percent: number };
 type OvLevy = Levy;
 
@@ -75,7 +76,7 @@ function CashWidgetBody({ levies, funds, transactions, goTo }: { levies: Levy[];
         <span className="text-muted-foreground">{f.name}</span><span className="font-medium tabular-nums">{money(byFund[f.id] ?? 0)}</span>
       </div>)}
     </div>
-    <Button size="sm" variant="ghost" className="mt-4 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance")}>Open Finance <ChevronRight className="size-3.5" /></Button>
+    <Button size="sm" variant="ghost" className="mt-4 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance/Cashflow")}>Open cashflow <ChevronRight className="size-3.5" /></Button>
   </div>;
 }
 
@@ -191,25 +192,28 @@ function LeviesChartWidgetBody({ levies }: { levies: OvLevy[] }) {
   </div>;
 }
 
-function ObligationsWidgetBody({ tasks, isCommittee, onTaskStatus }: { tasks: OvTask[]; isCommittee: boolean; onTaskStatus: (id: string, status: string) => void }) {
-  return <div>{tasks.map(task => {
-    const left = daysUntil(task.due_date);
-    const done = task.status === "Complete";
-    const urgent = !done && left < 14;
-    return <div key={task.id} className="flex items-start gap-3 border-t border-primary-foreground/15 py-3.5 first:border-0 first:pt-0">
-      <button type="button" disabled={!isCommittee} onClick={() => onTaskStatus(task.id, done ? "In Progress" : "Complete")}
-        className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border ${done ? "border-primary-foreground bg-primary-foreground text-primary" : "border-primary-foreground/40"} ${isCommittee ? "cursor-pointer" : "cursor-default"}`}
-        aria-label={`Mark ${task.task_name} ${done ? "in progress" : "complete"}`}>{done && <Check className="size-2.5" />}</button>
+// Read-only: each obligation is marked done by publishing it on the tab that owns it,
+// so the checklist only shows status and links there, rather than being a second
+// place to tick things off.
+function ObligationsWidgetBody({ obligations, goTo }: { obligations: Obligation[]; goTo: (s: string) => void }) {
+  return <div>{obligations.map(({ widget, task }) => {
+    const done = task?.status === "Complete";
+    const left = task ? daysUntil(task.due_date) : null;
+    const urgent = !done && left !== null && left < 14;
+    const tab = obligationTab(widget.standard_key);
+    return <button type="button" key={widget.id} onClick={() => goTo(tab)}
+      className="flex w-full items-start gap-3 border-t border-primary-foreground/15 py-3.5 text-left first:border-0 first:pt-0 hover:opacity-80">
+      <span className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border ${done ? "border-primary-foreground bg-primary-foreground text-primary" : "border-primary-foreground/40"}`}>{done && <Check className="size-2.5" />}</span>
       <span className="min-w-0 flex-1">
-        <span className={`block text-[13px] ${done ? "text-primary-foreground/50 line-through" : "text-primary-foreground/90"}`}>{task.task_name}</span>
-        <span className="block text-[11px] text-primary-foreground/50">Due {niceDate(task.due_date)}</span>
+        <span className={`block text-[13px] ${done ? "text-primary-foreground/50 line-through" : "text-primary-foreground/90"}`}>{widget.label}</span>
+        <span className="block text-[11px] text-primary-foreground/50">{task ? `Due ${niceDate(task.due_date)} · ` : ""}Open {tab}</span>
       </span>
       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${done ? "bg-primary-foreground/10 text-primary-foreground/60" : urgent ? "bg-primary-foreground text-primary" : "bg-primary-foreground/10 text-primary-foreground/80"}`}>
-        {done ? "Done" : left < 0 ? `${Math.abs(left)} days overdue` : `${left} days left`}
+        {done ? "Done" : left === null ? "Not started" : left < 0 ? `${Math.abs(left)} days overdue` : `${left} days left`}
       </span>
-    </div>;
+    </button>;
   })}
-    {tasks.length === 0 && <p className="py-6 text-[13px] text-primary-foreground/60">Nothing recorded yet.</p>}
+    {obligations.length === 0 && <p className="py-6 text-[13px] text-primary-foreground/60">Nothing recorded yet.</p>}
   </div>;
 }
 
@@ -224,10 +228,10 @@ function MyLotWidgetBody({ myLot }: { myLot: OvLot | null }) {
   </div>;
 }
 
-export function OverviewSection({ scheme, levies, funds, transactions, tasks, repairs, myLot, notices, noticeComments, widgets, widgetsLoading, isCommittee, schemeId, onTaskStatus, onChanged, goTo }: {
-  scheme: OvScheme | null; levies: OvLevy[]; funds: BudgetFund[]; transactions: FundTx[]; tasks: OvTask[]; repairs: WorkOrder[];
+export function OverviewSection({ scheme, levies, funds, transactions, tasks, complianceWidgets, repairs, myLot, notices, noticeComments, widgets, widgetsLoading, isCommittee, schemeId, onChanged, goTo }: {
+  scheme: OvScheme | null; levies: OvLevy[]; funds: BudgetFund[]; transactions: FundTx[]; tasks: Task[]; complianceWidgets: ComplianceWidget[]; repairs: WorkOrder[];
   myLot: OvLot | null; notices: Notice[]; noticeComments: NoticeComment[]; widgets: DashboardWidget[]; widgetsLoading: boolean;
-  isCommittee: boolean; schemeId?: string | undefined; onTaskStatus: (id: string, status: string) => void; onChanged: () => void; goTo: (s: string) => void;
+  isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void; goTo: (s: string) => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -246,6 +250,11 @@ export function OverviewSection({ scheme, levies, funds, transactions, tasks, re
 
   // A lot-targeted notice (e.g. "your levy is ready") is only for that lot's owner;
   // committee members see everything, matching how they can post/moderate notices.
+  const obligations: Obligation[] = complianceWidgets
+    .filter(w => w.is_standard && w.enabled)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map(widget => ({ widget, task: currentTaskFor(widget, tasks) }));
+
   const visibleNotices = isCommittee ? notices : notices.filter(n => !n.lot_id || n.lot_id === myLot?.id);
 
   const sorted = widgets.slice().sort((a, b) => a.sort_order - b.sort_order);
@@ -323,8 +332,8 @@ export function OverviewSection({ scheme, levies, funds, transactions, tasks, re
           case "cash": return <WidgetShell key={widget.id} {...shared} title="Current cash" icon={Coins}><CashWidgetBody levies={levies} funds={funds} transactions={transactions} goTo={goTo} /></WidgetShell>;
           case "next_meeting": return <WidgetShell key={widget.id} {...shared} title="Next meeting" icon={CalendarClock}><NextMeetingWidgetBody scheme={scheme} goTo={goTo} /></WidgetShell>;
           case "notices": return <WidgetShell key={widget.id} {...shared} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={visibleNotices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetShell>;
-          case "levies_chart": return <WidgetShell key={widget.id} {...shared} title="Levy payments" icon={Landmark} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance")}>Open <ChevronRight className="size-3.5" /></Button>}><LeviesChartWidgetBody levies={levies} /></WidgetShell>;
-          case "obligations": return <WidgetShell key={widget.id} {...shared} title="Yearly obligations" icon={FileCheck2} tone="primary" action={<span className="font-display text-lg text-primary-foreground">{tasks.filter(t => t.status === "Complete").length}/{tasks.length}</span>}><ObligationsWidgetBody tasks={tasks} isCommittee={isCommittee} onTaskStatus={onTaskStatus} /></WidgetShell>;
+          case "levies_chart": return <WidgetShell key={widget.id} {...shared} title="Levy payments" icon={Landmark} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance/Levies")}>Open levies <ChevronRight className="size-3.5" /></Button>}><LeviesChartWidgetBody levies={levies} /></WidgetShell>;
+          case "obligations": return <WidgetShell key={widget.id} {...shared} title="Yearly obligations" icon={FileCheck2} tone="primary" action={<span className="font-display text-lg text-primary-foreground">{obligations.filter(o => o.task?.status === "Complete").length}/{obligations.length}</span>}><ObligationsWidgetBody obligations={obligations} goTo={goTo} /></WidgetShell>;
           case "work_orders": return <WidgetShell key={widget.id} {...shared} title="Work orders" icon={Wrench} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Work orders")}>Open <ChevronRight className="size-3.5" /></Button>}><WorkOrdersWidgetBody repairs={repairs} goTo={goTo} /></WidgetShell>;
           case "my_lot": return <WidgetShell key={widget.id} {...shared} title="Your lot" icon={Building2}><MyLotWidgetBody myLot={myLot} /></WidgetShell>;
           default: return null;
