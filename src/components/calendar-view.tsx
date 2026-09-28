@@ -85,7 +85,7 @@ export function CalendarSection({ scheme, tasks, levies, orders, goTo }: {
     const list: Item[] = [];
     if (scheme?.next_agm_date) list.push({
       key: `agm`, date: scheme.next_agm_date, title: "Annual general meeting", detail: "Your yearly owners meeting.",
-      tone: "meeting", movable: true, goTo: "Dashboard", source: "Meeting",
+      tone: "meeting", movable: true, goTo: "AGM", source: "Meeting",
     });
     for (const task of tasks) list.push({
       key: `task-${task.id}`, date: task.due_date, title: task.task_name,
