@@ -185,10 +185,11 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
 
   const attach = async (policy: Policy, files: FileList | null) => {
     if (!files?.length || !schemeId) return;
+    const picked = Array.from(files); // copy before any await: the input's FileList empties when the picker is reset
     setBusy(policy.id);
     try {
       const folderId = await insuranceFolderId();
-      for (const file of Array.from(files)) {
+      for (const file of picked) {
         const path = `${schemeId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
         const { error: upErr } = await supabase.storage.from("documents").upload(path, file);
         if (upErr) throw upErr;
