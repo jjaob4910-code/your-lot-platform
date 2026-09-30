@@ -251,6 +251,8 @@ function DashboardPage() {
       return (data ?? []) as unknown as FinanceTx[];
     },
   });
+  // Voided entries stay in the Finance ledger but never count anywhere else.
+  const activeTransactions = (finance.data ?? []).filter(t => !t.voided_at);
   const agmMeetings = useQuery({
     queryKey: ["agm-meetings"],
     queryFn: async () => {
@@ -268,6 +270,18 @@ function DashboardPage() {
       return (data ?? []) as unknown as CommitteeRole[];
     },
   });
+  // Paid transactions are locked to the Treasurer (or any committee member when none is set).
+  const canManagePaid = useQuery({
+    queryKey: ["can-manage-paid", userId, schemeId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("can_manage_paid_finance", { _user: userId!, _scheme: schemeId! });
+      if (error) throw error;
+      return !!data;
+    },
+    enabled: !!userId && !!schemeId,
+  });
+  const treasurerLot = (committeeRoles.data ?? []).find(r => r.role === "Treasurer");
+  const treasurerName = treasurerLot ? (() => { const l = (lots.data ?? []).find(x => x.id === treasurerLot.lot_id); return l ? (l.owner_name ?? `Lot ${l.lot_number}`) : "Assigned"; })() : null;
   const schemeSettings = useQuery({
     queryKey: ["scheme-settings"],
     queryFn: async () => {
@@ -337,7 +351,7 @@ function DashboardPage() {
 
     <main className="mx-auto max-w-[1500px] px-4 pb-32 pt-10 sm:px-7 sm:pt-14">
       {active === "Dashboard" && <OverviewSection
-        scheme={scheme.data ?? null} levies={levies.data ?? []} funds={budgetFunds.data ?? []} transactions={finance.data ?? []}
+        scheme={scheme.data ?? null} levies={levies.data ?? []} funds={budgetFunds.data ?? []} transactions={activeTransactions}
         tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
         widgets={dashboardWidgets.data ?? []} widgetsLoading={dashboardWidgets.isLoading} isCommittee={isCommittee} schemeId={schemeId}
         onChanged={()=>refresh(["dashboard-widgets","notices","notice-comments"])} goTo={goTo}/>}
@@ -355,7 +369,8 @@ function DashboardPage() {
       {active === "Finance" && <FinanceSection view={financeView} onViewChange={setFinanceView} transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
-        onChanged={()=>refresh(["finance","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
+        canManagePaid={canManagePaid.data ?? false} treasurerName={treasurerName} onOpenSettings={()=>setActive("Settings")}
+        onChanged={()=>refresh(["finance","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","insurance-claims","documents","document-folders"])}
@@ -368,7 +383,7 @@ function DashboardPage() {
       {active === "Settings" && <SettingsSection scheme={scheme.data ?? null} lots={lots.data ?? []}
         committeeRoles={committeeRoles.data ?? []} settings={schemeSettings.data ?? null}
         isCommittee={isCommittee} schemeId={schemeId}
-        onChanged={()=>refresh(["scheme","lots","committee-roles","scheme-settings"])}/>}
+        onChanged={()=>refresh(["scheme","lots","committee-roles","scheme-settings","can-manage-paid"])}/>}
     </main>
 
     <nav className="fixed inset-x-0 bottom-0 z-40 flex gap-1 overflow-x-auto scroll-px-2 snap-x snap-mandatory border-t border-border/70 bg-background/90 p-2 backdrop-blur-xl lg:hidden">{sections.map(([label,Icon])=><Button key={label} variant="ghost" className={`h-14 w-[76px] shrink-0 snap-center flex-col gap-1 rounded-2xl px-1 text-[9px] ${active===label?"bg-primary text-primary-foreground":"text-muted-foreground"}`} onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav>

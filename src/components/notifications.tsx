@@ -129,7 +129,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
       const since = new Date(Date.now() - 7 * 86400000).toISOString();
       const { data, error } = await supabase.from("finance_transactions")
         .select("id, description, amount, occurred_on, created_at")
-        .eq("scheme_id", schemeId!).eq("direction", "out").eq("status", "Paid").is("budget_line_item_id", null).gte("created_at", since);
+        .eq("scheme_id", schemeId!).eq("direction", "out").eq("status", "Paid").is("budget_line_item_id", null).is("voided_at", null).gte("created_at", since);
       if (error) throw error;
       return (data ?? []) as { id: string; description: string; amount: number; occurred_on: string; created_at: string }[];
     },
