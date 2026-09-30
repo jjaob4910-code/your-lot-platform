@@ -129,6 +129,78 @@ function Card({ children, className = "" }: { children: ReactNode; className?: s
   return <section className={`soft-shadow rounded-3xl border border-border/70 bg-card ${className}`}>{children}</section>;
 }
 
+const toneDot: Record<Item["tone"], string> = {
+  event: "bg-primary", reminder: "bg-amber-500", compliance: "bg-foreground/60", levy: "bg-emerald-600", meeting: "bg-primary", work: "bg-destructive",
+};
+
+// The month grid is unreadable at phone width, so phones get a strip of day numbers with
+// coloured dots, and below it the month's entries as a readable list grouped by day.
+function PhoneCalendar({ className, cursor, setCursor, days, items, todayISO, onOpen, onAdd }: {
+  className: string; cursor: Date; setCursor: (d: Date) => void; days: Date[]; items: Item[]; todayISO: string;
+  onOpen: (item: Item) => void; onAdd: (iso: string) => void;
+}) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const monthKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+  // On the current month, keep the next 30 days in view too, so the end of a month never looks empty.
+  const isCurrentMonth = todayISO.startsWith(monthKey);
+  const horizon = (() => { const d = new Date(); d.setDate(d.getDate() + 30); return toISO(d); })();
+  const monthItems = items.filter(i => i.date.startsWith(monthKey) || (isCurrentMonth && i.date > todayISO && i.date <= horizon));
+  const groups = [...new Set(monthItems.map(i => i.date))].map(date => ({ date, items: monthItems.filter(i => i.date === date) }));
+  const go = (delta: number) => { setSelected(null); setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1)); };
+  const pick = (iso: string) => {
+    setSelected(iso);
+    document.getElementById(`cal-day-${iso}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const weeks = days.slice(35).every(d => d.getMonth() !== cursor.getMonth()) ? days.slice(0, 35) : days;
+  return <div className={`mt-8 space-y-4 ${className}`}>
+    <Card className="p-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-medium tracking-[-0.02em]">{cursor.toLocaleDateString("en-AU", { month: "long", year: "numeric" })}</h2>
+        <div className="flex items-center gap-1">
+          <Button size="icon" variant="ghost" className="size-9 rounded-full" aria-label="Previous month" onClick={() => go(-1)}><ChevronLeft/></Button>
+          <Button size="sm" variant="ghost" className="h-9 rounded-full px-3 text-[12px]" onClick={() => { const d = new Date(); d.setDate(1); setSelected(null); setCursor(d); }}>Today</Button>
+          <Button size="icon" variant="ghost" className="size-9 rounded-full" aria-label="Next month" onClick={() => go(1)}><ChevronRight/></Button>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-7 text-center text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+        {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => <div key={i} className="py-1">{d}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-y-1">
+        {weeks.map(day => {
+          const iso = toISO(day);
+          const inMonth = day.getMonth() === cursor.getMonth();
+          const dayItems = inMonth ? items.filter(i => i.date === iso) : [];
+          return <button key={iso} type="button" disabled={!inMonth} onClick={() => dayItems.length ? pick(iso) : onAdd(iso)}
+            aria-label={`${niceDate(iso)}${dayItems.length ? `, ${dayItems.length} item${dayItems.length === 1 ? "" : "s"}` : ""}`}
+            className={`flex h-11 flex-col items-center justify-center rounded-xl ${!inMonth ? "opacity-0" : selected === iso ? "bg-primary/10" : ""}`}>
+            <span className={`grid size-7 place-items-center rounded-full text-[13px] ${iso === todayISO ? "bg-primary text-primary-foreground" : ""}`}>{day.getDate()}</span>
+            <span className="mt-0.5 flex h-1.5 gap-0.5">{[...new Set(dayItems.map(i => i.tone))].slice(0, 3).map(t => <span key={t} className={`size-1.5 rounded-full ${toneDot[t]}`}/>)}</span>
+          </button>;
+        })}
+      </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">Tap a day with dots to jump to it, or an empty day to add something.</p>
+    </Card>
+
+    {groups.length === 0
+      ? <Card className="p-8 text-center"><p className="text-sm text-muted-foreground">Nothing this month.</p></Card>
+      : groups.map(g => <section key={g.date} id={`cal-day-${g.date}`} className="scroll-mt-4">
+          <p className={`px-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${g.date === todayISO ? "text-primary" : "text-muted-foreground"}`}>
+            {parse(g.date).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "short" })} · {whenText(g.date)}
+          </p>
+          <div className={`mt-2 divide-y divide-border/70 overflow-hidden rounded-2xl border bg-card ${selected === g.date ? "border-primary/50" : "border-border/70"}`}>
+            {g.items.map(item => <button key={item.key} type="button" onClick={() => onOpen(item)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-secondary/60">
+              <span className={`h-9 w-1 shrink-0 rounded-full ${toneDot[item.tone]}`}/>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-medium leading-5">{item.title}</span>
+                <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{item.detail}</span>
+              </span>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${toneClass[item.tone]}`}>{item.source}</span>
+            </button>)}
+          </div>
+        </section>)}
+  </div>;
+}
+
 export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }: {
   scheme: CalendarScheme; tasks: CalendarTask[]; widgets: ComplianceWidget[]; levies: CalendarLevy[]; orders: CalendarOrder[];
   goTo: (section: string) => void;
@@ -205,7 +277,7 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
         <p className="mt-5 text-[15px] leading-7 text-muted-foreground">Meetings, renewals, levies and repairs in one place. Drag anything to a new day, open it for the detail, and add your own events and reminders.</p>
       </div>
       <div className="flex items-center gap-2">
-        <div className="flex rounded-full border border-border/70 p-1">
+        <div className="hidden rounded-full border border-border/70 p-1 sm:flex">
           <Button size="sm" variant={view === "calendar" ? "default" : "ghost"} className="h-8 rounded-full px-3 text-[12px]" onClick={()=>setView("calendar")}><CalendarDays/> Calendar</Button>
           <Button size="sm" variant={view === "list" ? "default" : "ghost"} className="h-8 rounded-full px-3 text-[12px]" onClick={()=>setView("list")}><List/> List</Button>
         </div>
@@ -213,6 +285,11 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
       </div>
     </div>
 
+    {/* Phones: a compact month strip with dots, then the month's entries grouped by day. */}
+    <PhoneCalendar className="sm:hidden" cursor={cursor} setCursor={setCursor} days={days} items={items} todayISO={todayISO}
+      onOpen={setViewing} onAdd={setAdding}/>
+
+    <div className="hidden sm:block">
     {view === "calendar" ? <Card className="mt-10 overflow-hidden">
       <div className="flex items-center justify-between border-b border-border/70 px-6 py-4">
         <h2 className="text-lg font-medium tracking-[-0.02em]">{cursor.toLocaleDateString("en-AU", { month: "long", year: "numeric" })}</h2>
@@ -274,6 +351,7 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
         {items.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">Nothing scheduled yet.</p>}
       </div>
     </Card>}
+    </div>
 
     <Dialog open={!!viewing} onOpenChange={o=>!o && setViewing(null)}>
       <DialogContent>
