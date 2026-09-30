@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Info, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2, Undo2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Info, MoreHorizontal, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2, Undo2 } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
@@ -601,7 +602,7 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
     <ContractorsList contractors={contractors} orders={orders} isCommittee={isCommittee} schemeId={schemeId} onChanged={onChanged}/>
 
     <Dialog open={!!current} onOpenChange={o => { if (!o) setViewing(null); }}>
-      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto overflow-x-hidden">
+      <DialogContent className="h-[100dvh] max-h-[100dvh] w-screen max-w-none overflow-y-auto overflow-x-hidden rounded-none p-4 pb-0 sm:h-auto sm:max-h-[90vh] sm:w-[calc(100vw-2rem)] sm:max-w-3xl sm:rounded-lg sm:p-6">
         {current && <WorkOrderDetail order={current} lots={lots} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
           documents={documents} funds={funds} contractors={contractors} claims={claims.filter(c => c.work_order_id === current.id)} fundBalances={fundBalances} onChanged={onChanged} onDeleted={() => setViewing(null)}/>}
       </DialogContent>
@@ -623,23 +624,41 @@ function PageHead({ eyebrow, title, blurb, action }: { eyebrow: string; title: s
 type Approval = { id: string; lot_id: string; decision: string; comment: string | null; decided_at: string | null };
 type Update = { id: string; note: string; status_at_time: string | null; author_label: string | null; created_at: string };
 
-function StepChain({ steps }: { steps: WorkOrderStep[] }) {
+// The step list doubles as navigation: tapping a step jumps to the part of the
+// work order where it's done. A timeline on phones, a row of chips on wider screens.
+function StepChain({ steps, onJump }: { steps: WorkOrderStep[]; onJump: (step: WorkOrderStep) => void }) {
   const currentId = steps.find(s => !s.done_at)?.id;
   const allDone = steps.length > 0 && !currentId;
-  const items = [...steps.map(s => ({ id: s.id, label: s.label, state: s.done_at ? "done" : s.id === currentId ? "current" : "upcoming" })),
-    { id: "complete", label: "Complete", state: allDone ? "done" : "upcoming" }];
-  return <ol className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-1.5">
-    {items.map((item, i) => <li key={item.id} className="flex items-center gap-1.5">
-      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium ${
-        item.state === "done" ? "border-primary/30 bg-primary/10 text-primary"
-        : item.state === "current" ? "border-foreground bg-foreground text-background"
-        : "border-border text-muted-foreground"}`}>
-        {item.state === "done" ? <Check className="size-3.5"/> : <span className="tabular-nums">{i + 1}</span>}
-        {item.label}
-      </span>
-      {i < items.length - 1 && <span className="hidden h-px w-3 bg-border sm:block" aria-hidden/>}
-    </li>)}
-  </ol>;
+  const doneCount = steps.filter(s => s.done_at).length;
+  const items = [...steps.map(s => ({ step: s as WorkOrderStep | null, id: s.id, label: s.label, doneAt: s.done_at, state: s.done_at ? "done" : s.id === currentId ? "current" : "upcoming" })),
+    { step: null, id: "complete", label: "Complete", doneAt: null, state: allDone ? "done" : "upcoming" }];
+  return <div>
+    <div className="flex items-center justify-between gap-3 text-[12px]">
+      <span className="font-medium">{allDone ? "All steps done" : `Step ${doneCount + 1} of ${steps.length}`}</span>
+      <span className="text-muted-foreground">{doneCount}/{steps.length} done</span>
+    </div>
+    <div className="mt-2 flex gap-1" aria-hidden>{steps.map(s => <span key={s.id} className={`h-1.5 flex-1 rounded-full ${s.done_at ? "bg-primary" : s.id === currentId ? "bg-primary/40" : "bg-border"}`}/>)}</div>
+    <ol className="mt-3 space-y-0.5 sm:flex sm:flex-wrap sm:items-center sm:gap-1.5 sm:space-y-0">
+      {items.map((item, i) => <li key={item.id}>
+        <button type="button" disabled={!item.step} onClick={() => item.step && onJump(item.step)}
+          aria-current={item.state === "current" ? "step" : undefined}
+          className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-[13px] transition hover:bg-background/70 disabled:hover:bg-transparent
+            sm:w-auto sm:gap-1.5 sm:rounded-full sm:border sm:px-3 sm:py-1.5 sm:text-[12px] sm:font-medium ${
+            item.state === "done" ? "sm:border-primary/30 sm:bg-primary/10 sm:text-primary"
+            : item.state === "current" ? "font-medium sm:border-foreground sm:bg-foreground sm:text-background sm:hover:bg-foreground/90"
+            : "text-muted-foreground sm:border-border"}`}>
+          <span className={`grid size-6 shrink-0 place-items-center rounded-full text-[11px] tabular-nums sm:size-auto sm:bg-transparent sm:text-inherit ${
+            item.state === "done" ? "bg-primary text-primary-foreground" : item.state === "current" ? "bg-foreground text-background" : "border border-border"}`}>
+            {item.state === "done" ? <Check className="size-3.5"/> : i + 1}
+          </span>
+          <span className="min-w-0 flex-1 truncate sm:flex-none">{item.label}</span>
+          <span className="shrink-0 text-[11px] font-normal text-muted-foreground sm:hidden">
+            {item.state === "done" && item.doneAt ? niceDate(item.doneAt) : item.state === "current" ? "Now" : ""}
+          </span>
+        </button>
+      </li>)}
+    </ol>
+  </div>;
 }
 
 function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBalances, onClose, onDone }: {
@@ -970,8 +989,29 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
   const canUndoLast = isCommittee && lastDone && steps.indexOf(lastDone) === (current ? steps.indexOf(current) - 1 : steps.length - 1);
   const scopeStep = stepOf("scope"), quotesStep = stepOf("quotes"), approvalStep = stepOf("approval"), worksStep = stepOf("works");
 
+  const jumpTo = (section: string) => document.getElementById(`wo-sec-${section}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const jumpToStep = (step: WorkOrderStep) => jumpTo(
+    ["scope", "quotes", "approval", "works"].includes(step.step_type) ? step.step_type
+    : order.kind === "Request" && isCommittee && isOpen ? "steps" : "notes");
+  // The single thing to do next, pinned to the bottom on phones.
+  const myPendingVote = !!myLot && !approvalStep?.done_at && rows.some(r => r.lot_id === myLot.id && r.decision === "Pending");
+  const nextAction: { label: string; run: () => void } | null = (() => {
+    if (myPendingVote && !isCommittee) return { label: "Vote on this work order", run: () => jumpTo("approval") };
+    if (!isCommittee) return null;
+    if (steps.length === 0) return { label: "Set up steps", run: () => void setupSteps() };
+    if (accepted && !accepted.paid_at && !awaitingApproval && (!current || current.step_type === "works")) return { label: "Mark paid", run: () => setPayingQuote(accepted) };
+    if (!current) return null;
+    switch (current.step_type) {
+      case "scope": return { label: "Mark scope complete", run: () => tickStep(scopeStep, "Scope marked complete") };
+      case "quotes": return accepted ? null : { label: "Add a quote", run: () => { setAddingQuote(true); jumpTo("quotes"); } };
+      case "approval": return { label: "Review owner approval", run: () => jumpTo("approval") };
+      case "works": return { label: "Mark works complete", run: () => tickStep(worksStep, "Works marked complete") };
+      default: return { label: `Mark "${current.label}" done`, run: () => tickStep(current, `${current.label} done`) };
+    }
+  })();
+
   return <div className="min-w-0">
-    <DialogHeader>
+    <DialogHeader className="pr-8 text-left">
       <div className="flex flex-wrap items-center gap-2"><KindChip kind={order.kind}/>{order.priority !== "Normal" && <span className="text-[11px] font-medium text-destructive">{order.priority} priority</span>}</div>
       <DialogTitle className="font-display tracking-[-0.02em]">{order.title}</DialogTitle>
       <DialogDescription>{[lotsLabel(order, lots), order.location, order.target_date ? `Target ${niceDate(order.target_date)}` : null, `Logged ${niceDate(order.created_at)}`].filter(Boolean).join(" · ")}</DialogDescription>
@@ -979,18 +1019,13 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
 
     <div className="mt-5 space-y-7">
       <div className="rounded-2xl border border-border/70 bg-secondary/40 p-4">
-        {steps.length > 0 ? <StepChain steps={steps}/> : <p className="text-[13px] text-muted-foreground">No steps yet.</p>}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {steps.length === 0 && isCommittee && <Button size="sm" className="rounded-full" onClick={() => void setupSteps()}>Set up steps</Button>}
-          {isCommittee && current && current.step_type === "custom" && <Button size="sm" className="rounded-full" disabled={busy} onClick={() => tickStep(current, `${current.label} done`)}><Check/> Mark "{current.label}" done</Button>}
-          {canUndoLast && lastDone && <Button size="sm" variant="ghost" className="rounded-full" disabled={busy} onClick={() => void setStepsDone([lastDone.id], false, `${lastDone.label} reopened.`, "Step reopened")}><Undo2/> Reopen "{lastDone.label}"</Button>}
-        </div>
+        {steps.length > 0 ? <StepChain steps={steps} onJump={jumpToStep}/> : <p className="text-[13px] text-muted-foreground">No steps yet.</p>}
       </div>
 
       {claims.map(c => <p key={c.id} className="rounded-xl bg-secondary px-4 py-3 text-[13px]"><span className="font-medium">Insurance claim:</span> {c.title} ({c.status})</p>)}
       {order.description && <div><SectionLabel>Details</SectionLabel><p className="mt-2 whitespace-pre-line text-[13px] leading-6">{order.description}</p></div>}
 
-      {order.kind === "Request" && isCommittee && isOpen && steps.length > 0 && <div>
+      {order.kind === "Request" && isCommittee && isOpen && steps.length > 0 && <div id="wo-sec-steps" className="scroll-mt-4">
         <SectionLabel>Steps</SectionLabel>
         <div className="mt-2 divide-y divide-border/70 rounded-2xl border border-border/70">
           {steps.map(step => <div key={step.id} className="flex items-center gap-2 px-3 py-2">
@@ -1009,7 +1044,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
         </div>
       </div>}
 
-      {order.kind === "Repair" && <div>
+      {order.kind === "Repair" && <div id="wo-sec-scope" className="scroll-mt-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <SectionLabel>Scope of works</SectionLabel>
           {isCommittee && !editingScope && <Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[12px]" onClick={() => { setScopeText(order.scope_of_works ?? ""); setEditingScope(true); }}><Pencil className="size-3.5"/> Edit</Button>}
@@ -1023,7 +1058,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
         {isCommittee && scopeStep && !scopeStep.done_at && !editingScope && <Button size="sm" className="mt-3 rounded-full" disabled={busy} onClick={() => tickStep(scopeStep, "Scope marked complete")}><Check/> Mark scope complete</Button>}
       </div>}
 
-      {order.kind === "Repair" && <div>
+      {order.kind === "Repair" && <div id="wo-sec-quotes" className="scroll-mt-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <SectionLabel>Quotes</SectionLabel>
           {isCommittee && !addingQuote && !accepted && <Button size="sm" variant="outline" className="h-8 rounded-full" onClick={() => setAddingQuote(true)}><Plus/> Add quote</Button>}
@@ -1061,7 +1096,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
         {accepted && !accepted.paid_at && <p className="mt-2 text-[12px] text-muted-foreground">Nothing goes to Finance until the accepted quote is marked paid.</p>}
       </div>}
 
-      {(approvalStep || rows.length > 0) && <div>
+      {(approvalStep || rows.length > 0) && <div id="wo-sec-approval" className="scroll-mt-4">
         <SectionLabel>Owner approval</SectionLabel>
         {rows.length > 0 && <p className="mt-2 text-[13px] text-muted-foreground">{approvedCount} approved, {declinedCount} declined, {rows.length - approvedCount - declinedCount} yet to respond. {majorityNeeded} approvals make a majority.</p>}
         {rows.length > 0 && <div className="mt-3 divide-y divide-border/70 rounded-2xl border border-border/70">
@@ -1084,7 +1119,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
         {isCommittee && approvalStep && !approvalStep.done_at && <Button size="sm" variant="outline" className="mt-3 rounded-full" disabled={busy} onClick={() => tickStep(approvalStep, "Marked approved")}><Check/> Mark approved</Button>}
       </div>}
 
-      {order.kind === "Repair" && worksStep && isCommittee && !worksStep.done_at && <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 p-4">
+      {order.kind === "Repair" && worksStep && isCommittee && !worksStep.done_at && <div id="wo-sec-works" className="flex scroll-mt-4 flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 p-4">
         <div><SectionLabel>Works</SectionLabel><p className="mt-1 text-[12px] text-muted-foreground">Add progress notes and photos below as the job goes.</p></div>
         <Button size="sm" className="rounded-full" disabled={busy} onClick={() => tickStep(worksStep, "Works marked complete")}><Check/> Mark works complete</Button>
       </div>}
@@ -1111,7 +1146,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
           : <p className="mt-2 text-[13px] text-muted-foreground">Nothing attached yet.</p>}
       </div>
 
-      <div>
+      <div id="wo-sec-notes" className="scroll-mt-4">
         <SectionLabel>Progress notes</SectionLabel>
         <div className="mt-3 space-y-2">
           <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Add an update: contractor booked, work started, issue found"/>
@@ -1126,11 +1161,24 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
         </ol>
       </div>
 
-      {isCommittee && <div className="flex flex-wrap justify-between gap-2 border-t border-border/70 pt-5">
-        <Button variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" onClick={() => setConfirmDelete(true)}><Trash2/> Delete work order</Button>
-        {isOpen && <Button variant="outline" className="rounded-full" onClick={() => setConfirmClose(true)}><Check/> Close work order</Button>}
-      </div>}
     </div>
+
+    {/* Next action, pinned to the bottom of the screen on phones; less-used actions sit in the ⋯ menu. */}
+    {(nextAction || isCommittee) && <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex items-center gap-2 border-t border-border/70 bg-background/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:justify-end sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-5 sm:backdrop-blur-none">
+      {nextAction && <Button className="h-11 flex-1 rounded-full sm:h-9 sm:flex-none" disabled={busy} onClick={nextAction.run}>
+        {nextAction.label === "Add a quote" ? <Plus/> : <Check/>} {nextAction.label}</Button>}
+      {isCommittee && <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="icon" className={`size-11 shrink-0 rounded-full sm:size-9 ${nextAction ? "" : "ml-auto"}`} aria-label="More actions"><MoreHorizontal/></Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          {canUndoLast && lastDone && <DropdownMenuItem disabled={busy} onSelect={() => void setStepsDone([lastDone.id], false, `${lastDone.label} reopened.`, "Step reopened")}><Undo2/> Reopen "{lastDone.label}"</DropdownMenuItem>}
+          {isOpen && <DropdownMenuItem onSelect={() => setConfirmClose(true)}><Check/> Close work order</DropdownMenuItem>}
+          <DropdownMenuSeparator/>
+          <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setConfirmDelete(true)}><Trash2/> Delete work order</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>}
+    </div>}
 
     <ContractorDialog open={contractorOpen} onOpenChange={setContractorOpen} schemeId={schemeId} contractor={null} onSaved={id => { setNewContractorId(id); onChanged(); }}/>
     <MarkPaidDialog quote={payingQuote} order={order} contractorName={payingQuote ? contractorName(payingQuote.contractor_id) : null} funds={funds} schemeId={schemeId} fundBalances={fundBalances}

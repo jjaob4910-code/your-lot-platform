@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
-import { Building2, CalendarClock, Check, ChevronRight, Coins, FileCheck2, Landmark, MessageSquare, Pin, Plus, Send, Wrench, X } from "lucide-react";
+import { UpcomingWidgetBody } from "@/components/calendar-view";
+import { Building2, CalendarClock, CalendarDays, Check, ChevronRight, Coins, FileCheck2, Landmark, MessageSquare, Pin, Plus, Send, Wrench, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -30,6 +31,7 @@ const niceDate = (value: string) => new Date(value).toLocaleDateString("en-AU", 
 const WIDGET_CATALOG: Record<string, { label: string; description: string; span: string }> = {
   cash: { label: "Current cash", description: "What's sitting in your admin and maintenance funds right now.", span: "lg:col-span-4" },
   next_meeting: { label: "Next meeting", description: "A countdown to your next AGM.", span: "lg:col-span-4" },
+  upcoming: { label: "Upcoming", description: "What's on the calendar in the next two weeks.", span: "lg:col-span-4" },
   notices: { label: "Notice board", description: "Post updates for owners and take replies.", span: "lg:col-span-4" },
   levies_chart: { label: "Levy payments", description: "The last six months of levies received.", span: "lg:col-span-7" },
   obligations: { label: "Yearly obligations", description: "Your compliance checklist, one tap to complete.", span: "lg:col-span-5" },
@@ -331,6 +333,7 @@ export function OverviewSection({ scheme, levies, funds, transactions, tasks, co
         switch (widget.widget_type) {
           case "cash": return <WidgetShell key={widget.id} {...shared} title="Current cash" icon={Coins}><CashWidgetBody levies={levies} funds={funds} transactions={transactions} goTo={goTo} /></WidgetShell>;
           case "next_meeting": return <WidgetShell key={widget.id} {...shared} title="Next meeting" icon={CalendarClock}><NextMeetingWidgetBody scheme={scheme} goTo={goTo} /></WidgetShell>;
+          case "upcoming": return <WidgetShell key={widget.id} {...shared} title="Upcoming" icon={CalendarDays} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Calendar")}>Calendar <ChevronRight className="size-3.5" /></Button>}><UpcomingWidgetBody scheme={scheme} tasks={tasks} widgets={complianceWidgets} levies={levies} orders={repairs} goTo={goTo} /></WidgetShell>;
           case "notices": return <WidgetShell key={widget.id} {...shared} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={visibleNotices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetShell>;
           case "levies_chart": return <WidgetShell key={widget.id} {...shared} title="Levy payments" icon={Landmark} action={<Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance/Levies")}>Open levies <ChevronRight className="size-3.5" /></Button>}><LeviesChartWidgetBody levies={levies} /></WidgetShell>;
           case "obligations": return <WidgetShell key={widget.id} {...shared} title="Yearly obligations" icon={FileCheck2} tone="primary" action={<span className="font-display text-lg text-primary-foreground">{obligations.filter(o => o.task?.status === "Complete").length}/{obligations.length}</span>}><ObligationsWidgetBody obligations={obligations} goTo={goTo} /></WidgetShell>;

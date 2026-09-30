@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { isRetiredObligation, obligationTab, type ComplianceWidget } from "@/lib/action-publish";
 
 export type CalendarScheme = { id: string; next_agm_date: string | null } | null;
+type AgmDateSource = { next_agm_date: string | null } | null;
 export type CalendarTask = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null };
 export type CalendarLevy = { id: string; due_date: string; status: string; amount: number };
 export type CalendarOrder = { id: string; title: string; status: string; target_date: string | null };
@@ -48,6 +49,82 @@ const toneClass: Record<Item["tone"], string> = {
   work: "bg-destructive/10 text-destructive",
 };
 
+// Everything that lands on the calendar, from every part of the app. Shared by the
+// Calendar tab and the dashboard's Upcoming widget so they always agree.
+export function buildCalendarItems(scheme: AgmDateSource, tasks: CalendarTask[], widgets: ComplianceWidget[],
+  levies: CalendarLevy[], orders: CalendarOrder[], events: EventRow[]): Item[] {
+  const list: Item[] = [];
+  if (scheme?.next_agm_date) list.push({
+    key: `agm`, date: scheme.next_agm_date, title: "Annual general meeting", detail: "Your yearly owners meeting.",
+    tone: "meeting", movable: true, goTo: "AGM", source: "Meeting",
+  });
+  for (const task of tasks) {
+    const key = widgets.find(w => w.id === task.widget_id)?.standard_key;
+    if (isRetiredObligation(key)) continue;
+    const tab = obligationTab(key);
+    list.push({
+      key: `task-${task.id}`, date: task.due_date, title: task.task_name,
+      detail: task.detail ?? `Yearly obligation, currently ${task.status.toLowerCase()}.`,
+      tone: "compliance", movable: true, goTo: tab, source: tab,
+    });
+  }
+  const dueDates = [...new Set(levies.filter(l => l.status !== "Paid").map(l => l.due_date))];
+  for (const date of dueDates) {
+    const owing = levies.filter(l => l.due_date === date && l.status !== "Paid");
+    list.push({
+      key: `levy-${date}`, date, title: "Levies due",
+      detail: `${owing.length} lot${owing.length === 1 ? "" : "s"} still to pay for this instalment.`,
+      tone: "levy", movable: false, goTo: "Finance/Levies", source: "Levies",
+    });
+  }
+  for (const order of orders) if (order.target_date && order.status !== "Complete" && order.status !== "Closed") list.push({
+    key: `wo-${order.id}`, date: order.target_date, title: order.title,
+    detail: `Work order target date, currently ${order.status.toLowerCase()}.`,
+    tone: "work", movable: true, goTo: "Work orders", source: "Work order",
+  });
+  for (const row of events) list.push({
+    key: `event-${row.id}`, date: row.event_date, title: row.title,
+    detail: row.notes ?? (row.kind === "Reminder" ? "Your reminder." : "Your event."),
+    tone: row.kind === "Reminder" ? "reminder" : "event", movable: true, eventRow: row, source: row.kind,
+  });
+  return list.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+const useCalendarEvents = () => useQuery({
+  queryKey: ["calendar-events"],
+  queryFn: async () => {
+    const { data, error } = await supabase.from("calendar_events").select("*").order("event_date");
+    if (error) throw error;
+    return (data ?? []) as unknown as EventRow[];
+  },
+});
+
+/** Dashboard widget: the next two weeks, soonest first. Tapping an item opens where it lives. */
+export function UpcomingWidgetBody({ scheme, tasks, widgets, levies, orders, goTo }: {
+  scheme: AgmDateSource; tasks: CalendarTask[]; widgets: ComplianceWidget[]; levies: CalendarLevy[]; orders: CalendarOrder[];
+  goTo: (section: string) => void;
+}) {
+  const events = useCalendarEvents();
+  const items = buildCalendarItems(scheme, tasks, widgets, levies, orders, events.data ?? [])
+    .filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 14; }).slice(0, 6);
+  if (items.length === 0) return <p className="py-4 text-[13px] text-muted-foreground">Nothing in the next two weeks.</p>;
+  return <ul className="divide-y divide-border/60">
+    {items.map(i => <li key={i.key}>
+      <button type="button" onClick={() => goTo(i.goTo ?? "Calendar")} className="flex w-full items-center gap-3 py-2.5 text-left hover:opacity-80">
+        <span className="w-12 shrink-0 text-center">
+          <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{parse(i.date).toLocaleDateString("en-AU", { month: "short" })}</span>
+          <span className="block font-display text-xl leading-none">{parse(i.date).getDate()}</span>
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-medium">{i.title}</span>
+          <span className="block text-[11px] text-muted-foreground">{whenText(i.date)} · {i.source}</span>
+        </span>
+        <span className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium sm:inline ${toneClass[i.tone]}`}>{i.source}</span>
+      </button>
+    </li>)}
+  </ul>;
+}
+
 function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <section className={`soft-shadow rounded-3xl border border-border/70 bg-card ${className}`}>{children}</section>;
 }
@@ -65,14 +142,7 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [overDay, setOverDay] = useState<string | null>(null);
 
-  const events = useQuery({
-    queryKey: ["calendar-events"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("calendar_events").select("*").order("event_date");
-      if (error) throw error;
-      return (data ?? []) as unknown as EventRow[];
-    },
-  });
+  const events = useCalendarEvents();
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
@@ -82,43 +152,8 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
     queryClient.invalidateQueries({ queryKey: ["repairs"] });
   };
 
-  const items = useMemo<Item[]>(() => {
-    const list: Item[] = [];
-    if (scheme?.next_agm_date) list.push({
-      key: `agm`, date: scheme.next_agm_date, title: "Annual general meeting", detail: "Your yearly owners meeting.",
-      tone: "meeting", movable: true, goTo: "AGM", source: "Meeting",
-    });
-    for (const task of tasks) {
-      const key = widgets.find(w => w.id === task.widget_id)?.standard_key;
-      if (isRetiredObligation(key)) continue;
-      const tab = obligationTab(key);
-      list.push({
-        key: `task-${task.id}`, date: task.due_date, title: task.task_name,
-        detail: task.detail ?? `Yearly obligation, currently ${task.status.toLowerCase()}.`,
-        tone: "compliance", movable: true, goTo: tab, source: tab,
-      });
-    }
-    const dueDates = [...new Set(levies.filter(l => l.status !== "Paid").map(l => l.due_date))];
-    for (const date of dueDates) {
-      const owing = levies.filter(l => l.due_date === date && l.status !== "Paid");
-      list.push({
-        key: `levy-${date}`, date, title: "Levies due",
-        detail: `${owing.length} lot${owing.length === 1 ? "" : "s"} still to pay for this instalment.`,
-        tone: "levy", movable: false, goTo: "Finance/Levies", source: "Levies",
-      });
-    }
-    for (const order of orders) if (order.target_date && order.status !== "Complete") list.push({
-      key: `wo-${order.id}`, date: order.target_date, title: order.title,
-      detail: `Work order target date, currently ${order.status.toLowerCase()}.`,
-      tone: "work", movable: true, goTo: "Work orders", source: "Work order",
-    });
-    for (const row of events.data ?? []) list.push({
-      key: `event-${row.id}`, date: row.event_date, title: row.title,
-      detail: row.notes ?? (row.kind === "Reminder" ? "Your reminder." : "Your event."),
-      tone: row.kind === "Reminder" ? "reminder" : "event", movable: true, eventRow: row, source: row.kind,
-    });
-    return list.sort((a, b) => a.date.localeCompare(b.date));
-  }, [scheme, tasks, widgets, levies, orders, events.data]);
+  const items = useMemo<Item[]>(() => buildCalendarItems(scheme, tasks, widgets, levies, orders, events.data ?? []),
+    [scheme, tasks, widgets, levies, orders, events.data]);
 
   const move = async (item: Item, date: string) => {
     if (item.date === date) return;
