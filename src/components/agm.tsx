@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Copy, FileText, Plus, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,37 +147,52 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schemeId]);
 
-  const draftMeeting = meetings.find(m => m.status === "Draft") ?? null;
+  const drafts = meetings.filter(m => m.status === "Draft").sort((a, b) => b.created_at.localeCompare(a.created_at));
   const published = meetings.filter(m => m.status === "Published")
     .sort((a, b) => (b.published_at ?? b.created_at).localeCompare(a.published_at ?? a.created_at));
 
-  const [draftId, setDraftId] = useState<string | null>(draftMeeting?.id ?? null);
-  const [title, setTitle] = useState(draftMeeting?.title ?? "");
-  const [meetingDate, setMeetingDate] = useState(draftMeeting?.meeting_date ?? "");
-  const [meetingTime, setMeetingTime] = useState(draftMeeting?.meeting_time ?? "");
-  const [location, setLocation] = useState(draftMeeting?.location ?? "");
-  const [videoLink, setVideoLink] = useState(draftMeeting?.video_link ?? "");
-  const [agenda, setAgenda] = useState<{ label: string; notes: string }[]>(draftMeeting?.agenda ?? []);
-  const [notes, setNotes] = useState(draftMeeting?.notes ?? "");
-  const [started, setStarted] = useState(!!draftMeeting);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [meetingDate, setMeetingDate] = useState("");
+  const [meetingTime, setMeetingTime] = useState("");
+  const [location, setLocation] = useState("");
+  const [videoLink, setVideoLink] = useState("");
+  const [agenda, setAgenda] = useState<{ label: string; notes: string }[]>([]);
+  const [notes, setNotes] = useState("");
+  const [started, setStarted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [deleting, setDeleting] = useState<AgmMeeting | null>(null);
 
-  const lastDraftIdRef = useRef(draftMeeting?.id);
-  useEffect(() => {
-    if (draftMeeting && draftMeeting.id !== lastDraftIdRef.current) {
-      lastDraftIdRef.current = draftMeeting.id;
-      setDraftId(draftMeeting.id);
-      setTitle(draftMeeting.title);
-      setMeetingDate(draftMeeting.meeting_date ?? "");
-      setMeetingTime(draftMeeting.meeting_time ?? "");
-      setLocation(draftMeeting.location ?? "");
-      setVideoLink(draftMeeting.video_link ?? "");
-      setAgenda(draftMeeting.agenda);
-      setNotes(draftMeeting.notes ?? "");
-      setStarted(true);
-    }
-  }, [draftMeeting]);
+  const openDraft = (m: AgmMeeting) => {
+    setDraftId(m.id);
+    setTitle(m.title);
+    setMeetingDate(m.meeting_date ?? "");
+    setMeetingTime(m.meeting_time ?? "");
+    setLocation(m.location ?? "");
+    setVideoLink(m.video_link ?? "");
+    setAgenda(m.agenda.map(a => ({ ...a })));
+    setNotes(m.notes ?? "");
+    setStarted(true);
+  };
+
+  const duplicateDraft = async (m: AgmMeeting) => {
+    if (!schemeId) return;
+    const { data, error } = await supabase.from("agm_meetings").insert({
+      scheme_id: schemeId, status: "Draft", title: `${m.title || "Untitled meeting"} (copy)`, meeting_date: m.meeting_date, meeting_time: m.meeting_time,
+      location: m.location, video_link: m.video_link, agenda: m.agenda, notes: m.notes,
+    }).select().single();
+    if (error || !data) { toast("Could not duplicate the draft", { description: error?.message }); return; }
+    onChanged(); toast("Copy saved to your drafts");
+  };
+
+  const deleteDraft = async () => {
+    if (!deleting) return;
+    const { error } = await supabase.from("agm_meetings").delete().eq("id", deleting.id);
+    if (error) { toast("Could not delete the draft", { description: error.message }); return; }
+    if (draftId === deleting.id) { setDraftId(null); setStarted(false); }
+    setDeleting(null); onChanged(); toast("Draft deleted");
+  };
 
   const startNew = () => {
     const lastPublished = published[0];
@@ -203,13 +219,13 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
       const { error } = await supabase.from("agm_meetings").update(payload).eq("id", draftId);
       setSaving(false);
       if (error) { toast("Could not save the draft", { description: error.message }); return; }
-      onChanged(); toast("Draft saved");
+      onChanged(); toast("Saved to your drafts");
     } else {
       const { data, error } = await supabase.from("agm_meetings").insert({ ...payload, scheme_id: schemeId, status: "Draft" }).select().single();
       setSaving(false);
       if (error || !data) { toast("Could not save the draft", { description: error?.message }); return; }
       setDraftId(data.id as string);
-      onChanged(); toast("Draft saved");
+      onChanged(); toast("Saved to your drafts");
     }
   };
 
@@ -260,14 +276,35 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
     <PageHead eyebrow="Your property" title="Annual General Meeting" blurb="Prepare the agenda, run the meeting, and send it to every owner — all from one place." />
 
     <div className="mt-10 space-y-8">
-      {isCommittee && <Card className="p-7">
-        {!started
-          ? <div className="text-center py-6">
-              <p className="text-sm text-muted-foreground">No AGM in progress.</p>
-              <Button type="button" className="mt-4 rounded-full" onClick={startNew}><Plus className="size-3.5" />Start a new AGM</Button>
-            </div>
-          : <div className="space-y-5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Draft</p>
+      {isCommittee && <Card className="p-5 sm:p-7">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Saved drafts</p>
+          <Button type="button" size="sm" className="rounded-full" onClick={startNew}><Plus className="size-3.5" />New AGM draft</Button>
+        </div>
+        {drafts.length === 0
+          ? <p className="mt-4 text-sm text-muted-foreground">No drafts yet. Start one, then use Save draft to keep it here.</p>
+          : <ul className="mt-3 divide-y divide-border/70">
+              {drafts.map(m => <li key={m.id} className="flex flex-wrap items-center gap-3 py-3">
+                <FileText className="size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{m.title || "Untitled meeting"}{draftId === m.id && started ? <span className="ml-2 text-[11px] font-normal text-primary">Open</span> : null}</p>
+                  <p className="text-[12px] text-muted-foreground">{m.meeting_date ? `Meeting ${new Date(m.meeting_date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}` : "No date set"} · {m.agenda.length} agenda {m.agenda.length === 1 ? "item" : "items"}</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => openDraft(m)}>Open</Button>
+                  <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label={`Duplicate ${m.title || "draft"}`} onClick={() => void duplicateDraft(m)}><Copy className="size-4" /></Button>
+                  <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" aria-label={`Delete ${m.title || "draft"}`} onClick={() => setDeleting(m)}><Trash2 className="size-4" /></Button>
+                </div>
+              </li>)}
+            </ul>}
+      </Card>}
+
+      {isCommittee && started && <Card className="p-5 sm:p-7">
+          <div className="space-y-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{draftId ? "Editing draft" : "New draft"}</p>
+                <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={() => { setStarted(false); setDraftId(null); }}>Close</Button>
+              </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label htmlFor="agm_title">Meeting title</Label><Input id="agm_title" value={title} onChange={e => setTitle(e.target.value)} placeholder="Annual General Meeting 2026" /></div>
                 <div className="space-y-2"><Label htmlFor="agm_date">Meeting date</Label><Input id="agm_date" type="date" value={meetingDate} onChange={e => setMeetingDate(e.target.value)} /></div>
@@ -281,8 +318,19 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
                 <Button type="button" variant="outline" className="rounded-full" disabled={saving} onClick={() => void saveDraft()}>{saving ? "Saving…" : "Save draft"}</Button>
                 <Button type="button" className="rounded-full" disabled={publishing} onClick={() => void publish()}>{publishing ? "Publishing…" : "Publish"}</Button>
               </div>
-            </div>}
+          </div>
       </Card>}
+
+      <Dialog open={!!deleting} onOpenChange={o => { if (!o) setDeleting(null); }}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Delete this draft?</DialogTitle>
+            <DialogDescription>“{deleting?.title || "Untitled meeting"}” will be removed. This can't be undone.</DialogDescription></DialogHeader>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" className="rounded-full" onClick={() => setDeleting(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" className="rounded-full" onClick={() => void deleteDraft()}>Delete draft</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Past meetings</p>

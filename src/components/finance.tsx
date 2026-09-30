@@ -515,7 +515,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[560px]">
       <DialogHeader>
-        <DialogTitle className="font-display tracking-[-0.02em]">{tx ? "Edit entry" : "Record money in or out"}</DialogTitle>
+        <DialogTitle className="font-display tracking-[-0.02em]">{tx ? "Edit transaction" : "Add a transaction"}</DialogTitle>
         <DialogDescription>Every payment and receipt you record here feeds your fund balances and your forecast.</DialogDescription>
       </DialogHeader>
       <form onSubmit={submit} className="space-y-4">
@@ -1181,15 +1181,15 @@ function FinancePanel({ id, title, summary, open, onToggle, actions, children }:
   id: FinanceView; title: string; summary: string; open: boolean; onToggle: () => void; actions?: ReactNode; children: ReactNode;
 }) {
   return <section id={`finance-${id.toLowerCase()}`} className="scroll-mt-24 rounded-[28px] border border-border/70 bg-card shadow-[0_1px_0_rgba(0,0,0,0.02)]">
-    <div className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:px-6">
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full min-w-0 items-center gap-3 text-left sm:flex-1">
         <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`} />
         <span className="min-w-0">
           <span className="block font-display text-xl tracking-[-0.02em]">{title}</span>
           <span className="mt-0.5 block text-[12px] text-muted-foreground">{summary}</span>
         </span>
       </button>
-      {open && actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {open && actions && <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0">{actions}</div>}
     </div>
     {open && <div className="border-t border-border/70 p-4 sm:p-6">{children}</div>}
   </section>;
@@ -1304,7 +1304,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
   const remove = async (id: string) => {
     const { error } = await supabase.from("finance_transactions").delete().eq("id", id);
     if (error) { toast("Could not remove that", { description: error.message }); return; }
-    onChanged(); toast("Entry removed");
+    onChanged(); toast("Transaction removed");
   };
 
   const attach = async (tx: FinanceTx, file: File) => {
@@ -1347,7 +1347,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
       actions={isCommittee ? <>
         {activeBudget && !editingBudget && <Button size="sm" className="rounded-full" onClick={() => setEditingBudget(true)}><Pencil className="size-3.5" />Edit budget</Button>}
         {activeBudget && editingBudget && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setEditingBudget(false)}>Back to overview</Button>}
-        <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setManageFundsOpen(true)}><Settings2 className="size-3.5" />Manage funds</Button>
+        <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setManageFundsOpen(true)} aria-label="Manage funds"><Settings2 className="size-3.5" /><span className="hidden sm:inline">Manage funds</span></Button>
       </> : undefined}>
       {/* Building a new budget and editing one are the same spreadsheet. Once a budget is set,
          the overview is the resting state and the spreadsheet opens on demand. */}
@@ -1391,36 +1391,40 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
       summary={`Balance ${money(totalBalance)} · ${money(totalIn)} in, ${money(totalOut)} out`}
       actions={<>
         <Button size="sm" variant="outline" className="rounded-full" onClick={() => setForecastOpen(true)}><Send className="size-3.5" />Send forecast</Button>
-        {isCommittee && <Button size="sm" className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Record money</Button>}
+        {isCommittee && <Button size="sm" className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Add transaction</Button>}
       </>}>
     <div className="space-y-6">
-    <div className="grid gap-4 lg:grid-cols-3">
-      {funds.map(f => { const stat = fundStats[f.id]; if (!stat) return null; const fp = fundProjected(f.id); return <Card key={f.id} className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{f.name} fund</p>
-          </div>
-          <Coins className="size-4 text-muted-foreground" />
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+      {funds.map(f => { const stat = fundStats[f.id]; if (!stat) return null; const fp = fundProjected(f.id);
+        const used = stat.spent + stat.committed; const pct = stat.budget > 0 ? Math.min(100, used / stat.budget * 100) : 0;
+        return <Card key={f.id} className="p-4 sm:p-6">
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{f.name}</p>
+          <Coins className="size-4 shrink-0 text-muted-foreground" />
         </div>
-        <p className="mt-4 text-3xl font-medium tracking-[-0.03em] tabular-nums">{money(stat.balance)}</p>
-        <p className="mt-1 text-[12px] text-muted-foreground">Collected less spent this year</p>
-        <div className="mt-5">
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary"><div className={`h-full rounded-full ${used > stat.budget ? "bg-destructive" : "bg-primary"}`} style={{ width: `${pct}%` }} /></div>
+        <div className="mt-3">
           <Row label="Budget" value={money(stat.budget)} />
-          <Row label="Collected" value={money(stat.collected)} />
-          <Row label="Still owing" value={money(stat.owing)} tone={stat.owing > 0 ? "text-destructive" : ""} />
           <Row label="Spent" value={money(stat.spent)} />
-          <Row label="Already committed" value={money(stat.committed)} />
-          <Row label="Remaining budget" value={money(stat.remaining)} tone={stat.remaining < 0 ? "text-destructive" : ""} />
-          <Row label="Projected year-end" value={money(Math.abs(fp.position))} tone={fp.position < 0 ? "text-destructive" : ""} />
+          <Row label="Remaining" value={money(stat.remaining)} tone={stat.remaining < 0 ? "text-destructive" : ""} />
+          <Row label="Projection" value={`${fp.position < 0 ? "−" : "+"}${money(Math.abs(fp.position))}`} tone={fp.position < 0 ? "text-destructive" : "text-primary"} />
         </div>
-        <p className="mt-3 text-[11px] leading-5 text-muted-foreground/80">{fp.position >= 0 ? "Surplus" : "Shortfall"} at this rate, {monthsElapsed} of 12 months counted.</p>
+        <details className="mt-3 text-[12px]">
+          <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">Details</summary>
+          <div className="mt-2">
+            <Row label="Balance" value={money(stat.balance)} />
+            <Row label="Collected" value={money(stat.collected)} />
+            <Row label="Still owing" value={money(stat.owing)} tone={stat.owing > 0 ? "text-destructive" : ""} />
+            <Row label="Committed" value={money(stat.committed)} />
+          </div>
+        </details>
       </Card>;})}
     </div>
 
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 p-6">
         <div>
-          <h2 className="font-display text-xl tracking-[-0.02em]">Money movements</h2>
+          <h2 className="font-display text-xl tracking-[-0.02em]">Transactions</h2>
           <p className="mt-1 text-[13px] text-muted-foreground">Every expense and receipt, with the paperwork attached to it.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1436,7 +1440,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
         </div>
       </div>
       {visible.length === 0
-        ? <p className="p-10 text-center text-[13px] text-muted-foreground">Nothing recorded for {fyLabel(year)} yet.</p>
+        ? <p className="p-10 text-center text-[13px] text-muted-foreground">No transactions for {fyLabel(year)} yet.</p>
         : <div className="divide-y divide-border/60">
             {visible.map(t => <div key={t.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
               <span className={`grid size-8 shrink-0 place-items-center rounded-full ${t.direction === "in" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
@@ -1457,7 +1461,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
                   <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attach(t, f); e.currentTarget.value = ""; }} /></label>
                 </Button>
                 <Button size="sm" variant="ghost" className="rounded-full text-xs" onClick={() => { setEditing(t); setTxOpen(true); }}>Edit</Button>
-                <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label="Remove entry" onClick={() => void remove(t.id)}><Trash2 className="size-4" /></Button>
+                <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label="Remove transaction" onClick={() => void remove(t.id)}><Trash2 className="size-4" /></Button>
               </div>}
             </div>)}
           </div>}
