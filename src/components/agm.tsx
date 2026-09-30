@@ -1,35 +1,57 @@
-import { useEffect, useRef, useState } from "react";
-import { Copy, FileText, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Copy, Download, FileText, GripVertical, Lightbulb, Plus, Send, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import type { Lot } from "@/routes/dashboard";
-import { ensureStandardWidget, publishActionDocument, type ComplianceWidget, type Task } from "@/lib/action-publish";
+import type { DocFile } from "@/components/documents";
+import { ensureStandardWidget, type ComplianceWidget, type Task } from "@/lib/action-publish";
+import { buildAgmMinutesPdf, buildAgmNoticePdf } from "@/lib/agm-pdf";
 
+export type AgendaItem = {
+  id?: string; label: string; notes: string;
+  discussion?: string; motion?: string; moved_by?: string; seconded_by?: string; outcome?: string;
+  suggested_by_lot_id?: string | null;
+};
+export type AgmStage = "Draft" | "Notice sent" | "Minutes" | "Published";
 export type AgmMeeting = {
   id: string; scheme_id: string; title: string; meeting_date: string | null; meeting_time: string | null;
-  location: string | null; video_link: string | null; agenda: { label: string; notes: string }[]; notes: string;
+  location: string | null; video_link: string | null; agenda: AgendaItem[]; notes: string;
   status: string; created_at: string; published_at: string | null;
+  stage?: AgmStage; notice_sent_at?: string | null; notice_document_id?: string | null; minutes_document_id?: string | null;
+  attendance?: Record<string, string> | null;
 };
+export type AgmSuggestion = { id: string; meeting_id: string; lot_id: string | null; title: string; details: string | null; status: string; created_at: string };
+type AgmLot = Pick<Lot, "id" | "lot_number" | "owner_name" | "owner_email">;
 
 const AGM_WIDGET_SPEC = { key: "agm_notice", label: "AGM Notice", detail: "Written notice to every owner ahead of the annual general meeting." };
+const AGM_FOLDER = "AGM";
+const STAGES: AgmStage[] = ["Draft", "Notice sent", "Minutes", "Published"];
+const STAGE_LABEL: Record<AgmStage, string> = { Draft: "Agenda", "Notice sent": "Notice sent", Minutes: "Minutes", Published: "Published" };
+const ATTENDANCE = ["Present", "Proxy", "Apologies"];
 
 const STANDARD_AGM_AGENDA: { label: string; notes: string }[] = [
   { label: "Welcome and apologies", notes: "" },
   { label: "Confirm minutes of the previous AGM", notes: "" },
-  { label: "Financial report", notes: "" },
-  { label: "Insurance report", notes: "" },
+  { label: "Financial report", notes: "Financial statements for the year and the fund balances." },
+  { label: "Budget and levies", notes: "Adopt the budget and set levies for the coming year." },
+  { label: "Insurance report", notes: "Current policies, sums insured and any claims." },
   { label: "Maintenance and works report", notes: "" },
   { label: "Election of committee", notes: "" },
   { label: "General business", notes: "" },
   { label: "Close", notes: "" },
 ];
 
-const niceDate = (value: string) => new Date(value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+const niceDate = (value: string) => new Date(value.length === 10 ? `${value}T00:00:00` : value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+const daysUntil = (iso: string) => Math.ceil((new Date(`${iso}T00:00:00`).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
+const stageOf = (m: AgmMeeting): AgmStage => m.stage ?? (m.status === "Published" ? "Published" : "Draft");
+const withIds = (agenda: AgendaItem[]) => agenda.map(a => ({ ...a, id: a.id ?? crypto.randomUUID() }));
+const lotLabel = (lot: AgmLot | undefined) => lot ? `Lot ${lot.lot_number}${lot.owner_name ? ` · ${lot.owner_name}` : ""}` : "A lot";
 
 function PageHead({ eyebrow, title, blurb, action }: { eyebrow: string; title: string; blurb: string; action?: React.ReactNode }) {
   return <div className="flex flex-wrap items-end justify-between gap-4">
@@ -46,98 +68,397 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
   return <div className={`rounded-[26px] border border-border/70 bg-card ${className}`}>{children}</div>;
 }
 
-function agendaLines(agenda: { label: string; notes: string }[]) {
-  return agenda.filter(a => a.label.trim() !== "").map((a, i) => `${i + 1}. ${a.label}${a.notes ? ` — ${a.notes}` : ""}`);
+function StagePill({ stage }: { stage: AgmStage }) {
+  const tone = stage === "Published" ? "bg-primary/10 text-primary" : stage === "Draft" ? "bg-secondary text-muted-foreground" : "bg-amber-500/10 text-amber-700 dark:text-amber-400";
+  return <span className={`inline-flex shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${tone}`}>{STAGE_LABEL[stage]}</span>;
 }
 
-function meetingTextBlock(title: string, meetingDate: string, meetingTime: string, location: string, videoLink: string, agenda: { label: string; notes: string }[], notes: string) {
-  const header = [
-    title.trim(),
-    meetingDate ? `Date: ${niceDate(meetingDate)}${meetingTime ? ` at ${meetingTime}` : ""}` : "",
-    location ? `Location: ${location}` : "",
-    videoLink ? `Join online: ${videoLink}` : "",
-  ].filter(l => l !== "");
-  return [
-    ...header,
-    "",
-    "Agenda:", ...agendaLines(agenda),
-    "",
-    "Notes:", notes,
-  ].join("\n");
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{children}</p>;
 }
 
-export function agmNoticeText(meeting: AgmMeeting): { title: string; message: string } {
-  const message = meetingTextBlock(
-    meeting.title, meeting.meeting_date ?? "", meeting.meeting_time ?? "", meeting.location ?? "",
-    meeting.video_link ?? "", meeting.agenda, meeting.notes,
-  );
-  return { title: `AGM notice — ${meeting.title}`, message };
+async function agmFolderId(schemeId: string) {
+  const { data } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", AGM_FOLDER).maybeSingle();
+  if (data?.id) return data.id as string;
+  const { data: made, error } = await supabase.from("document_folders").insert({ scheme_id: schemeId, name: AGM_FOLDER, icon: "Users", color: "blue" }).select("id").single();
+  if (error) throw error;
+  return made.id as string;
 }
 
-export function agmMailto(meeting: AgmMeeting, lots: { owner_email: string | null }[]): string {
+// Files a generated PDF under AGM in Documents, shared with every owner.
+async function fileAgmPdf(schemeId: string, blob: Blob, name: string, category: string) {
+  const folderId = await agmFolderId(schemeId);
+  const path = `${schemeId}/${crypto.randomUUID()}-${name.replace(/[^\w.-]/g, "_")}`;
+  const { error: upErr } = await supabase.storage.from("documents").upload(path, blob, { contentType: "application/pdf" });
+  if (upErr) throw upErr;
+  const { data, error } = await supabase.from("documents").insert({
+    scheme_id: schemeId, name, category, folder_id: folderId, storage_path: path, file_size: blob.size, mime_type: "application/pdf", shared_with_owners: true,
+  }).select("id").single();
+  if (error || !data) throw error ?? new Error("Could not file the PDF");
+  return data.id as string;
+}
+
+function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function openDoc(doc: DocFile | undefined) {
+  if (!doc?.storage_path) { toast("That file isn't available"); return; }
+  const { data, error } = await supabase.storage.from("documents").createSignedUrl(doc.storage_path, 600);
+  if (error || !data) { toast("Could not open the file", { description: error?.message }); return; }
+  window.open(data.signedUrl, "_blank");
+}
+
+function noticeEmail(m: AgmMeeting, lots: AgmLot[]) {
   const emails = lots.map(l => l.owner_email).filter((e): e is string => !!e && e.trim() !== "");
-  if (emails.length === 0) return "";
-  const { title, message } = agmNoticeText(meeting);
-  return `mailto:?bcc=${encodeURIComponent(emails.join(","))}&subject=${encodeURIComponent(title)}&body=${encodeURIComponent(message)}`;
+  const subject = `Notice of AGM — ${m.title || "Annual General Meeting"}`;
+  const body = [
+    "Dear owners,", "",
+    `Please find attached the notice and agenda for ${m.title || "our annual general meeting"}${m.meeting_date ? `, to be held on ${niceDate(m.meeting_date)}${m.meeting_time ? ` at ${m.meeting_time}` : ""}` : ""}${m.location ? ` at ${m.location}` : ""}.`,
+    m.video_link ? `You can also join online: ${m.video_link}` : "", "",
+    "The notice is also in Documents in Loty.", "", "Kind regards,", "Your owners corporation committee",
+  ].filter((l, i, arr) => !(l === "" && arr[i - 1] === "")).join("\n");
+  return { count: emails.length, href: emails.length ? `mailto:?bcc=${encodeURIComponent(emails.join(","))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` : "" };
 }
 
-export async function sendAgmNotice(meeting: AgmMeeting, schemeId: string): Promise<{ error?: string }> {
-  const { title, message } = agmNoticeText(meeting);
-  const { error } = await supabase.from("notices").insert({ scheme_id: schemeId, title, message, pinned: true, lot_id: null });
-  if (error) return { error: error.message };
-  return {};
-}
+// ─── Notebook ────────────────────────────────────────────────────────────────
 
-function AgendaEditor({ agenda, onChange }: { agenda: { label: string; notes: string }[]; onChange: (agenda: { label: string; notes: string }[]) => void }) {
-  const update = (i: number, patch: Partial<{ label: string; notes: string }>) =>
-    onChange(agenda.map((a, idx) => idx === i ? { ...a, ...patch } : a));
-  return <div className="space-y-2">
-    <Label>Agenda</Label>
-    {agenda.map((a, i) => <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-      <Input placeholder="Item" value={a.label} onChange={e => update(i, { label: e.target.value })} />
-      <Input placeholder="Notes (optional)" value={a.notes} onChange={e => update(i, { notes: e.target.value })} />
-      <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label="Remove item" onClick={() => onChange(agenda.filter((_, idx) => idx !== i))} disabled={agenda.length === 1}><Trash2 className="size-4" /></Button>
-    </div>)}
-    <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => onChange([...agenda, { label: "", notes: "" }])}><Plus className="size-3.5" />Add agenda item</Button>
+type Draft = Pick<AgmMeeting, "title" | "meeting_date" | "meeting_time" | "location" | "video_link"> & { agenda: AgendaItem[]; attendance: Record<string, string> };
+
+function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents, isCommittee, schemeId, task, widgets, onBack, onChanged }: {
+  meeting: AgmMeeting; scheme: { name: string; address: string | null } | null; lots: AgmLot[]; myLot: AgmLot | null;
+  suggestions: AgmSuggestion[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
+  task: Task | undefined; widgets: ComplianceWidget[]; onBack: () => void; onChanged: () => void;
+}) {
+  const stage = stageOf(meeting);
+  const [d, setD] = useState<Draft>(() => ({
+    title: meeting.title, meeting_date: meeting.meeting_date, meeting_time: meeting.meeting_time, location: meeting.location, video_link: meeting.video_link,
+    agenda: withIds(meeting.agenda), attendance: meeting.attendance ?? {},
+  }));
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirmNotice, setConfirmNotice] = useState(false);
+  const [confirmPublish, setConfirmPublish] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [suggestTitle, setSuggestTitle] = useState("");
+  const [suggestDetails, setSuggestDetails] = useState("");
+
+  const canEditAgenda = isCommittee && stage === "Draft";
+  const canEditMinutes = isCommittee && stage === "Minutes";
+  const canEditDetails = isCommittee && (stage === "Draft" || stage === "Minutes");
+
+  const change = (patch: Partial<Draft>) => { setD(prev => ({ ...prev, ...patch })); setDirty(true); };
+  const setItem = (id: string, patch: Partial<AgendaItem>) => change({ agenda: d.agenda.map(a => a.id === id ? { ...a, ...patch } : a) });
+  const move = (id: string, delta: number) => {
+    const i = d.agenda.findIndex(a => a.id === id); const j = i + delta;
+    if (i < 0 || j < 0 || j >= d.agenda.length) return;
+    const next = [...d.agenda]; [next[i], next[j]] = [next[j]!, next[i]!]; change({ agenda: next });
+  };
+  const dropOn = (targetId: string) => (e: DragEvent) => {
+    e.preventDefault();
+    if (!dragId || dragId === targetId) return;
+    const next = d.agenda.filter(a => a.id !== dragId);
+    const moving = d.agenda.find(a => a.id === dragId)!;
+    next.splice(next.findIndex(a => a.id === targetId), 0, moving);
+    setDragId(null); change({ agenda: next });
+  };
+
+  // Autosave: write ~0.8s after the last change.
+  const latest = useRef(d); latest.current = d;
+  useEffect(() => {
+    if (!dirty) return;
+    const t = setTimeout(async () => {
+      setSaveState("saving");
+      const v = latest.current;
+      const { error } = await supabase.from("agm_meetings").update({
+        title: v.title.trim(), meeting_date: v.meeting_date || null, meeting_time: v.meeting_time || null,
+        location: v.location || null, video_link: v.video_link || null, agenda: v.agenda, attendance: v.attendance,
+      }).eq("id", meeting.id);
+      if (error) { setSaveState("idle"); toast("Could not save", { description: error.message }); return; }
+      setDirty(false); setSaveState("saved"); onChanged();
+    }, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d, dirty]);
+
+  const flush = async () => {
+    const v = latest.current;
+    await supabase.from("agm_meetings").update({
+      title: v.title.trim(), meeting_date: v.meeting_date || null, meeting_time: v.meeting_time || null,
+      location: v.location || null, video_link: v.video_link || null, agenda: v.agenda, attendance: v.attendance,
+    }).eq("id", meeting.id);
+    setDirty(false);
+  };
+
+  const pdfMeeting = () => ({ ...d, title: d.title.trim() || "Annual General Meeting", agenda: d.agenda.map(a => ({ ...a, discussion: a.discussion ?? "", motion: a.motion ?? "" })) });
+  const fileName = (kind: string) => `${kind} — ${(d.title.trim() || "AGM").replace(/[/\\]/g, "-")}.pdf`;
+
+  const completeObligation = async () => {
+    if (!schemeId) return;
+    const widget = widgets.find(w => w.standard_key === "agm_notice");
+    if (task) await supabase.from("compliance_tasks").update({ status: "Complete" }).eq("id", task.id);
+    else if (widget) await supabase.from("compliance_tasks").insert({ scheme_id: schemeId, widget_id: widget.id, task_name: widget.label, detail: widget.default_detail, due_date: new Date().toISOString().slice(0, 10), status: "Complete" });
+  };
+
+  const sendNotice = async () => {
+    if (!schemeId) return;
+    if (!d.title.trim()) { toast("Give the meeting a title first"); return; }
+    if (d.agenda.filter(a => a.label.trim()).length === 0) { toast("Add at least one agenda item first"); return; }
+    setBusy(true);
+    try {
+      await flush();
+      const blob = await buildAgmNoticePdf(pdfMeeting(), scheme);
+      const name = fileName("Notice of AGM");
+      const docId = await fileAgmPdf(schemeId, blob, name, "AGM notice");
+      const { error } = await supabase.from("agm_meetings").update({ stage: "Notice sent", notice_sent_at: new Date().toISOString(), notice_document_id: docId }).eq("id", meeting.id);
+      if (error) throw error;
+      await supabase.from("notices").insert({ scheme_id: schemeId, pinned: true, lot_id: null, title: `Notice of AGM — ${d.title.trim()}`,
+        message: `${d.meeting_date ? `${niceDate(d.meeting_date)}${d.meeting_time ? ` at ${d.meeting_time}` : ""}` : "Date to be confirmed"}${d.location ? ` · ${d.location}` : ""}. The notice and agenda are in Documents.` });
+      await completeObligation();
+      downloadBlob(blob, name);
+      const mail = noticeEmail({ ...meeting, ...d }, lots);
+      setConfirmNotice(false); onChanged();
+      if (mail.href) { toast("Notice filed and posted", { description: `Your email app is opening with ${mail.count} owner${mail.count === 1 ? "" : "s"}. Attach the downloaded PDF.` }); window.location.href = mail.href; }
+      else toast("Notice filed and posted", { description: "No owner emails on file, so no email was opened." });
+    } catch (err) {
+      toast("Could not send the notice", { description: (err as Error).message });
+    } finally { setBusy(false); }
+  };
+
+  const startMinutes = async () => {
+    setBusy(true);
+    const { error } = await supabase.from("agm_meetings").update({ stage: "Minutes" }).eq("id", meeting.id);
+    setBusy(false);
+    if (error) { toast("Could not start the minutes", { description: error.message }); return; }
+    onChanged();
+  };
+
+  const publishMinutes = async () => {
+    if (!schemeId) return;
+    setBusy(true);
+    try {
+      await flush();
+      const attendance = lots.filter(l => d.attendance[l.id]).map(l => ({ lot: `Lot ${l.lot_number}`, status: d.attendance[l.id]! }));
+      const blob = await buildAgmMinutesPdf(pdfMeeting(), scheme, attendance);
+      const docId = await fileAgmPdf(schemeId, blob, fileName("Minutes of AGM"), "AGM minutes");
+      const { error } = await supabase.from("agm_meetings").update({ stage: "Published", status: "Published", published_at: new Date().toISOString(), minutes_document_id: docId }).eq("id", meeting.id);
+      if (error) throw error;
+      await supabase.from("notices").insert({ scheme_id: schemeId, pinned: false, lot_id: null, title: `Minutes published — ${d.title.trim()}`, message: "The minutes of the AGM are now in Documents." });
+      setConfirmPublish(false); onChanged(); toast("Minutes published", { description: "Filed in Documents and shared with owners." });
+    } catch (err) {
+      toast("Could not publish the minutes", { description: (err as Error).message });
+    } finally { setBusy(false); }
+  };
+
+  const addSuggestion = async (s: AgmSuggestion) => {
+    change({ agenda: [...d.agenda, { id: crypto.randomUUID(), label: s.title, notes: s.details ?? "", suggested_by_lot_id: s.lot_id }] });
+    const { error } = await supabase.from("agm_suggestions").update({ status: "Added" }).eq("id", s.id);
+    if (error) toast("Added to the agenda, but the suggestion couldn't be updated", { description: error.message });
+    onChanged();
+  };
+  const declineSuggestion = async (s: AgmSuggestion) => {
+    const { error } = await supabase.from("agm_suggestions").update({ status: "Declined" }).eq("id", s.id);
+    if (error) { toast("Could not decline it", { description: error.message }); return; }
+    onChanged();
+  };
+  const suggest = async () => {
+    if (!suggestTitle.trim()) return;
+    const { error } = await supabase.from("agm_suggestions").insert({ meeting_id: meeting.id, lot_id: myLot?.id ?? null, title: suggestTitle.trim(), details: suggestDetails.trim() || null });
+    if (error) { toast("Could not send your suggestion", { description: error.message }); return; }
+    setSuggestTitle(""); setSuggestDetails(""); onChanged(); toast("Suggestion sent to the committee");
+  };
+
+  const stageIndex = STAGES.indexOf(stage);
+  const next = !isCommittee ? null
+    : stage === "Draft" ? { label: "Send notice", icon: Send, run: () => setConfirmNotice(true) }
+    : stage === "Notice sent" ? { label: "Start minutes", icon: FileText, run: () => void startMinutes() }
+    : stage === "Minutes" ? { label: "Publish minutes", icon: Check, run: () => setConfirmPublish(true) }
+    : null;
+  const noticeDoc = documents.find(x => x.id === meeting.notice_document_id);
+  const minutesDoc = documents.find(x => x.id === meeting.minutes_document_id);
+  const pending = suggestions.filter(s => s.status === "Pending");
+  const mine = myLot ? suggestions.filter(s => s.lot_id === myLot.id) : [];
+  const standardLeft = STANDARD_AGM_AGENDA.filter(s => !d.agenda.some(a => a.label.trim().toLowerCase() === s.label.toLowerCase()));
+  const shortNotice = d.meeting_date ? daysUntil(d.meeting_date) < 14 : true;
+
+  return <div className="mt-8 space-y-5">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <Button variant="ghost" size="sm" className="rounded-full" onClick={onBack}><ArrowLeft/> All meetings</Button>
+      <span className="text-[12px] text-muted-foreground" aria-live="polite">{saveState === "saving" || dirty ? "Saving…" : saveState === "saved" ? "Saved just now" : ""}</span>
+    </div>
+
+    {/* Stage bar and the one next action */}
+    <Card className="p-4 sm:p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <ol className="flex flex-wrap items-center gap-1.5 text-[12px]">
+          {STAGES.map((s, i) => <li key={s} className="flex items-center gap-1.5">
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-medium ${i < stageIndex ? "bg-primary/10 text-primary" : i === stageIndex ? "bg-foreground text-background" : "border border-border text-muted-foreground"}`}>
+              {i < stageIndex && <Check className="size-3"/>}{STAGE_LABEL[s]}</span>
+            {i < STAGES.length - 1 && <span className="h-px w-2 bg-border" aria-hidden/>}
+          </li>)}
+        </ol>
+        <div className="flex flex-wrap gap-2">
+          {noticeDoc && <Button size="sm" variant="outline" className="rounded-full" onClick={() => void openDoc(noticeDoc)}><Download/> Notice PDF</Button>}
+          {minutesDoc && <Button size="sm" variant="outline" className="rounded-full" onClick={() => void openDoc(minutesDoc)}><Download/> Minutes PDF</Button>}
+          {next && <Button size="sm" className="rounded-full" disabled={busy} onClick={next.run}><next.icon/> {next.label}</Button>}
+        </div>
+      </div>
+      {stage === "Notice sent" && meeting.notice_sent_at && <p className="mt-3 text-[12px] text-muted-foreground">Notice sent {niceDate(meeting.notice_sent_at)}. On the day, start the minutes to record what's discussed and decided.</p>}
+    </Card>
+
+    {/* Meeting details */}
+    <Card className="p-5 sm:p-7">
+      {canEditDetails
+        ? <input value={d.title} onChange={e => change({ title: e.target.value })} placeholder="Annual General Meeting 2026" aria-label="Meeting title"
+            className="w-full border-0 bg-transparent p-0 font-display text-2xl tracking-[-0.02em] outline-none placeholder:text-muted-foreground/50 sm:text-3xl"/>
+        : <h2 className="font-display text-2xl tracking-[-0.02em] sm:text-3xl">{d.title || "Annual General Meeting"}</h2>}
+      <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5"><Label htmlFor="agm_date">Date</Label><Input id="agm_date" type="date" disabled={!canEditDetails} value={d.meeting_date ?? ""} onChange={e => change({ meeting_date: e.target.value })}/></div>
+        <div className="space-y-1.5"><Label htmlFor="agm_time">Time</Label><Input id="agm_time" disabled={!canEditDetails} value={d.meeting_time ?? ""} onChange={e => change({ meeting_time: e.target.value })} placeholder="7:00 PM"/></div>
+        <div className="space-y-1.5"><Label htmlFor="agm_location">Location</Label><Input id="agm_location" disabled={!canEditDetails} value={d.location ?? ""} onChange={e => change({ location: e.target.value })} placeholder="Common room"/></div>
+        <div className="space-y-1.5"><Label htmlFor="agm_video">Video link</Label><Input id="agm_video" disabled={!canEditDetails} value={d.video_link ?? ""} onChange={e => change({ video_link: e.target.value })} placeholder="https://..."/></div>
+      </div>
+    </Card>
+
+    {/* Agenda / minutes */}
+    <div>
+      <div className="flex flex-wrap items-end justify-between gap-3 px-1">
+        <div><SectionLabel>{stage === "Minutes" || stage === "Published" ? "Minutes" : "Agenda"}</SectionLabel>
+          <p className="mt-1 text-[13px] text-muted-foreground">{stage === "Draft" ? "What the meeting will cover. Owners see this once the notice goes out." : stage === "Notice sent" ? "The agenda as sent to owners." : "What was discussed and decided under each item."}</p></div>
+      </div>
+      <ol className="mt-3 space-y-3">
+        {d.agenda.map((a, i) => {
+          const suggestedBy = a.suggested_by_lot_id ? lots.find(l => l.id === a.suggested_by_lot_id) : undefined;
+          return <li key={a.id} onDragOver={canEditAgenda ? e => e.preventDefault() : undefined} onDrop={canEditAgenda ? dropOn(a.id!) : undefined}
+            className={`rounded-2xl border bg-card p-4 sm:p-5 ${dragId === a.id ? "border-primary/50 opacity-60" : "border-border/70"}`}>
+            <div className="flex items-start gap-3">
+              {canEditAgenda && <span draggable onDragStart={() => setDragId(a.id!)} onDragEnd={() => setDragId(null)} className="mt-1.5 hidden cursor-grab text-muted-foreground sm:block" aria-hidden><GripVertical className="size-4"/></span>}
+              <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-secondary text-[12px] font-medium tabular-nums">{i + 1}</span>
+              <div className="min-w-0 flex-1 space-y-2">
+                {canEditAgenda
+                  ? <input value={a.label} onChange={e => setItem(a.id!, { label: e.target.value })} placeholder="Agenda item" aria-label={`Agenda item ${i + 1}`}
+                      className="w-full border-0 bg-transparent p-0 text-[15px] font-medium outline-none placeholder:text-muted-foreground/50"/>
+                  : <p className="text-[15px] font-medium">{a.label || "Untitled item"}</p>}
+                {suggestedBy && <p className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Suggested by Lot {suggestedBy.lot_number}</p>}
+                {canEditAgenda
+                  ? <Textarea value={a.notes} onChange={e => setItem(a.id!, { notes: e.target.value })} rows={2} placeholder="Description (optional)" aria-label={`Description for item ${i + 1}`} className="min-h-0 resize-none text-[13px]"/>
+                  : a.notes && <p className="whitespace-pre-line text-[13px] text-muted-foreground">{a.notes}</p>}
+
+                {(stage === "Minutes" || stage === "Published") && <div className="space-y-2 border-t border-border/60 pt-3">
+                  {canEditMinutes
+                    ? <Textarea value={a.discussion ?? ""} onChange={e => setItem(a.id!, { discussion: e.target.value })} rows={3} placeholder="Discussion notes" aria-label={`Discussion for item ${i + 1}`} className="text-[13px]"/>
+                    : a.discussion && <p className="whitespace-pre-line text-[13px]">{a.discussion}</p>}
+                  {canEditMinutes
+                    ? <div className="grid gap-2 sm:grid-cols-2">
+                        <Input className="sm:col-span-2" value={a.motion ?? ""} onChange={e => setItem(a.id!, { motion: e.target.value })} placeholder="Motion (optional)" aria-label={`Motion for item ${i + 1}`}/>
+                        {a.motion?.trim() && <>
+                          <Input value={a.moved_by ?? ""} onChange={e => setItem(a.id!, { moved_by: e.target.value })} placeholder="Moved by" aria-label="Moved by"/>
+                          <Input value={a.seconded_by ?? ""} onChange={e => setItem(a.id!, { seconded_by: e.target.value })} placeholder="Seconded by" aria-label="Seconded by"/>
+                          <div className="flex gap-2 sm:col-span-2">
+                            {["Carried", "Lost"].map(o => <Button key={o} type="button" size="sm" variant={a.outcome === o ? "default" : "outline"} className="rounded-full"
+                              onClick={() => setItem(a.id!, { outcome: a.outcome === o ? "" : o })}>{o}</Button>)}
+                          </div>
+                        </>}
+                      </div>
+                    : a.motion && <p className="text-[13px]"><span className="font-medium">Motion:</span> {a.motion}
+                        <span className="text-muted-foreground">{a.moved_by ? ` · Moved ${a.moved_by}` : ""}{a.seconded_by ? ` · Seconded ${a.seconded_by}` : ""}</span>
+                        {a.outcome && <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${a.outcome === "Carried" ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>{a.outcome}</span>}</p>}
+                </div>}
+              </div>
+              {canEditAgenda && <div className="flex shrink-0 flex-col items-center gap-0.5">
+                <Button type="button" size="icon" variant="ghost" className="size-8 rounded-full" aria-label="Move up" disabled={i === 0} onClick={() => move(a.id!, -1)}><ArrowUp className="size-4"/></Button>
+                <Button type="button" size="icon" variant="ghost" className="size-8 rounded-full" aria-label="Move down" disabled={i === d.agenda.length - 1} onClick={() => move(a.id!, 1)}><ArrowDown className="size-4"/></Button>
+                <Button type="button" size="icon" variant="ghost" className="size-8 rounded-full text-muted-foreground hover:text-destructive" aria-label={`Remove ${a.label || "item"}`} onClick={() => change({ agenda: d.agenda.filter(x => x.id !== a.id) })}><Trash2 className="size-4"/></Button>
+              </div>}
+            </div>
+          </li>;
+        })}
+        {d.agenda.length === 0 && <li className="rounded-2xl border border-dashed border-border p-6 text-center text-[13px] text-muted-foreground">No agenda items yet.</li>}
+      </ol>
+      {canEditAgenda && <div className="mt-3 flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => change({ agenda: [...d.agenda, { id: crypto.randomUUID(), label: "", notes: "" }] })}><Plus/> Add item</Button>
+        {standardLeft.length > 0 && <Select value="" onValueChange={label => { const s = STANDARD_AGM_AGENDA.find(x => x.label === label); if (s) change({ agenda: [...d.agenda, { id: crypto.randomUUID(), ...s }] }); }}>
+          <SelectTrigger className="h-9 w-auto rounded-full text-[12px]" aria-label="Add standard item"><SelectValue placeholder="Add standard item"/></SelectTrigger>
+          <SelectContent>{standardLeft.map(s => <SelectItem key={s.label} value={s.label}>{s.label}</SelectItem>)}</SelectContent>
+        </Select>}
+      </div>}
+    </div>
+
+    {/* Attendance */}
+    {(stage === "Minutes" || stage === "Published") && lots.length > 0 && <Card className="p-5 sm:p-7">
+      <SectionLabel>Attendance</SectionLabel>
+      <ul className="mt-3 divide-y divide-border/60">
+        {lots.map(l => <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+          <span className="text-[13px]">{lotLabel(l)}</span>
+          {canEditMinutes
+            ? <div className="flex gap-1">{ATTENDANCE.map(s => <Button key={s} type="button" size="sm" variant={d.attendance[l.id] === s ? "default" : "ghost"} className="h-8 rounded-full px-3 text-[12px]"
+                onClick={() => { const next = { ...d.attendance }; if (next[l.id] === s) delete next[l.id]; else next[l.id] = s; change({ attendance: next }); }}>{s}</Button>)}</div>
+            : <span className="text-[12px] text-muted-foreground">{d.attendance[l.id] ?? "Not recorded"}</span>}
+        </li>)}
+      </ul>
+    </Card>}
+
+    {/* Suggestions */}
+    {isCommittee && stage === "Draft" && pending.length > 0 && <Card className="p-5 sm:p-7">
+      <SectionLabel>Suggestions from owners</SectionLabel>
+      <ul className="mt-3 divide-y divide-border/60">
+        {pending.map(s => <li key={s.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
+          <div className="min-w-0"><p className="text-[14px] font-medium">{s.title}</p>
+            <p className="text-[12px] text-muted-foreground">{lotLabel(lots.find(l => l.id === s.lot_id))}{s.details ? ` · ${s.details}` : ""}</p></div>
+          <div className="flex gap-2">
+            <Button size="sm" className="rounded-full" onClick={() => void addSuggestion(s)}><Plus/> Add to agenda</Button>
+            <Button size="sm" variant="ghost" className="rounded-full" onClick={() => void declineSuggestion(s)}>Decline</Button>
+          </div>
+        </li>)}
+      </ul>
+    </Card>}
+    {!isCommittee && stage === "Draft" && myLot && <Card className="p-5 sm:p-7">
+      <div className="flex items-center gap-2"><Lightbulb className="size-4 text-primary"/><SectionLabel>Suggest an agenda item</SectionLabel></div>
+      <div className="mt-3 space-y-2">
+        <Input value={suggestTitle} onChange={e => setSuggestTitle(e.target.value)} placeholder="What should the meeting discuss?" aria-label="Suggestion title"/>
+        <Textarea value={suggestDetails} onChange={e => setSuggestDetails(e.target.value)} rows={2} placeholder="Any detail (optional)" aria-label="Suggestion details"/>
+        <div className="flex justify-end"><Button size="sm" className="rounded-full" disabled={!suggestTitle.trim()} onClick={() => void suggest()}>Send suggestion</Button></div>
+      </div>
+      {mine.length > 0 && <ul className="mt-4 space-y-1.5">{mine.map(s => <li key={s.id} className="flex items-center justify-between gap-3 text-[13px]"><span>{s.title}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${s.status === "Added" ? "bg-primary/10 text-primary" : s.status === "Declined" ? "bg-secondary text-muted-foreground" : "bg-amber-500/10 text-amber-700"}`}>{s.status}</span></li>)}</ul>}
+    </Card>}
+
+    <Dialog open={confirmNotice} onOpenChange={setConfirmNotice}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Send the notice?</DialogTitle>
+          <DialogDescription>This makes the notice PDF, files it in Documents for every owner, pins it on the dashboard, downloads a copy for you and opens your email app addressed to all owners. Attach the downloaded PDF before sending.</DialogDescription></DialogHeader>
+        {shortNotice && <p className="rounded-2xl bg-amber-500/10 px-4 py-3 text-[12px] leading-5 text-amber-800 dark:text-amber-300">
+          {d.meeting_date ? `The meeting is ${Math.max(0, daysUntil(d.meeting_date))} days away.` : "No meeting date is set yet."} Owners usually need at least 14 days' notice. You can still send it.</p>}
+        <p className="text-[12px] text-muted-foreground">After this, the agenda is locked. Owner suggestions close too.</p>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" className="rounded-full" onClick={() => setConfirmNotice(false)}>Cancel</Button>
+          <Button className="rounded-full" disabled={busy} onClick={() => void sendNotice()}>{busy ? "Preparing…" : "Send notice"}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    <Dialog open={confirmPublish} onOpenChange={setConfirmPublish}>
+      <DialogContent className="sm:max-w-[460px]">
+        <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Publish the minutes?</DialogTitle>
+          <DialogDescription>This makes the minutes PDF, files it in Documents for every owner and lets them know. The minutes can't be edited afterwards.</DialogDescription></DialogHeader>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" className="rounded-full" onClick={() => setConfirmPublish(false)}>Cancel</Button>
+          <Button className="rounded-full" disabled={busy} onClick={() => void publishMinutes()}>{busy ? "Publishing…" : "Publish minutes"}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>;
 }
 
-function PublishedMeetingCard({ meeting, isCommittee, schemeId, lots }: {
-  meeting: AgmMeeting; isCommittee: boolean; schemeId?: string | undefined; lots: { owner_email: string | null }[];
-}) {
-  const [sending, setSending] = useState(false);
+// ─── Page ────────────────────────────────────────────────────────────────────
 
-  const send = async () => {
-    if (!schemeId) return;
-    setSending(true);
-    const result = await sendAgmNotice(meeting, schemeId);
-    setSending(false);
-    if (result.error) { toast("Could not post the notice", { description: result.error }); return; }
-    const mailto = agmMailto(meeting, lots);
-    if (mailto) window.location.href = mailto;
-    toast("Notice posted", { description: mailto ? "Your email app should also open." : "No owner email on file to open a mailto." });
-  };
-
-  return <details className="rounded-2xl border border-border/70 p-4">
-    <summary className="cursor-pointer text-[14px] font-medium">{meeting.title}{meeting.meeting_date ? ` · ${niceDate(meeting.meeting_date)}` : ""}</summary>
-    <div className="mt-3 space-y-2 text-[13px] text-muted-foreground">
-      {meeting.meeting_date && <p>Date: {niceDate(meeting.meeting_date)}{meeting.meeting_time ? ` at ${meeting.meeting_time}` : ""}</p>}
-      {meeting.location && <p>Location: {meeting.location}</p>}
-      {meeting.video_link && <p>Join online: {meeting.video_link}</p>}
-      <div className="mt-2 space-y-1">
-        {meeting.agenda.map((a, i) => <p key={i}>{i + 1}. {a.label}{a.notes ? ` — ${a.notes}` : ""}</p>)}
-      </div>
-      {meeting.notes && <p className="mt-2 whitespace-pre-line">{meeting.notes}</p>}
-    </div>
-    {isCommittee && <div className="mt-4">
-      <Button type="button" size="sm" variant="outline" className="rounded-full" disabled={sending} onClick={() => void send()}>{sending ? "Sending…" : "Send to everyone"}</Button>
-    </div>}
-  </details>;
-}
-
-export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lots, onChanged }: {
+export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lots, myLot = null, scheme = null, suggestions = [], documents = [], onChanged }: {
   schemeId?: string | undefined; isCommittee: boolean; meetings: AgmMeeting[]; task: Task | undefined;
-  widgets: ComplianceWidget[]; lots: Pick<Lot, "owner_email">[]; onChanged: () => void;
+  widgets: ComplianceWidget[]; lots: AgmLot[]; myLot?: AgmLot | null; scheme?: { name: string; address: string | null } | null;
+  suggestions?: AgmSuggestion[]; documents?: DocFile[]; onChanged: () => void;
 }) {
   const bootstrapped = useRef(false);
   useEffect(() => {
@@ -147,199 +468,76 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schemeId]);
 
-  const drafts = meetings.filter(m => m.status === "Draft").sort((a, b) => b.created_at.localeCompare(a.created_at));
-  const published = meetings.filter(m => m.status === "Published")
-    .sort((a, b) => (b.published_at ?? b.created_at).localeCompare(a.published_at ?? a.created_at));
-
-  const [draftId, setDraftId] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [meetingDate, setMeetingDate] = useState("");
-  const [meetingTime, setMeetingTime] = useState("");
-  const [location, setLocation] = useState("");
-  const [videoLink, setVideoLink] = useState("");
-  const [agenda, setAgenda] = useState<{ label: string; notes: string }[]>([]);
-  const [notes, setNotes] = useState("");
-  const [started, setStarted] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<AgmMeeting | null>(null);
+  const sorted = [...meetings].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const open = openId ? meetings.find(m => m.id === openId) ?? null : null;
 
-  const openDraft = (m: AgmMeeting) => {
-    setDraftId(m.id);
-    setTitle(m.title);
-    setMeetingDate(m.meeting_date ?? "");
-    setMeetingTime(m.meeting_time ?? "");
-    setLocation(m.location ?? "");
-    setVideoLink(m.video_link ?? "");
-    setAgenda(m.agenda.map(a => ({ ...a })));
-    setNotes(m.notes ?? "");
-    setStarted(true);
-  };
-
-  const duplicateDraft = async (m: AgmMeeting) => {
+  const create = async (from?: AgmMeeting) => {
     if (!schemeId) return;
+    const agenda = (from ? from.agenda.map(a => ({ label: a.label, notes: a.notes })) : STANDARD_AGM_AGENDA).map(a => ({ ...a, id: crypto.randomUUID() }));
     const { data, error } = await supabase.from("agm_meetings").insert({
-      scheme_id: schemeId, status: "Draft", title: `${m.title || "Untitled meeting"} (copy)`, meeting_date: m.meeting_date, meeting_time: m.meeting_time,
-      location: m.location, video_link: m.video_link, agenda: m.agenda, notes: m.notes,
-    }).select().single();
-    if (error || !data) { toast("Could not duplicate the draft", { description: error?.message }); return; }
-    onChanged(); toast("Copy saved to your drafts");
+      scheme_id: schemeId, status: "Draft", stage: "Draft", agenda, notes: "",
+      title: from ? `${from.title || "Annual General Meeting"} (copy)` : `Annual General Meeting ${new Date().getFullYear()}`,
+      location: from?.location ?? null, video_link: from?.video_link ?? null, meeting_time: from?.meeting_time ?? null,
+    }).select("id").single();
+    if (error || !data) { toast(from ? "Could not duplicate the meeting" : "Could not start a meeting", { description: error?.message }); return; }
+    onChanged(); setOpenId(data.id as string);
+    if (from) toast("Copy made", { description: "Agenda carried over. Set the new date." });
   };
 
-  const deleteDraft = async () => {
+  const remove = async () => {
     if (!deleting) return;
     const { error } = await supabase.from("agm_meetings").delete().eq("id", deleting.id);
-    if (error) { toast("Could not delete the draft", { description: error.message }); return; }
-    if (draftId === deleting.id) { setDraftId(null); setStarted(false); }
-    setDeleting(null); onChanged(); toast("Draft deleted");
-  };
-
-  const startNew = () => {
-    const lastPublished = published[0];
-    const seedAgenda = lastPublished ? lastPublished.agenda.map(a => ({ ...a })) : STANDARD_AGM_AGENDA.map(a => ({ ...a }));
-    setDraftId(null);
-    setTitle("");
-    setMeetingDate("");
-    setMeetingTime("");
-    setLocation("");
-    setVideoLink("");
-    setAgenda(seedAgenda);
-    setNotes("");
-    setStarted(true);
-  };
-
-  const saveDraft = async () => {
-    if (!schemeId) return;
-    setSaving(true);
-    const payload = {
-      title: title.trim(), meeting_date: meetingDate || null, meeting_time: meetingTime || null,
-      location: location || null, video_link: videoLink || null, agenda, notes,
-    };
-    if (draftId) {
-      const { error } = await supabase.from("agm_meetings").update(payload).eq("id", draftId);
-      setSaving(false);
-      if (error) { toast("Could not save the draft", { description: error.message }); return; }
-      onChanged(); toast("Saved to your drafts");
-    } else {
-      const { data, error } = await supabase.from("agm_meetings").insert({ ...payload, scheme_id: schemeId, status: "Draft" }).select().single();
-      setSaving(false);
-      if (error || !data) { toast("Could not save the draft", { description: error?.message }); return; }
-      setDraftId(data.id as string);
-      onChanged(); toast("Saved to your drafts");
-    }
-  };
-
-  const publish = async () => {
-    if (!schemeId || !title.trim()) { toast("Give the meeting a title first"); return; }
-    setPublishing(true);
-    const payload = {
-      title: title.trim(), meeting_date: meetingDate || null, meeting_time: meetingTime || null,
-      location: location || null, video_link: videoLink || null, agenda, notes,
-      status: "Published" as const, published_at: new Date().toISOString(),
-    };
-    try {
-      let id = draftId;
-      if (id) {
-        const { error } = await supabase.from("agm_meetings").update(payload).eq("id", id);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from("agm_meetings").insert({ ...payload, scheme_id: schemeId }).select().single();
-        if (error || !data) throw error ?? new Error("Could not publish the meeting");
-        id = data.id as string;
-      }
-      setDraftId(id);
-      setPublishing(false);
-      // The meeting is Published from here on, whether or not the document-filing
-      // step below succeeds — never re-throw past this point as "could not publish".
-      onChanged();
-      const widget = widgets.find(w => w.standard_key === "agm_notice");
-      if (widget) {
-        try {
-          const text = meetingTextBlock(title, meetingDate, meetingTime, location, videoLink, agenda, notes);
-          await publishActionDocument(schemeId, widget, task?.id ?? null, text);
-          setDraftId(null); setStarted(false);
-          toast("AGM published — filed in Documents and marked complete");
-        } catch (fileErr) {
-          toast("Meeting published, but could not file the document", { description: (fileErr as Error).message });
-        }
-      } else {
-        setDraftId(null); setStarted(false);
-        toast("AGM published");
-      }
-    } catch (err) {
-      setPublishing(false);
-      toast("Could not publish", { description: (err as Error).message });
-    }
+    if (error) { toast("Could not delete the meeting", { description: error.message }); return; }
+    if (openId === deleting.id) setOpenId(null);
+    setDeleting(null); onChanged(); toast("Meeting deleted");
   };
 
   return <div>
-    <PageHead eyebrow="Your property" title="Annual General Meeting" blurb="Prepare the agenda, run the meeting, and send it to every owner — all from one place." />
+    <PageHead eyebrow="Your property" title="Annual General Meeting"
+      blurb="Build the agenda, send the notice, then take the minutes on the day. Owners can suggest items while the agenda is being drafted."
+      action={isCommittee && !open ? <Button className="rounded-full" onClick={() => void create()} disabled={!schemeId}><Plus/> New AGM</Button> : undefined}/>
 
-    <div className="mt-10 space-y-8">
-      {isCommittee && <Card className="p-5 sm:p-7">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Saved drafts</p>
-          <Button type="button" size="sm" className="rounded-full" onClick={startNew}><Plus className="size-3.5" />New AGM draft</Button>
+    {open
+      ? <MeetingNotebook key={open.id} meeting={open} scheme={scheme} lots={lots} myLot={myLot} suggestions={suggestions.filter(s => s.meeting_id === open.id)}
+          documents={documents} isCommittee={isCommittee} schemeId={schemeId} task={task} widgets={widgets} onBack={() => setOpenId(null)} onChanged={onChanged}/>
+      : <Card className="mt-10 overflow-hidden">
+          {sorted.length === 0
+            ? <div className="p-10 text-center">
+                <p className="text-sm text-muted-foreground">No AGMs yet.</p>
+                {isCommittee && <Button className="mt-4 rounded-full" onClick={() => void create()} disabled={!schemeId}><Plus/> Start with the standard agenda</Button>}
+              </div>
+            : <ul className="divide-y divide-border/70">
+                {sorted.map(m => { const st = stageOf(m); const pendingCount = suggestions.filter(s => s.meeting_id === m.id && s.status === "Pending").length;
+                  return <li key={m.id} className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-7">
+                    <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => setOpenId(m.id)}>
+                      <FileText className="size-4 shrink-0 text-muted-foreground"/>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{m.title || "Untitled meeting"}</span>
+                        <span className="block text-[12px] text-muted-foreground">{m.meeting_date ? niceDate(m.meeting_date) : "No date set"} · {m.agenda.length} agenda {m.agenda.length === 1 ? "item" : "items"}
+                          {isCommittee && pendingCount > 0 ? ` · ${pendingCount} suggestion${pendingCount === 1 ? "" : "s"}` : ""}</span>
+                      </span>
+                    </button>
+                    <StagePill stage={st}/>
+                    <div className="flex items-center gap-1">
+                      <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => setOpenId(m.id)}>Open</Button>
+                      {isCommittee && <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label={`Duplicate ${m.title || "meeting"}`} onClick={() => void create(m)}><Copy className="size-4"/></Button>}
+                      {isCommittee && <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" aria-label={`Delete ${m.title || "meeting"}`} onClick={() => setDeleting(m)}><Trash2 className="size-4"/></Button>}
+                    </div>
+                  </li>; })}
+              </ul>}
+        </Card>}
+
+    <Dialog open={!!deleting} onOpenChange={o => { if (!o) setDeleting(null); }}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Delete this meeting?</DialogTitle>
+          <DialogDescription>“{deleting?.title || "Untitled meeting"}” and its suggestions will be removed. Any PDFs already filed stay in Documents.</DialogDescription></DialogHeader>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" className="rounded-full" onClick={() => setDeleting(null)}>Cancel</Button>
+          <Button type="button" variant="destructive" className="rounded-full" onClick={() => void remove()}>Delete meeting</Button>
         </div>
-        {drafts.length === 0
-          ? <p className="mt-4 text-sm text-muted-foreground">No drafts yet. Start one, then use Save draft to keep it here.</p>
-          : <ul className="mt-3 divide-y divide-border/70">
-              {drafts.map(m => <li key={m.id} className="flex flex-wrap items-center gap-3 py-3">
-                <FileText className="size-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{m.title || "Untitled meeting"}{draftId === m.id && started ? <span className="ml-2 text-[11px] font-normal text-primary">Open</span> : null}</p>
-                  <p className="text-[12px] text-muted-foreground">{m.meeting_date ? `Meeting ${new Date(m.meeting_date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}` : "No date set"} · {m.agenda.length} agenda {m.agenda.length === 1 ? "item" : "items"}</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => openDraft(m)}>Open</Button>
-                  <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label={`Duplicate ${m.title || "draft"}`} onClick={() => void duplicateDraft(m)}><Copy className="size-4" /></Button>
-                  <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" aria-label={`Delete ${m.title || "draft"}`} onClick={() => setDeleting(m)}><Trash2 className="size-4" /></Button>
-                </div>
-              </li>)}
-            </ul>}
-      </Card>}
-
-      {isCommittee && started && <Card className="p-5 sm:p-7">
-          <div className="space-y-5">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{draftId ? "Editing draft" : "New draft"}</p>
-                <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={() => { setStarted(false); setDraftId(null); }}>Close</Button>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2"><Label htmlFor="agm_title">Meeting title</Label><Input id="agm_title" value={title} onChange={e => setTitle(e.target.value)} placeholder="Annual General Meeting 2026" /></div>
-                <div className="space-y-2"><Label htmlFor="agm_date">Meeting date</Label><Input id="agm_date" type="date" value={meetingDate} onChange={e => setMeetingDate(e.target.value)} /></div>
-                <div className="space-y-2"><Label htmlFor="agm_time">Meeting time</Label><Input id="agm_time" value={meetingTime} onChange={e => setMeetingTime(e.target.value)} placeholder="7:00 PM" /></div>
-                <div className="space-y-2"><Label htmlFor="agm_location">Location</Label><Input id="agm_location" value={location} onChange={e => setLocation(e.target.value)} placeholder="Common room" /></div>
-                <div className="space-y-2 sm:col-span-2"><Label htmlFor="agm_video">Video link</Label><Input id="agm_video" value={videoLink} onChange={e => setVideoLink(e.target.value)} placeholder="https://..." /></div>
-              </div>
-              <AgendaEditor agenda={agenda} onChange={setAgenda} />
-              <div className="space-y-2"><Label htmlFor="agm_notes">Meeting notes</Label><Textarea id="agm_notes" rows={5} value={notes} onChange={e => setNotes(e.target.value)} placeholder="What was discussed and decided" /></div>
-              <div className="flex flex-wrap justify-end gap-2 pt-2">
-                <Button type="button" variant="outline" className="rounded-full" disabled={saving} onClick={() => void saveDraft()}>{saving ? "Saving…" : "Save draft"}</Button>
-                <Button type="button" className="rounded-full" disabled={publishing} onClick={() => void publish()}>{publishing ? "Publishing…" : "Publish"}</Button>
-              </div>
-          </div>
-      </Card>}
-
-      <Dialog open={!!deleting} onOpenChange={o => { if (!o) setDeleting(null); }}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Delete this draft?</DialogTitle>
-            <DialogDescription>“{deleting?.title || "Untitled meeting"}” will be removed. This can't be undone.</DialogDescription></DialogHeader>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" className="rounded-full" onClick={() => setDeleting(null)}>Cancel</Button>
-            <Button type="button" variant="destructive" className="rounded-full" onClick={() => void deleteDraft()}>Delete draft</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Past meetings</p>
-        {published.length === 0
-          ? <p className="mt-3 text-sm text-muted-foreground">No AGM notes published yet.</p>
-          : <div className="mt-3 space-y-2">
-              {published.map(m => <PublishedMeetingCard key={m.id} meeting={m} isCommittee={isCommittee} schemeId={schemeId} lots={lots} />)}
-            </div>}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   </div>;
 }

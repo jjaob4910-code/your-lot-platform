@@ -24,7 +24,7 @@ import { FinanceSection, ensureDefaultFunds, type FinanceView, type FinanceBudge
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
 import { recordedFundBalances, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
-import { AgmSection, type AgmMeeting } from "@/components/agm";
+import { AgmSection, type AgmMeeting, type AgmSuggestion } from "@/components/agm";
 import { currentTaskFor, type ComplianceWidget, type Task } from "@/lib/action-publish";
 
 export const Route = createFileRoute("/dashboard")({
@@ -267,6 +267,14 @@ function DashboardPage() {
     enabled: !!userId,
   });
   const warnOverdrawn = myPrefs.data?.notify_fund_overdrawn ?? true;
+  const agmSuggestions = useQuery({
+    queryKey: ["agm-suggestions"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("agm_suggestions").select("*").order("created_at");
+      if (error) throw error;
+      return (data ?? []) as AgmSuggestion[];
+    },
+  });
   const agmMeetings = useQuery({
     queryKey: ["agm-meetings"],
     queryFn: async () => {
@@ -378,8 +386,10 @@ function DashboardPage() {
         onChanged={()=>refresh(["repairs","documents","document-folders","finance","notices","contractors"])}/>}
 
       {active === "AGM" && <AgmSection schemeId={schemeId} isCommittee={isCommittee} meetings={agmMeetings.data ?? []}
-        task={currentAgmTask} widgets={complianceWidgets.data ?? []} lots={lots.data ?? []}
-        onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets","agm-meetings"])}/>}
+        task={currentAgmTask} widgets={complianceWidgets.data ?? []} lots={lots.data ?? []} myLot={myLot}
+        scheme={scheme.data ? { name: scheme.data.name, address: scheme.data.address ?? null } : null}
+        suggestions={agmSuggestions.data ?? []} documents={documents.data ?? []}
+        onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets","agm-meetings","agm-suggestions","notices"])}/>}
 
       {active === "Finance" && <FinanceSection view={financeView} onViewChange={setFinanceView} transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}

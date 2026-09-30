@@ -46,6 +46,12 @@ export type Database = {
           },
         ]
       }
+      agm_suggestions: {
+        Row: { created_at: string; details: string | null; id: string; lot_id: string | null; meeting_id: string; status: string; title: string }
+        Insert: { created_at?: string; details?: string | null; id?: string; lot_id?: string | null; meeting_id: string; status?: string; title: string }
+        Update: { created_at?: string; details?: string | null; id?: string; lot_id?: string | null; meeting_id?: string; status?: string; title?: string }
+        Relationships: []
+      }
       agm_meetings: {
         Row: {
           agenda: Json
@@ -60,6 +66,12 @@ export type Database = {
           status: string
           title: string
           video_link: string | null
+          stage: string
+          notice_sent_at: string | null
+          notice_document_id: string | null
+          minutes_document_id: string | null
+          attendance: Json
+          updated_at: string
         }
         Insert: {
           agenda?: Json
@@ -74,6 +86,12 @@ export type Database = {
           status?: string
           title: string
           video_link?: string | null
+          stage?: string
+          notice_sent_at?: string | null
+          notice_document_id?: string | null
+          minutes_document_id?: string | null
+          attendance?: Json
+          updated_at?: string
         }
         Update: {
           agenda?: Json
@@ -88,6 +106,12 @@ export type Database = {
           status?: string
           title?: string
           video_link?: string | null
+          stage?: string
+          notice_sent_at?: string | null
+          notice_document_id?: string | null
+          minutes_document_id?: string | null
+          attendance?: Json
+          updated_at?: string
         }
         Relationships: [
           {
