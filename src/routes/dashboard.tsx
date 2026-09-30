@@ -23,7 +23,7 @@ import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment,
 import { FinanceSection, ensureDefaultFunds, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
-import { splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
+import { recordedFundBalances, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 import { AgmSection, type AgmMeeting } from "@/components/agm";
 import { currentTaskFor, type ComplianceWidget, type Task } from "@/lib/action-publish";
 
@@ -253,6 +253,20 @@ function DashboardPage() {
   });
   // Voided entries stay in the Finance ledger but never count anywhere else.
   const activeTransactions = (finance.data ?? []).filter(t => !t.voided_at);
+  const recordedBalances = recordedFundBalances(levies.data ?? [], activeTransactions);
+  const overdrawnFunds = (budgetFunds.data ?? []).filter(f => (recordedBalances[f.id] ?? 0) < 0)
+    .map(f => ({ id: f.id, name: f.name, balance: recordedBalances[f.id] ?? 0 }));
+  // Personal preference: each person can switch overdrawn alerts off for themselves.
+  const myPrefs = useQuery({
+    queryKey: ["user-preferences", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("user_preferences").select("notify_fund_overdrawn").eq("user_id", userId!).maybeSingle();
+      if (error) throw error;
+      return { notify_fund_overdrawn: data?.notify_fund_overdrawn ?? true };
+    },
+    enabled: !!userId,
+  });
+  const warnOverdrawn = myPrefs.data?.notify_fund_overdrawn ?? true;
   const agmMeetings = useQuery({
     queryKey: ["agm-meetings"],
     queryFn: async () => {
@@ -342,7 +356,7 @@ function DashboardPage() {
         <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Dashboard sections">{sections.map(([label])=><Button key={label} size="sm" variant={active===label?"default":"ghost"} className="rounded-full px-3.5 text-xs font-medium transition-all duration-300" onClick={()=>setActive(label)}>{label}</Button>)}</nav>
         <div className="ml-auto flex items-center gap-1">
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings" onClick={()=>setActive("Settings")}><Settings /></Button>
-          <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo}/>
+          <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo} overdrawnFunds={warnOverdrawn ? overdrawnFunds : []}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={()=>{ void supabase.auth.signOut().then(()=>navigate({ to: "/", replace: true })); }}><LogOut /></Button>
           <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav><div className="mt-4 border-t border-border/70 pt-4"><Button variant={active==="Settings"?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive("Settings")}><Settings/>Settings</Button></div></SheetContent></Sheet>
         </div>
@@ -360,6 +374,7 @@ function DashboardPage() {
 
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
         documents={documents.data ?? []} funds={budgetFunds.data ?? []} contractors={contractors.data ?? []} claims={claims.data ?? []}
+        fundBalances={warnOverdrawn ? recordedBalances : undefined}
         onChanged={()=>refresh(["repairs","documents","document-folders","finance","notices","contractors"])}/>}
 
       {active === "AGM" && <AgmSection schemeId={schemeId} isCommittee={isCommittee} meetings={agmMeetings.data ?? []}
@@ -369,7 +384,8 @@ function DashboardPage() {
       {active === "Finance" && <FinanceSection view={financeView} onViewChange={setFinanceView} transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
-        canManagePaid={canManagePaid.data ?? false} treasurerName={treasurerName} onOpenSettings={()=>setActive("Settings")}
+        canManagePaid={canManagePaid.data ?? false} treasurerName={treasurerName}
+        recordedBalances={recordedBalances} warnOverdrawn={warnOverdrawn} onOpenSettings={()=>setActive("Settings")}
         onChanged={()=>refresh(["finance","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
@@ -382,8 +398,8 @@ function DashboardPage() {
 
       {active === "Settings" && <SettingsSection scheme={scheme.data ?? null} lots={lots.data ?? []}
         committeeRoles={committeeRoles.data ?? []} settings={schemeSettings.data ?? null}
-        isCommittee={isCommittee} schemeId={schemeId}
-        onChanged={()=>refresh(["scheme","lots","committee-roles","scheme-settings","can-manage-paid"])}/>}
+        isCommittee={isCommittee} schemeId={schemeId} userId={userId} notifyFundOverdrawn={warnOverdrawn}
+        onChanged={()=>refresh(["scheme","lots","committee-roles","scheme-settings","can-manage-paid","user-preferences"])}/>}
     </main>
 
     <nav className="fixed inset-x-0 bottom-0 z-40 flex gap-1 overflow-x-auto scroll-px-2 snap-x snap-mandatory border-t border-border/70 bg-background/90 p-2 backdrop-blur-xl lg:hidden">{sections.map(([label,Icon])=><Button key={label} variant="ghost" className={`h-14 w-[76px] shrink-0 snap-center flex-col gap-1 rounded-2xl px-1 text-[9px] ${active===label?"bg-primary text-primary-foreground":"text-muted-foreground"}`} onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav>

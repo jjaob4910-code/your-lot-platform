@@ -548,10 +548,18 @@ function ManageFundsDialog({ open, onOpenChange, schemeId, funds, onChanged }: {
   </Dialog>;
 }
 
-function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, lineItems, onSaved }: {
+/** Amber, non-blocking notice when a payment would take a fund below $0. */
+export function OverdrawWarning({ fundName: name, after }: { fundName: string; after: number }) {
+  return <p role="alert" className="rounded-2xl bg-amber-500/10 px-4 py-3 text-[12px] leading-5 text-amber-800 dark:text-amber-300">
+    This will take the {name} fund to {money(after)} (based on what's recorded in Loty). You can still save it.
+  </p>;
+}
+
+function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, lineItems, onSaved, balances }: {
   open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; tx: FinanceTx | null; funds: BudgetFund[];
-  defaultFundId?: string | undefined; lineItems: BudgetLineItem[]; onSaved: () => void;
+  defaultFundId?: string | undefined; lineItems: BudgetLineItem[]; onSaved: () => void; balances?: Record<string, number> | undefined;
 }) {
+  const [amountText, setAmountText] = useState(tx ? String(tx.amount) : "");
   const [direction, setDirection] = useState(tx?.direction ?? "out");
   const [fundId, setFundId] = useState(tx?.fund_id ?? defaultFundId ?? funds[0]?.id ?? "");
   const [category, setCategory] = useState(tx?.category ?? "");
@@ -560,6 +568,10 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
   const categories = direction === "in" ? IN_CATEGORIES : OUT_CATEGORIES;
   const matchableLines = lineItems.filter(l => l.fund_id === fundId);
   const lockedPaid = tx?.status === "Paid";
+  // Balance after this save: add back this entry's own previous paid effect when editing.
+  const priorEffect = tx && !tx.voided_at && tx.status === "Paid" && tx.fund_id === fundId ? (tx.direction === "out" ? -Number(tx.amount) : tx.levy_id ? 0 : Number(tx.amount)) : 0;
+  const balanceAfter = balances && direction === "out" && status === "Paid" && fundId
+    ? (balances[fundId] ?? 0) - priorEffect - (Number(amountText) || 0) : null;
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -624,7 +636,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
           <div className="space-y-2"><Label htmlFor="supplier">{direction === "in" ? "Received from" : "Paid to"}</Label><Input id="supplier" name="supplier" defaultValue={tx?.supplier ?? ""} placeholder="Supplier or person" /></div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2"><Label htmlFor="amount">Amount</Label><Input id="amount" name="amount" type="number" min="0" step="0.01" defaultValue={tx?.amount ?? ""} required /></div>
+          <div className="space-y-2"><Label htmlFor="amount">Amount</Label><Input id="amount" name="amount" type="number" min="0" step="0.01" value={amountText} onChange={e => setAmountText(e.target.value)} required /></div>
           <div className="space-y-2"><Label htmlFor="occurred_on">Date</Label><Input id="occurred_on" name="occurred_on" type="date" defaultValue={tx?.occurred_on ?? new Date().toISOString().slice(0, 10)} /></div>
           <div className="space-y-2">
             <Label>Status</Label>
@@ -646,6 +658,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
           <p className="text-[11px] leading-5 text-muted-foreground">Matching this to a budget line lets Finance track spend against what was planned. Leave as "Not budgeted" for a cost that wasn't forecast — it'll be flagged for the AGM.</p>
         </div>}
         <div className="space-y-2"><Label htmlFor="notes">Notes</Label><Textarea id="notes" name="notes" rows={3} defaultValue={tx?.notes ?? ""} placeholder="Anything the committee should remember" /></div>
+        {balanceAfter !== null && balanceAfter < 0 && <OverdrawWarning fundName={fundName(funds, fundId)} after={balanceAfter} />}
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="submit" className="rounded-full">{tx ? "Save changes" : "Record it"}</Button>
@@ -1272,11 +1285,13 @@ function FinancePanel({ id, title, summary, open, onToggle, actions, children }:
   </section>;
 }
 
-export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged, view, onViewChange, canManagePaid = false, treasurerName = null, onOpenSettings }: {
+export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged, view, onViewChange, canManagePaid = false, treasurerName = null, onOpenSettings, recordedBalances = {}, warnOverdrawn = true }: {
   transactions: FinanceTx[]; budgets: FinanceBudget[]; lineItems: BudgetLineItem[]; levies: Levy[]; revisions: BudgetRevision[]; lots: FinLot[];
   funds: BudgetFund[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
   /** Treasurer (or any committee member when none is set) — may edit or void paid entries. */
   canManagePaid?: boolean; treasurerName?: string | null; onOpenSettings?: () => void;
+  /** Each fund's all-time recorded balance; warnOverdrawn is the viewer's own alert preference. */
+  recordedBalances?: Record<string, number>; warnOverdrawn?: boolean;
   onMarkLevyPaid: (id: string, paidAt: string) => void; onChanged: () => void;
   /** Section to bring into view, e.g. from a "Finance/Levies" deep link. */
   view?: FinanceView | undefined; onViewChange?: (v: FinanceView) => void;
@@ -1486,6 +1501,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
           <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{f.name}</p>
           <Coins className="size-4 shrink-0 text-muted-foreground" />
         </div>
+        {(recordedBalances[f.id] ?? 0) < 0 && <p className="mt-2 inline-flex rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive" title="Based on what's recorded in Loty">Overdrawn {money(recordedBalances[f.id] ?? 0)}</p>}
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary"><div className={`h-full rounded-full ${used > stat.budget ? "bg-destructive" : "bg-primary"}`} style={{ width: `${pct}%` }} /></div>
         <div className="mt-3">
           <Row label="Budget" value={money(stat.budget)} />
@@ -1578,7 +1594,8 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
     </Dialog>
 
     {txOpen && <TxDialog key={editing?.id ?? `new-${recordFundId ?? "any"}`} open={txOpen} onOpenChange={setTxOpen} schemeId={schemeId}
-      tx={editing} funds={funds} defaultFundId={recordFundId} lineItems={activeLineItems} onSaved={onChanged} />}
+      tx={editing} funds={funds} defaultFundId={recordFundId} lineItems={activeLineItems} onSaved={onChanged}
+      balances={warnOverdrawn ? recordedBalances : undefined} />}
 
     <Dialog open={forecastOpen} onOpenChange={setForecastOpen}>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[560px]">

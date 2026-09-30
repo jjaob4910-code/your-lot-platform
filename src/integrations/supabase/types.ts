@@ -770,6 +770,12 @@ export type Database = {
           },
         ]
       }
+      user_preferences: {
+        Row: { notify_fund_overdrawn: boolean; updated_at: string; user_id: string }
+        Insert: { notify_fund_overdrawn?: boolean; updated_at?: string; user_id: string }
+        Update: { notify_fund_overdrawn?: boolean; updated_at?: string; user_id?: string }
+        Relationships: []
+      }
       finance_transaction_history: {
         Row: {
           action: string

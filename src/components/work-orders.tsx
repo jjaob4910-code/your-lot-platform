@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { toast } from "sonner";
 import { DocPreviewTile } from "@/components/insurance";
 import type { DocFile } from "@/components/documents";
+import { OverdrawWarning } from "@/components/finance";
 import type { BudgetFund } from "@/components/overview";
 
 export type WorkOrderStep = {
@@ -555,10 +556,12 @@ function ContractorsList({ contractors, orders, isCommittee, schemeId, onChanged
   </div>;
 }
 
-export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, documents = [], funds = [], contractors = [], claims = [], onChanged }: {
+export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, documents = [], funds = [], contractors = [], claims = [], fundBalances, onChanged }: {
   orders: WorkOrder[]; lots: WorkOrderLot[]; isCommittee: boolean; myLot: WorkOrderLot | null;
   schemeId?: string | undefined;
-  documents?: DocFile[]; funds?: BudgetFund[]; contractors?: Contractor[]; claims?: LinkedClaim[]; onChanged: () => void;
+  documents?: DocFile[]; funds?: BudgetFund[]; contractors?: Contractor[]; claims?: LinkedClaim[];
+  /** Recorded fund balances, only when the viewer wants overdrawn warnings. */
+  fundBalances?: Record<string, number> | undefined; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -600,7 +603,7 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
     <Dialog open={!!current} onOpenChange={o => { if (!o) setViewing(null); }}>
       <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto overflow-x-hidden">
         {current && <WorkOrderDetail order={current} lots={lots} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
-          documents={documents} funds={funds} contractors={contractors} claims={claims.filter(c => c.work_order_id === current.id)} onChanged={onChanged} onDeleted={() => setViewing(null)}/>}
+          documents={documents} funds={funds} contractors={contractors} claims={claims.filter(c => c.work_order_id === current.id)} fundBalances={fundBalances} onChanged={onChanged} onDeleted={() => setViewing(null)}/>}
       </DialogContent>
     </Dialog>
   </div>;
@@ -639,8 +642,9 @@ function StepChain({ steps }: { steps: WorkOrderStep[] }) {
   </ol>;
 }
 
-function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, onClose, onDone }: {
-  quote: WorkOrderQuote | null; order: WorkOrder; contractorName: string | null; funds: BudgetFund[]; schemeId?: string | undefined; onClose: () => void; onDone: () => void;
+function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBalances, onClose, onDone }: {
+  quote: WorkOrderQuote | null; order: WorkOrder; contractorName: string | null; funds: BudgetFund[]; schemeId?: string | undefined;
+  fundBalances?: Record<string, number> | undefined; onClose: () => void; onDone: () => void;
 }) {
   const [fundId, setFundId] = useState<string>("");
   const [date, setDate] = useState(todayIso());
@@ -674,6 +678,8 @@ function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, onClose
           <Select value={fundId} onValueChange={setFundId}><SelectTrigger><SelectValue placeholder="Choose a fund"/></SelectTrigger>
             <SelectContent>{funds.map(f => <SelectItem key={f.id} value={f.id}>{f.name} fund</SelectItem>)}</SelectContent></Select></div>
         <div className="space-y-2"><Label htmlFor="paid_on">Payment date</Label><Input id="paid_on" type="date" value={date} onChange={e => setDate(e.target.value)}/></div>
+        {quote && fundBalances && fundId && (fundBalances[fundId] ?? 0) - Number(quote.amount) < 0 &&
+          <OverdrawWarning fundName={funds.find(f => f.id === fundId)?.name ?? "chosen"} after={(fundBalances[fundId] ?? 0) - Number(quote.amount)}/>}
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <Button type="button" variant="ghost" className="rounded-full" onClick={onClose}>Cancel</Button>
@@ -732,9 +738,10 @@ function AddQuoteForm({ order, contractors, schemeId, onAddContractor, pendingCo
 
 export type LinkedClaim = { id: string; title: string; status: string; work_order_id: string | null };
 
-export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, documents, funds, contractors, claims = [], onChanged, onDeleted }: {
+export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, documents, funds, contractors, claims = [], fundBalances, onChanged, onDeleted }: {
   order: WorkOrder; lots: WorkOrderLot[]; isCommittee: boolean; myLot: WorkOrderLot | null; schemeId?: string | undefined;
-  documents: DocFile[]; funds: BudgetFund[]; contractors: Contractor[]; claims?: LinkedClaim[]; onChanged: () => void; onDeleted: () => void;
+  documents: DocFile[]; funds: BudgetFund[]; contractors: Contractor[]; claims?: LinkedClaim[]; fundBalances?: Record<string, number> | undefined;
+  onChanged: () => void; onDeleted: () => void;
 }) {
   const queryClient = useQueryClient();
   const [note, setNote] = useState("");
@@ -1126,7 +1133,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
     </div>
 
     <ContractorDialog open={contractorOpen} onOpenChange={setContractorOpen} schemeId={schemeId} contractor={null} onSaved={id => { setNewContractorId(id); onChanged(); }}/>
-    <MarkPaidDialog quote={payingQuote} order={order} contractorName={payingQuote ? contractorName(payingQuote.contractor_id) : null} funds={funds} schemeId={schemeId}
+    <MarkPaidDialog quote={payingQuote} order={order} contractorName={payingQuote ? contractorName(payingQuote.contractor_id) : null} funds={funds} schemeId={schemeId} fundBalances={fundBalances}
       onClose={() => setPayingQuote(null)} onDone={refreshAll}/>
     <ConfirmDialog open={confirmClose} onOpenChange={setConfirmClose} title="Close this work order?"
       body="Every remaining step will be marked done and the work order moves to Completed." confirmLabel="Close work order" busy={busy} onConfirm={() => void closeOrder()}/>

@@ -163,10 +163,17 @@ function AddRoleDialog({ open, onOpenChange, lots, onSaved }: {
   </Dialog>;
 }
 
-export function SettingsSection({ scheme, lots, committeeRoles, settings, isCommittee, schemeId, onChanged }: {
+export function SettingsSection({ scheme, lots, committeeRoles, settings, isCommittee, schemeId, userId, notifyFundOverdrawn = true, onChanged }: {
   scheme: Scheme | null; lots: Lot[]; committeeRoles: CommitteeRole[]; settings: SchemeSettings | null;
-  isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
+  isCommittee: boolean; schemeId?: string | undefined; userId?: string | undefined; notifyFundOverdrawn?: boolean; onChanged: () => void;
 }) {
+  // Personal, not scheme-wide: each owner or committee member decides for themselves.
+  const setMyPreference = async (patch: { notify_fund_overdrawn: boolean }) => {
+    if (!userId) return;
+    const { error } = await supabase.from("user_preferences").upsert({ user_id: userId, ...patch });
+    if (error) { toast("Could not save that preference", { description: error.message }); return; }
+    onChanged();
+  };
   const navigate = useNavigate();
   const [editingScheme, setEditingScheme] = useState(false);
   const [creatingScheme, setCreatingScheme] = useState(false);
@@ -234,6 +241,14 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
           })}
           {committeeRoles.length === 0 && <p className="text-[13px] text-muted-foreground">No committee roles assigned yet.</p>}
         </div>
+      </div>
+    </Card>
+
+    <Card className="mt-6 overflow-hidden">
+      <SectionHeading title="My notifications" blurb="Just for you. Everyone chooses their own."/>
+      <div className="flex items-center justify-between gap-4 border-t border-border/70 px-7 py-4">
+        <div><p className="text-sm font-medium">Fund overdrawn alerts</p><p className="mt-1 text-[12px] text-muted-foreground">Tell me when a fund goes below $0, based on what's recorded in Loty.</p></div>
+        <Switch aria-label="Fund overdrawn alerts" checked={notifyFundOverdrawn} disabled={!userId} onCheckedChange={(checked)=>{ void setMyPreference({ notify_fund_overdrawn: checked }); }}/>
       </div>
     </Card>
 

@@ -48,6 +48,25 @@ export function splitLevyAcrossFunds(levy: Levy): { fund_id: string; amount: num
   return rounded;
 }
 
+// What each fund holds according to everything recorded in Loty, across all years:
+// paid levies plus paid money in, less paid money out. There's no opening bank balance,
+// so money held before the scheme started using Loty isn't included. Voided entries
+// must already be filtered out by the caller.
+export function recordedFundBalances(levies: Levy[], transactions: FundTx[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  const add = (fundId: string, v: number) => { out[fundId] = (out[fundId] ?? 0) + v; };
+  for (const l of levies) {
+    if (l.status !== "Paid") continue;
+    for (const t of l.budgets?.budget_fund_totals ?? []) add(t.fund_id, levyShareForFund(l, t.fund_id));
+  }
+  for (const t of transactions) {
+    if (t.status !== "Paid") continue;
+    if (t.direction === "in" && !t.levy_id) add(t.fund_id, Number(t.amount));
+    if (t.direction === "out") add(t.fund_id, -Number(t.amount));
+  }
+  return out;
+}
+
 export function computeFundBalances(levies: Levy[], transactions: FundTx[], year: number) {
   const yearLevies = levies.filter(l => l.budgets ? budgetStartYear(l.budgets.financial_year) === year : startYearOf(l.due_date) === year);
   const yearTx = transactions.filter(t => startYearOf(t.occurred_on) === year);

@@ -21,8 +21,10 @@ const relativeDay = (value: string) => {
 // the unread dot or count.
 type NotificationItem = { id: string; category: string; icon: typeof Bell; text: string; sub: string; tab: string; timestamp?: string | undefined };
 
-export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }: {
+export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, overdrawnFunds = [] }: {
   schemeId?: string | undefined; userId?: string | undefined; isCommittee: boolean; myLot: Lot | null; goTo: (tab: string) => void;
+  /** Already filtered by the viewer's own "Fund overdrawn alerts" preference. */
+  overdrawnFunds?: { id: string; name: string; balance: number }[];
 }) {
   const schemeSettings = useQuery({
     queryKey: ["notif-scheme-settings", schemeId],
@@ -193,7 +195,12 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo }
     items.push({ id: `unbudgeted-${tx.id}`, category: "Unbudgeted spend", icon: AlertTriangle, text: tx.description, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(tx.amount))} · not in the budget`, tab: "Finance/Cashflow", timestamp: tx.created_at });
   }
 
-  const categoryOrder = ["Approval needed", "Unbudgeted spend", "Work order update", "Levy due", "Obligations", "Upcoming event", "Message"];
+  for (const f of overdrawnFunds) {
+    items.push({ id: `overdrawn-${f.id}`, category: "Fund overdrawn", icon: AlertTriangle, text: `${f.name} fund is below $0`,
+      sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(f.balance)} based on what's recorded in Loty`, tab: "Finance/Cashflow" });
+  }
+
+  const categoryOrder = ["Fund overdrawn", "Approval needed", "Unbudgeted spend", "Work order update", "Levy due", "Obligations", "Upcoming event", "Message"];
   items.sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 
   const isUnread = (item: NotificationItem) => !!item.timestamp && (!lastReadAt || item.timestamp > lastReadAt);
