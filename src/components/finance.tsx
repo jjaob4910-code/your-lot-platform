@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Paperclip, Plus, Send, Settings2, Trash2, Undo2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -19,7 +19,79 @@ export type FinanceTx = {
   id: string; scheme_id: string; direction: string; fund_id: string; category: string | null;
   description: string; supplier: string | null; amount: number; occurred_on: string;
   status: string; work_order_id: string | null; notes: string | null; budget_line_item_id: string | null; levy_id: string | null; insurance_claim_id?: string | null;
+  voided_at?: string | null; void_reason?: string | null;
 };
+
+type TxHistory = { id: string; action: string; changes: Record<string, { from: unknown; to: unknown } | unknown>; reason: string | null; actor_label: string | null; created_at: string };
+const HISTORY_FIELD_LABELS: Record<string, string> = {
+  amount: "Amount", status: "Status", direction: "Direction", fund_id: "Fund", category: "Category", description: "Description",
+  supplier: "Paid to / from", occurred_on: "Date", notes: "Notes", budget_line_item_id: "Budget line", work_order_id: "Work order link",
+  levy_id: "Levy link", insurance_claim_id: "Insurance claim link",
+};
+
+// Who a transaction belongs to when it was created by another part of the app.
+const txSource = (t: FinanceTx) => t.levy_id ? "levy" : t.insurance_claim_id ? "insurance claim" : t.work_order_id && t.status === "Paid" ? "work order" : null;
+
+function TxHistoryDialog({ tx, funds, onOpenChange }: { tx: FinanceTx; funds: BudgetFund[]; onOpenChange: (v: boolean) => void }) {
+  const [rows, setRows] = useState<TxHistory[] | null>(null);
+  useEffect(() => {
+    void supabase.from("finance_transaction_history").select("*").eq("transaction_id", tx.id).order("created_at", { ascending: false })
+      .then(({ data }) => setRows((data ?? []) as unknown as TxHistory[]));
+  }, [tx.id]);
+  const show = (field: string, v: unknown) => {
+    if (v === null || v === undefined || v === "") return "—";
+    if (field === "amount") return money2(Number(v));
+    if (field === "fund_id") return `${fundName(funds, String(v))} fund`;
+    if (field === "occurred_on") return niceDate(String(v));
+    if (field.endsWith("_id")) return "linked";
+    return String(v);
+  };
+  const verb: Record<string, string> = { created: "Recorded", edited: "Edited", voided: "Voided", deleted: "Deleted" };
+  return <Dialog open onOpenChange={onOpenChange}>
+    <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[520px]">
+      <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">History</DialogTitle><DialogDescription>{tx.description}</DialogDescription></DialogHeader>
+      {rows === null ? <p className="py-6 text-center text-[13px] text-muted-foreground">Loading…</p>
+        : rows.length === 0 ? <p className="py-6 text-center text-[13px] text-muted-foreground">No changes recorded yet. Changes made from now on will appear here.</p>
+        : <ol className="space-y-4">
+            {rows.map(h => <li key={h.id} className="border-l-2 border-border pl-4">
+              <p className="text-[13px] font-medium">{verb[h.action] ?? h.action} by {h.actor_label ?? "someone"}</p>
+              <p className="text-[11px] text-muted-foreground">{new Date(h.created_at).toLocaleString("en-AU", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}</p>
+              {h.action === "edited" && <ul className="mt-1.5 space-y-0.5 text-[12px]">
+                {Object.entries(h.changes).map(([field, c]) => { const ch = c as { from: unknown; to: unknown };
+                  return <li key={field}><span className="text-muted-foreground">{HISTORY_FIELD_LABELS[field] ?? field}:</span> {show(field, ch.from)} → {show(field, ch.to)}</li>; })}
+              </ul>}
+              {h.action === "created" && <p className="mt-1.5 text-[12px] text-muted-foreground">{show("amount", (h.changes as Record<string, unknown>)["amount"])} · {String((h.changes as Record<string, unknown>)["status"] ?? "")}</p>}
+              {h.reason && <p className="mt-1.5 text-[12px]"><span className="text-muted-foreground">Reason:</span> {h.reason}</p>}
+            </li>)}
+          </ol>}
+    </DialogContent>
+  </Dialog>;
+}
+
+function VoidTxDialog({ tx, onOpenChange, onDone }: { tx: FinanceTx; onOpenChange: (v: boolean) => void; onDone: () => void }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!reason.trim()) { toast("Give a reason for voiding this transaction"); return; }
+    setBusy(true);
+    const { error } = await supabase.from("finance_transactions").update({ voided_at: new Date().toISOString(), void_reason: reason.trim() }).eq("id", tx.id);
+    setBusy(false);
+    if (error) { toast("Could not void it", { description: error.message }); return; }
+    toast("Transaction voided"); onDone(); onOpenChange(false);
+  };
+  return <Dialog open onOpenChange={onOpenChange}>
+    <DialogContent className="sm:max-w-[460px]">
+      <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Void this transaction?</DialogTitle>
+        <DialogDescription>{tx.description} · {money2(Number(tx.amount))}. It stays in the ledger crossed out and stops counting toward any total. This can't be undone.</DialogDescription></DialogHeader>
+      <div className="space-y-2"><Label htmlFor="void_reason">Reason</Label>
+        <Textarea id="void_reason" rows={3} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Entered twice by mistake" /></div>
+      <div className="flex justify-end gap-2 pt-2">
+        <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button type="button" variant="destructive" className="rounded-full" disabled={busy || !reason.trim()} onClick={() => void submit()}>{busy ? "Voiding…" : "Void transaction"}</Button>
+      </div>
+    </DialogContent>
+  </Dialog>;
+}
 export type BudgetLineItem = {
   id: string; budget_id: string; scheme_id: string; fund_id: string; description: string; amount: number;
   cost_type: string; occurrence: string; expected_month: number | null;
@@ -476,10 +548,18 @@ function ManageFundsDialog({ open, onOpenChange, schemeId, funds, onChanged }: {
   </Dialog>;
 }
 
-function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, lineItems, onSaved }: {
+/** Amber, non-blocking notice when a payment would take a fund below $0. */
+export function OverdrawWarning({ fundName: name, after }: { fundName: string; after: number }) {
+  return <p role="alert" className="rounded-2xl bg-amber-500/10 px-4 py-3 text-[12px] leading-5 text-amber-800 dark:text-amber-300">
+    This will take the {name} fund to {money(after)} (based on what's recorded in Loty). You can still save it.
+  </p>;
+}
+
+function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, lineItems, onSaved, balances }: {
   open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; tx: FinanceTx | null; funds: BudgetFund[];
-  defaultFundId?: string | undefined; lineItems: BudgetLineItem[]; onSaved: () => void;
+  defaultFundId?: string | undefined; lineItems: BudgetLineItem[]; onSaved: () => void; balances?: Record<string, number> | undefined;
 }) {
+  const [amountText, setAmountText] = useState(tx ? String(tx.amount) : "");
   const [direction, setDirection] = useState(tx?.direction ?? "out");
   const [fundId, setFundId] = useState(tx?.fund_id ?? defaultFundId ?? funds[0]?.id ?? "");
   const [category, setCategory] = useState(tx?.category ?? "");
@@ -487,6 +567,11 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
   const [budgetLineItemId, setBudgetLineItemId] = useState(tx?.budget_line_item_id ?? "");
   const categories = direction === "in" ? IN_CATEGORIES : OUT_CATEGORIES;
   const matchableLines = lineItems.filter(l => l.fund_id === fundId);
+  const lockedPaid = tx?.status === "Paid";
+  // Balance after this save: add back this entry's own previous paid effect when editing.
+  const priorEffect = tx && !tx.voided_at && tx.status === "Paid" && tx.fund_id === fundId ? (tx.direction === "out" ? -Number(tx.amount) : tx.levy_id ? 0 : Number(tx.amount)) : 0;
+  const balanceAfter = balances && direction === "out" && status === "Paid" && fundId
+    ? (balances[fundId] ?? 0) - priorEffect - (Number(amountText) || 0) : null;
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -505,20 +590,24 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
       budget_line_item_id: direction === "out" && budgetLineItemId !== "" ? budgetLineItemId : null,
     };
     if (payload.description === "") { toast("Give it a short description first"); return; }
+    const reason = text("change_reason");
+    if (lockedPaid && !reason) { toast("Give a reason for changing a paid transaction"); return; }
     const { error } = tx
-      ? await supabase.from("finance_transactions").update(payload).eq("id", tx.id)
+      ? await supabase.from("finance_transactions").update({ ...payload, change_reason: reason }).eq("id", tx.id)
       : await supabase.from("finance_transactions").insert(payload);
     if (error) { toast("Could not save that", { description: error.message }); return; }
-    onOpenChange(false); onSaved(); toast(tx ? "Entry updated" : "Entry recorded");
+    onOpenChange(false); onSaved(); toast(tx ? "Transaction updated" : "Transaction recorded");
   };
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[560px]">
       <DialogHeader>
-        <DialogTitle className="font-display tracking-[-0.02em]">{tx ? "Edit entry" : "Record money in or out"}</DialogTitle>
-        <DialogDescription>Every payment and receipt you record here feeds your fund balances and your forecast.</DialogDescription>
+        <DialogTitle className="font-display tracking-[-0.02em]">{tx ? "Edit transaction" : "Add a transaction"}</DialogTitle>
+        <DialogDescription>{lockedPaid ? "This transaction is paid. Your change and the reason for it are kept in its history." : "Every payment and receipt you record here feeds your fund balances and your forecast."}</DialogDescription>
       </DialogHeader>
       <form onSubmit={submit} className="space-y-4">
+        {lockedPaid && <div className="space-y-2"><Label htmlFor="change_reason">Reason for change</Label>
+          <Input id="change_reason" name="change_reason" required placeholder="e.g. Invoice amount corrected" /></div>}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Direction</Label>
@@ -547,7 +636,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
           <div className="space-y-2"><Label htmlFor="supplier">{direction === "in" ? "Received from" : "Paid to"}</Label><Input id="supplier" name="supplier" defaultValue={tx?.supplier ?? ""} placeholder="Supplier or person" /></div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2"><Label htmlFor="amount">Amount</Label><Input id="amount" name="amount" type="number" min="0" step="0.01" defaultValue={tx?.amount ?? ""} required /></div>
+          <div className="space-y-2"><Label htmlFor="amount">Amount</Label><Input id="amount" name="amount" type="number" min="0" step="0.01" value={amountText} onChange={e => setAmountText(e.target.value)} required /></div>
           <div className="space-y-2"><Label htmlFor="occurred_on">Date</Label><Input id="occurred_on" name="occurred_on" type="date" defaultValue={tx?.occurred_on ?? new Date().toISOString().slice(0, 10)} /></div>
           <div className="space-y-2">
             <Label>Status</Label>
@@ -569,6 +658,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
           <p className="text-[11px] leading-5 text-muted-foreground">Matching this to a budget line lets Finance track spend against what was planned. Leave as "Not budgeted" for a cost that wasn't forecast — it'll be flagged for the AGM.</p>
         </div>}
         <div className="space-y-2"><Label htmlFor="notes">Notes</Label><Textarea id="notes" name="notes" rows={3} defaultValue={tx?.notes ?? ""} placeholder="Anything the committee should remember" /></div>
+        {balanceAfter !== null && balanceAfter < 0 && <OverdrawWarning fundName={fundName(funds, fundId)} after={balanceAfter} />}
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button type="submit" className="rounded-full">{tx ? "Save changes" : "Record it"}</Button>
@@ -1181,23 +1271,27 @@ function FinancePanel({ id, title, summary, open, onToggle, actions, children }:
   id: FinanceView; title: string; summary: string; open: boolean; onToggle: () => void; actions?: ReactNode; children: ReactNode;
 }) {
   return <section id={`finance-${id.toLowerCase()}`} className="scroll-mt-24 rounded-[28px] border border-border/70 bg-card shadow-[0_1px_0_rgba(0,0,0,0.02)]">
-    <div className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:px-6">
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full min-w-0 items-center gap-3 text-left sm:flex-1">
         <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`} />
         <span className="min-w-0">
           <span className="block font-display text-xl tracking-[-0.02em]">{title}</span>
           <span className="mt-0.5 block text-[12px] text-muted-foreground">{summary}</span>
         </span>
       </button>
-      {open && actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      {open && actions && <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0">{actions}</div>}
     </div>
     {open && <div className="border-t border-border/70 p-4 sm:p-6">{children}</div>}
   </section>;
 }
 
-export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged, view, onViewChange }: {
+export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged, view, onViewChange, canManagePaid = false, treasurerName = null, onOpenSettings, recordedBalances = {}, warnOverdrawn = true }: {
   transactions: FinanceTx[]; budgets: FinanceBudget[]; lineItems: BudgetLineItem[]; levies: Levy[]; revisions: BudgetRevision[]; lots: FinLot[];
   funds: BudgetFund[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
+  /** Treasurer (or any committee member when none is set) — may edit or void paid entries. */
+  canManagePaid?: boolean; treasurerName?: string | null; onOpenSettings?: () => void;
+  /** Each fund's all-time recorded balance; warnOverdrawn is the viewer's own alert preference. */
+  recordedBalances?: Record<string, number>; warnOverdrawn?: boolean;
   onMarkLevyPaid: (id: string, paidAt: string) => void; onChanged: () => void;
   /** Section to bring into view, e.g. from a "Finance/Levies" deep link. */
   view?: FinanceView | undefined; onViewChange?: (v: FinanceView) => void;
@@ -1240,7 +1334,9 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
   const [filter, setFilter] = useState("all");
 
   const inYear = (iso: string) => startYearOf(iso) === year;
-  const yearTx = transactions.filter(t => inYear(t.occurred_on));
+  // The ledger shows voided entries (struck through); every total ignores them.
+  const ledgerTx = transactions.filter(t => inYear(t.occurred_on));
+  const yearTx = ledgerTx.filter(t => !t.voided_at);
   const yearBudgets = budgets.filter(b => budgetStartYear(b.financial_year) === year);
   const yearLevies = levies.filter(l => (l.budgets ? budgetStartYear(l.budgets.financial_year) === year : inYear(l.due_date)));
 
@@ -1297,15 +1393,18 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
   const projectedSpend = totalOut / monthsElapsed * 12 + totalCommitted;
   const projectedPosition = (totalIn + totalOwing) - projectedSpend;
 
-  const visible = yearTx
+  const visible = ledgerTx
     .filter(t => filter === "all" || (filter === "in" && t.direction === "in") || (filter === "out" && t.direction === "out") || filter === t.fund_id)
     .sort((a, b) => b.occurred_on.localeCompare(a.occurred_on));
 
   const remove = async (id: string) => {
     const { error } = await supabase.from("finance_transactions").delete().eq("id", id);
     if (error) { toast("Could not remove that", { description: error.message }); return; }
-    onChanged(); toast("Entry removed");
+    setDeleting(null); onChanged(); toast("Transaction removed");
   };
+  const [deleting, setDeleting] = useState<FinanceTx | null>(null);
+  const [voiding, setVoiding] = useState<FinanceTx | null>(null);
+  const [historyFor, setHistoryFor] = useState<FinanceTx | null>(null);
 
   const attach = async (tx: FinanceTx, file: File) => {
     if (!schemeId) return;
@@ -1347,7 +1446,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
       actions={isCommittee ? <>
         {activeBudget && !editingBudget && <Button size="sm" className="rounded-full" onClick={() => setEditingBudget(true)}><Pencil className="size-3.5" />Edit budget</Button>}
         {activeBudget && editingBudget && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setEditingBudget(false)}>Back to overview</Button>}
-        <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setManageFundsOpen(true)}><Settings2 className="size-3.5" />Manage funds</Button>
+        <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setManageFundsOpen(true)} aria-label="Manage funds"><Settings2 className="size-3.5" /><span className="hidden sm:inline">Manage funds</span></Button>
       </> : undefined}>
       {/* Building a new budget and editing one are the same spreadsheet. Once a budget is set,
          the overview is the resting state and the spreadsheet opens on demand. */}
@@ -1391,37 +1490,45 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
       summary={`Balance ${money(totalBalance)} · ${money(totalIn)} in, ${money(totalOut)} out`}
       actions={<>
         <Button size="sm" variant="outline" className="rounded-full" onClick={() => setForecastOpen(true)}><Send className="size-3.5" />Send forecast</Button>
-        {isCommittee && <Button size="sm" className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Record money</Button>}
+        {isCommittee && <Button size="sm" className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Add transaction</Button>}
       </>}>
     <div className="space-y-6">
-    <div className="grid gap-4 lg:grid-cols-3">
-      {funds.map(f => { const stat = fundStats[f.id]; if (!stat) return null; const fp = fundProjected(f.id); return <Card key={f.id} className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{f.name} fund</p>
-          </div>
-          <Coins className="size-4 text-muted-foreground" />
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+      {funds.map(f => { const stat = fundStats[f.id]; if (!stat) return null; const fp = fundProjected(f.id);
+        const used = stat.spent + stat.committed; const pct = stat.budget > 0 ? Math.min(100, used / stat.budget * 100) : 0;
+        return <Card key={f.id} className="p-4 sm:p-6">
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{f.name}</p>
+          <Coins className="size-4 shrink-0 text-muted-foreground" />
         </div>
-        <p className="mt-4 text-3xl font-medium tracking-[-0.03em] tabular-nums">{money(stat.balance)}</p>
-        <p className="mt-1 text-[12px] text-muted-foreground">Collected less spent this year</p>
-        <div className="mt-5">
+        {(recordedBalances[f.id] ?? 0) < 0 && <p className="mt-2 inline-flex rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive" title="Based on what's recorded in Loty">Overdrawn {money(recordedBalances[f.id] ?? 0)}</p>}
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary"><div className={`h-full rounded-full ${used > stat.budget ? "bg-destructive" : "bg-primary"}`} style={{ width: `${pct}%` }} /></div>
+        <div className="mt-3">
           <Row label="Budget" value={money(stat.budget)} />
-          <Row label="Collected" value={money(stat.collected)} />
-          <Row label="Still owing" value={money(stat.owing)} tone={stat.owing > 0 ? "text-destructive" : ""} />
           <Row label="Spent" value={money(stat.spent)} />
-          <Row label="Already committed" value={money(stat.committed)} />
-          <Row label="Remaining budget" value={money(stat.remaining)} tone={stat.remaining < 0 ? "text-destructive" : ""} />
-          <Row label="Projected year-end" value={money(Math.abs(fp.position))} tone={fp.position < 0 ? "text-destructive" : ""} />
+          <Row label="Remaining" value={money(stat.remaining)} tone={stat.remaining < 0 ? "text-destructive" : ""} />
+          <Row label="Projection" value={`${fp.position < 0 ? "−" : "+"}${money(Math.abs(fp.position))}`} tone={fp.position < 0 ? "text-destructive" : "text-primary"} />
         </div>
-        <p className="mt-3 text-[11px] leading-5 text-muted-foreground/80">{fp.position >= 0 ? "Surplus" : "Shortfall"} at this rate, {monthsElapsed} of 12 months counted.</p>
+        <details className="mt-3 text-[12px]">
+          <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">Details</summary>
+          <div className="mt-2">
+            <Row label="Balance" value={money(stat.balance)} />
+            <Row label="Collected" value={money(stat.collected)} />
+            <Row label="Still owing" value={money(stat.owing)} tone={stat.owing > 0 ? "text-destructive" : ""} />
+            <Row label="Committed" value={money(stat.committed)} />
+          </div>
+        </details>
       </Card>;})}
     </div>
 
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 p-6">
         <div>
-          <h2 className="font-display text-xl tracking-[-0.02em]">Money movements</h2>
-          <p className="mt-1 text-[13px] text-muted-foreground">Every expense and receipt, with the paperwork attached to it.</p>
+          <h2 className="font-display text-xl tracking-[-0.02em]">Transactions</h2>
+          <p className="mt-1 text-[13px] text-muted-foreground">Every expense and receipt, with the paperwork attached. Paid entries are locked; every change is kept in their history.</p>
+          <p className="mt-1.5 text-[12px]">{treasurerName
+            ? <span className="text-muted-foreground">Treasurer: <span className="font-medium text-foreground">{treasurerName}</span></span>
+            : <span className="text-muted-foreground">No Treasurer set, so any committee member can change paid entries.{isCommittee && onOpenSettings && <> <button type="button" className="font-medium text-primary hover:underline" onClick={onOpenSettings}>Set one in Settings</button></>}</span>}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={filter} onValueChange={setFilter}>
@@ -1436,37 +1543,59 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
         </div>
       </div>
       {visible.length === 0
-        ? <p className="p-10 text-center text-[13px] text-muted-foreground">Nothing recorded for {fyLabel(year)} yet.</p>
+        ? <p className="p-10 text-center text-[13px] text-muted-foreground">No transactions for {fyLabel(year)} yet.</p>
         : <div className="divide-y divide-border/60">
-            {visible.map(t => <div key={t.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
+            {visible.map(t => { const voided = !!t.voided_at; const paid = t.status === "Paid"; const source = txSource(t);
+              return <div key={t.id} className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 sm:px-6 ${voided ? "opacity-60" : ""}`}>
               <span className={`grid size-8 shrink-0 place-items-center rounded-full ${t.direction === "in" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
                 {t.direction === "in" ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}
               </span>
               <div className="min-w-[180px] flex-1">
-                <p className="text-sm font-medium">{t.description}{t.work_order_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Work order</span>}{t.insurance_claim_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Insurance claim</span>}</p>
+                <p className={`text-sm font-medium ${voided ? "line-through" : ""}`}>{paid && !voided && <Lock className="mr-1.5 inline size-3 -translate-y-px text-muted-foreground" aria-label="Paid, locked" />}{t.description}{t.work_order_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Work order</span>}{t.insurance_claim_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Insurance claim</span>}</p>
                 <p className="mt-0.5 text-[12px] text-muted-foreground">{[niceDate(t.occurred_on), t.category, t.supplier, `${fundName(funds, t.fund_id)} fund`].filter(Boolean).join(" · ")}
-                  {t.direction === "out" && t.status === "Paid" && !t.budget_line_item_id && <span className="ml-1.5 text-destructive">· not budgeted</span>}</p>
+                  {t.direction === "out" && paid && !voided && !t.budget_line_item_id && <span className="ml-1.5 text-destructive">· not budgeted</span>}</p>
+                {voided && <p className="mt-1 text-[12px] text-destructive">Voided{t.void_reason ? `: ${t.void_reason}` : ""}</p>}
+                {isCommittee && !voided && source && <p className="mt-1 text-[11px] text-muted-foreground">Managed from the {source}</p>}
+                {isCommittee && !voided && paid && !source && !canManagePaid && <p className="mt-1 text-[11px] text-muted-foreground">Locked: only the Treasurer can change paid transactions</p>}
                 {docsFor(t.id).length > 0 && <div className="mt-2 flex flex-wrap gap-2">
                   {docsFor(t.id).map(d => <button key={d.id} onClick={() => void openFinanceDoc(d)} className="rounded-full border border-border bg-secondary px-2.5 py-1 text-[11px] hover:bg-secondary/70">{d.name}</button>)}
                 </div>}
               </div>
-              <span className={`rounded-full border border-border px-2.5 py-1 text-[11px] ${t.status === "Paid" ? "text-muted-foreground" : "text-foreground"}`}>{t.status}</span>
-              <span className="w-28 text-right text-sm font-medium tabular-nums">{t.direction === "in" ? "+" : "−"}{money2(Number(t.amount))}</span>
-              {isCommittee && <div className="flex items-center gap-1">
-                <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Attach a receipt">
-                  <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attach(t, f); e.currentTarget.value = ""; }} /></label>
-                </Button>
-                <Button size="sm" variant="ghost" className="rounded-full text-xs" onClick={() => { setEditing(t); setTxOpen(true); }}>Edit</Button>
-                <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label="Remove entry" onClick={() => void remove(t.id)}><Trash2 className="size-4" /></Button>
-              </div>}
-            </div>)}
+              <span className={`rounded-full border border-border px-2.5 py-1 text-[11px] ${paid ? "text-muted-foreground" : "text-foreground"}`}>{voided ? "Voided" : t.status}</span>
+              <span className={`w-28 text-right text-sm font-medium tabular-nums ${voided ? "line-through" : ""}`}>{t.direction === "in" ? "+" : "−"}{money2(Number(t.amount))}</span>
+              <div className="flex items-center gap-1">
+                <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label={`History of ${t.description}`} onClick={() => setHistoryFor(t)}><History className="size-4" /></Button>
+                {isCommittee && !voided && <>
+                  <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Attach a receipt">
+                    <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attach(t, f); e.currentTarget.value = ""; }} /></label>
+                  </Button>
+                  {!source && (!paid || canManagePaid) && <Button size="sm" variant="ghost" className="rounded-full text-xs" onClick={() => { setEditing(t); setTxOpen(true); }}>Edit</Button>}
+                  {!source && paid && canManagePaid && <Button size="sm" variant="ghost" className="rounded-full text-xs text-destructive hover:text-destructive" onClick={() => setVoiding(t)}>Void</Button>}
+                  {!source && !paid && <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" aria-label={`Delete ${t.description}`} onClick={() => setDeleting(t)}><Trash2 className="size-4" /></Button>}
+                </>}
+              </div>
+            </div>; })}
           </div>}
     </Card>
     </div>
     </FinancePanel>
 
+    {historyFor && <TxHistoryDialog tx={historyFor} funds={funds} onOpenChange={o => { if (!o) setHistoryFor(null); }} />}
+    {voiding && <VoidTxDialog tx={voiding} onOpenChange={o => { if (!o) setVoiding(null); }} onDone={onChanged} />}
+    <Dialog open={!!deleting} onOpenChange={o => { if (!o) setDeleting(null); }}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Delete this transaction?</DialogTitle>
+          <DialogDescription>{deleting?.description} · {deleting ? money2(Number(deleting.amount)) : ""}. It isn't paid yet, so it can be removed. The deletion is kept in the history.</DialogDescription></DialogHeader>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" className="rounded-full" onClick={() => setDeleting(null)}>Cancel</Button>
+          <Button type="button" variant="destructive" className="rounded-full" onClick={() => { if (deleting) void remove(deleting.id); }}>Delete</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+
     {txOpen && <TxDialog key={editing?.id ?? `new-${recordFundId ?? "any"}`} open={txOpen} onOpenChange={setTxOpen} schemeId={schemeId}
-      tx={editing} funds={funds} defaultFundId={recordFundId} lineItems={activeLineItems} onSaved={onChanged} />}
+      tx={editing} funds={funds} defaultFundId={recordFundId} lineItems={activeLineItems} onSaved={onChanged}
+      balances={warnOverdrawn ? recordedBalances : undefined} />}
 
     <Dialog open={forecastOpen} onOpenChange={setForecastOpen}>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[560px]">

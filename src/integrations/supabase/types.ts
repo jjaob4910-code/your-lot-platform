@@ -46,6 +46,12 @@ export type Database = {
           },
         ]
       }
+      agm_suggestions: {
+        Row: { created_at: string; details: string | null; id: string; lot_id: string | null; meeting_id: string; status: string; title: string }
+        Insert: { created_at?: string; details?: string | null; id?: string; lot_id?: string | null; meeting_id: string; status?: string; title: string }
+        Update: { created_at?: string; details?: string | null; id?: string; lot_id?: string | null; meeting_id?: string; status?: string; title?: string }
+        Relationships: []
+      }
       agm_meetings: {
         Row: {
           agenda: Json
@@ -60,6 +66,12 @@ export type Database = {
           status: string
           title: string
           video_link: string | null
+          stage: string
+          notice_sent_at: string | null
+          notice_document_id: string | null
+          minutes_document_id: string | null
+          attendance: Json
+          updated_at: string
         }
         Insert: {
           agenda?: Json
@@ -74,6 +86,12 @@ export type Database = {
           status?: string
           title: string
           video_link?: string | null
+          stage?: string
+          notice_sent_at?: string | null
+          notice_document_id?: string | null
+          minutes_document_id?: string | null
+          attendance?: Json
+          updated_at?: string
         }
         Update: {
           agenda?: Json
@@ -88,6 +106,12 @@ export type Database = {
           status?: string
           title?: string
           video_link?: string | null
+          stage?: string
+          notice_sent_at?: string | null
+          notice_document_id?: string | null
+          minutes_document_id?: string | null
+          attendance?: Json
+          updated_at?: string
         }
         Relationships: [
           {
@@ -770,6 +794,48 @@ export type Database = {
           },
         ]
       }
+      user_preferences: {
+        Row: { notify_fund_overdrawn: boolean; updated_at: string; user_id: string }
+        Insert: { notify_fund_overdrawn?: boolean; updated_at?: string; user_id: string }
+        Update: { notify_fund_overdrawn?: boolean; updated_at?: string; user_id?: string }
+        Relationships: []
+      }
+      finance_transaction_history: {
+        Row: {
+          action: string
+          actor_label: string | null
+          actor_user_id: string | null
+          changes: Json
+          created_at: string
+          id: string
+          reason: string | null
+          scheme_id: string
+          transaction_id: string
+        }
+        Insert: {
+          action: string
+          actor_label?: string | null
+          actor_user_id?: string | null
+          changes?: Json
+          created_at?: string
+          id?: string
+          reason?: string | null
+          scheme_id: string
+          transaction_id: string
+        }
+        Update: {
+          action?: string
+          actor_label?: string | null
+          actor_user_id?: string | null
+          changes?: Json
+          created_at?: string
+          id?: string
+          reason?: string | null
+          scheme_id?: string
+          transaction_id?: string
+        }
+        Relationships: []
+      }
       finance_transactions: {
         Row: {
           amount: number
@@ -788,12 +854,17 @@ export type Database = {
           status: string
           supplier: string | null
           updated_at: string
+          change_reason: string | null
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
           work_order_id: string | null
         }
         Insert: {
           amount?: number
           budget_line_item_id?: string | null
           category?: string | null
+          change_reason?: string | null
           created_at?: string
           description: string
           direction?: string
@@ -807,6 +878,9 @@ export type Database = {
           status?: string
           supplier?: string | null
           updated_at?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
           work_order_id?: string | null
         }
         Update: {
@@ -826,6 +900,10 @@ export type Database = {
           status?: string
           supplier?: string | null
           updated_at?: string
+          change_reason?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
           work_order_id?: string | null
         }
         Relationships: [
@@ -1710,6 +1788,12 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_manage_paid_finance: {
+        Args: { _scheme: string; _user: string }
+        Returns: boolean
+      }
+      finance_actor_label: { Args: { _user: string }; Returns: string }
+      scheme_has_treasurer: { Args: { _scheme: string }; Returns: boolean }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
