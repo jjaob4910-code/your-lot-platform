@@ -20,7 +20,7 @@ import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
 import type { Claim } from "@/components/insurance-claims";
 import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment, type BudgetFund } from "@/components/overview";
-import { FinanceSection, ensureDefaultFunds, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
+import { FinanceSection, ensureDefaultFunds, type RecurringTx, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
 import { recordedFundBalances, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
@@ -251,6 +251,14 @@ function DashboardPage() {
       return (data ?? []) as unknown as FinanceTx[];
     },
   });
+  const recurringTx = useQuery({
+    queryKey: ["recurring"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("recurring_transactions").select("*").order("created_at");
+      if (error) throw error;
+      return (data ?? []) as unknown as RecurringTx[];
+    },
+  });
   // Voided entries stay in the Finance ledger but never count anywhere else.
   const activeTransactions = (finance.data ?? []).filter(t => !t.voided_at);
   const recordedBalances = recordedFundBalances(levies.data ?? [], activeTransactions);
@@ -395,8 +403,8 @@ function DashboardPage() {
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
         canManagePaid={canManagePaid.data ?? false} treasurerName={treasurerName}
-        recordedBalances={recordedBalances} warnOverdrawn={warnOverdrawn} userId={userId} onOpenSettings={()=>setActive("Settings")}
-        onChanged={()=>refresh(["finance","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
+        recordedBalances={recordedBalances} warnOverdrawn={warnOverdrawn} userId={userId} recurring={recurringTx.data ?? []} onOpenSettings={()=>setActive("Settings")}
+        onChanged={()=>refresh(["finance","recurring","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","insurance-claims","documents","document-folders"])}

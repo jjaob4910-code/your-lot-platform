@@ -46,79 +46,132 @@ export type Database = {
           },
         ]
       }
-      agm_suggestions: {
-        Row: { created_at: string; details: string | null; id: string; lot_id: string | null; meeting_id: string; status: string; title: string }
-        Insert: { created_at?: string; details?: string | null; id?: string; lot_id?: string | null; meeting_id: string; status?: string; title: string }
-        Update: { created_at?: string; details?: string | null; id?: string; lot_id?: string | null; meeting_id?: string; status?: string; title?: string }
-        Relationships: []
-      }
       agm_meetings: {
         Row: {
           agenda: Json
+          attendance: Json
           created_at: string
           id: string
           location: string | null
           meeting_date: string | null
           meeting_time: string | null
+          minutes_document_id: string | null
           notes: string
+          notice_document_id: string | null
+          notice_sent_at: string | null
           published_at: string | null
           scheme_id: string
+          stage: string
           status: string
           title: string
-          video_link: string | null
-          stage: string
-          notice_sent_at: string | null
-          notice_document_id: string | null
-          minutes_document_id: string | null
-          attendance: Json
           updated_at: string
+          video_link: string | null
         }
         Insert: {
           agenda?: Json
+          attendance?: Json
           created_at?: string
           id?: string
           location?: string | null
           meeting_date?: string | null
           meeting_time?: string | null
+          minutes_document_id?: string | null
           notes?: string
+          notice_document_id?: string | null
+          notice_sent_at?: string | null
           published_at?: string | null
           scheme_id: string
+          stage?: string
           status?: string
           title: string
-          video_link?: string | null
-          stage?: string
-          notice_sent_at?: string | null
-          notice_document_id?: string | null
-          minutes_document_id?: string | null
-          attendance?: Json
           updated_at?: string
+          video_link?: string | null
         }
         Update: {
           agenda?: Json
+          attendance?: Json
           created_at?: string
           id?: string
           location?: string | null
           meeting_date?: string | null
           meeting_time?: string | null
+          minutes_document_id?: string | null
           notes?: string
+          notice_document_id?: string | null
+          notice_sent_at?: string | null
           published_at?: string | null
           scheme_id?: string
+          stage?: string
           status?: string
           title?: string
-          video_link?: string | null
-          stage?: string
-          notice_sent_at?: string | null
-          notice_document_id?: string | null
-          minutes_document_id?: string | null
-          attendance?: Json
           updated_at?: string
+          video_link?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "agm_meetings_minutes_document_id_fkey"
+            columns: ["minutes_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agm_meetings_notice_document_id_fkey"
+            columns: ["notice_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "agm_meetings_scheme_id_fkey"
             columns: ["scheme_id"]
             isOneToOne: false
             referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agm_suggestions: {
+        Row: {
+          created_at: string
+          details: string | null
+          id: string
+          lot_id: string | null
+          meeting_id: string
+          status: string
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          details?: string | null
+          id?: string
+          lot_id?: string | null
+          meeting_id: string
+          status?: string
+          title: string
+        }
+        Update: {
+          created_at?: string
+          details?: string | null
+          id?: string
+          lot_id?: string | null
+          meeting_id?: string
+          status?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agm_suggestions_lot_id_fkey"
+            columns: ["lot_id"]
+            isOneToOne: false
+            referencedRelation: "lots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agm_suggestions_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "agm_meetings"
             referencedColumns: ["id"]
           },
         ]
@@ -794,12 +847,6 @@ export type Database = {
           },
         ]
       }
-      user_preferences: {
-        Row: { notify_fund_overdrawn: boolean; updated_at: string; user_id: string }
-        Insert: { notify_fund_overdrawn?: boolean; updated_at?: string; user_id: string }
-        Update: { notify_fund_overdrawn?: boolean; updated_at?: string; user_id?: string }
-        Relationships: []
-      }
       finance_transaction_history: {
         Row: {
           action: string
@@ -841,7 +888,9 @@ export type Database = {
           amount: number
           budget_line_item_id: string | null
           category: string | null
+          change_reason: string | null
           created_at: string
+          created_by: string | null
           description: string
           direction: string
           fund_id: string
@@ -850,11 +899,11 @@ export type Database = {
           levy_id: string | null
           notes: string | null
           occurred_on: string
+          recurring_id: string | null
           scheme_id: string
           status: string
           supplier: string | null
           updated_at: string
-          change_reason: string | null
           void_reason: string | null
           voided_at: string | null
           voided_by: string | null
@@ -866,6 +915,7 @@ export type Database = {
           category?: string | null
           change_reason?: string | null
           created_at?: string
+          created_by?: string | null
           description: string
           direction?: string
           fund_id: string
@@ -874,6 +924,7 @@ export type Database = {
           levy_id?: string | null
           notes?: string | null
           occurred_on?: string
+          recurring_id?: string | null
           scheme_id: string
           status?: string
           supplier?: string | null
@@ -887,7 +938,9 @@ export type Database = {
           amount?: number
           budget_line_item_id?: string | null
           category?: string | null
+          change_reason?: string | null
           created_at?: string
+          created_by?: string | null
           description?: string
           direction?: string
           fund_id?: string
@@ -896,11 +949,11 @@ export type Database = {
           levy_id?: string | null
           notes?: string | null
           occurred_on?: string
+          recurring_id?: string | null
           scheme_id?: string
           status?: string
           supplier?: string | null
           updated_at?: string
-          change_reason?: string | null
           void_reason?: string | null
           voided_at?: string | null
           voided_by?: string | null
@@ -933,6 +986,13 @@ export type Database = {
             columns: ["levy_id"]
             isOneToOne: false
             referencedRelation: "levies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_transactions_recurring_id_fkey"
+            columns: ["recurring_id"]
+            isOneToOne: false
+            referencedRelation: "recurring_transactions"
             referencedColumns: ["id"]
           },
           {
@@ -1483,6 +1543,82 @@ export type Database = {
         }
         Relationships: []
       }
+      recurring_transactions: {
+        Row: {
+          active: boolean
+          amount: number
+          budget_line_item_id: string | null
+          category: string | null
+          created_at: string
+          created_by: string | null
+          description: string
+          direction: string
+          end_date: string | null
+          frequency: string
+          fund_id: string
+          id: string
+          next_date: string
+          scheme_id: string
+          supplier: string | null
+        }
+        Insert: {
+          active?: boolean
+          amount: number
+          budget_line_item_id?: string | null
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          description: string
+          direction: string
+          end_date?: string | null
+          frequency: string
+          fund_id: string
+          id?: string
+          next_date: string
+          scheme_id: string
+          supplier?: string | null
+        }
+        Update: {
+          active?: boolean
+          amount?: number
+          budget_line_item_id?: string | null
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          direction?: string
+          end_date?: string | null
+          frequency?: string
+          fund_id?: string
+          id?: string
+          next_date?: string
+          scheme_id?: string
+          supplier?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recurring_transactions_budget_line_item_id_fkey"
+            columns: ["budget_line_item_id"]
+            isOneToOne: false
+            referencedRelation: "budget_line_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recurring_transactions_fund_id_fkey"
+            columns: ["fund_id"]
+            isOneToOne: false
+            referencedRelation: "budget_funds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recurring_transactions_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scheme_settings: {
         Row: {
           created_at: string
@@ -1554,6 +1690,24 @@ export type Database = {
           next_agm_date?: string | null
           tier?: string | null
           total_lots?: number
+        }
+        Relationships: []
+      }
+      user_preferences: {
+        Row: {
+          notify_fund_overdrawn: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          notify_fund_overdrawn?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          notify_fund_overdrawn?: boolean
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -1793,7 +1947,10 @@ export type Database = {
         Returns: boolean
       }
       finance_actor_label: { Args: { _user: string }; Returns: string }
-      scheme_has_treasurer: { Args: { _scheme: string }; Returns: boolean }
+      generate_recurring_transactions: {
+        Args: { _scheme: string }
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1802,6 +1959,8 @@ export type Database = {
         Returns: boolean
       }
       owns_lot: { Args: { _lot_id: string }; Returns: boolean }
+      recurring_step: { Args: { _d: string; _freq: string }; Returns: string }
+      scheme_has_treasurer: { Args: { _scheme: string }; Returns: boolean }
     }
     Enums: {
       app_role: "Owner" | "Committee"
