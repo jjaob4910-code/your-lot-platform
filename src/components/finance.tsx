@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -104,7 +104,7 @@ function VoidTxDialog({ tx, onOpenChange, onDone }: { tx: FinanceTx; onOpenChang
 }
 export type BudgetLineItem = {
   id: string; budget_id: string; scheme_id: string; fund_id: string; description: string; amount: number;
-  cost_type: string; occurrence: string; expected_month: number | null;
+  cost_type: string; occurrence: string; expected_month: number | null; expected_date?: string | null;
 };
 export type FinanceBudget = {
   id: string; financial_year: string; total_amount: number; budget_fund_totals: { fund_id: string; total: number }[];
@@ -239,7 +239,7 @@ export async function ensureDefaultFunds(schemeId: string, existingFundCount: nu
 
 function reminderText(levy: Levy, status: string) {
   const who = levy.lots?.owner_name ?? "there";
-  const year = levy.budgets?.financial_year ? ` for ${levy.budgets.financial_year}` : "";
+  const year = `${levy.label ? ` (${levy.label})` : ""}${levy.budgets?.financial_year ? ` for ${levy.budgets.financial_year}` : ""}`;
   return status === "Overdue"
     ? `Hi ${who},\n\nA quick friendly note: the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} was due on ${niceDate(levy.due_date)} and is still showing as unpaid on our records.\n\nIf you have already paid, please ignore this and let us know so we can update the books. Otherwise, whenever you get a chance is fine.\n\nThanks,\nYour owners corporation committee`
     : `Hi ${who},\n\nJust a friendly reminder that the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} is due on ${niceDate(levy.due_date)}.\n\nNo action needed if it is already on its way.\n\nThanks,\nYour owners corporation committee`;
@@ -252,6 +252,10 @@ function reminderText(levy: Levy, status: string) {
 export function levySendText(levy: Levy, funds: BudgetFund[]): { title: string; message: string } {
   const year = levy.budgets?.financial_year ? ` for ${levy.budgets.financial_year}` : "";
   const lot = levy.lots?.lot_number ?? "";
+  if (levy.label) return {
+    title: `${levy.label}${year} — Lot ${lot}`,
+    message: `${levy.label}${year}: Lot ${lot} owes ${money(Number(levy.amount))}, due ${niceDate(levy.due_date)}. This is separate from your regular levy.`,
+  };
   const breakdown = funds.map(f => `${f.name}: ${money(levyShareForFund(levy, f.id))}`).join(" · ");
   return {
     title: `Levy issued${year} — Lot ${lot}`,
@@ -302,8 +306,10 @@ export const shareAmount = (method: string, entitlementPercent: number, lotCount
 
 export type DraftLine = {
   id: string; fundId: string; costType: "Fixed" | "Variable"; occurrence: Occurrence;
-  description: string; amount: string; month: string; file: File | null;
+  description: string; amount: string; month: string; file: File | null; date?: string;
 };
+// Month (1–12) a line is expected in: from its date when set, else the legacy month.
+const lineMonth = (l: DraftLine) => l.date ? Number(l.date.slice(5, 7)) : l.month ? Number(l.month) : null;
 export const emptyDraftLine = (defaultFundId = ""): DraftLine => ({ id: crypto.randomUUID(), fundId: defaultFundId, costType: "Variable", occurrence: "Annually", description: "", amount: "", month: "", file: null });
 export const draftTotals = (lines: DraftLine[], funds: BudgetFund[]) => {
   const byFund: Record<string, number> = {};
@@ -338,7 +344,7 @@ export const starterBudgetLines = (funds: BudgetFund[]): DraftLine[] => {
 const lineItemsToDraft = (items: BudgetLineItem[], funds: BudgetFund[]): DraftLine[] =>
   items.length ? items.map(i => {
     const occurrence = (OCCURRENCES as readonly string[]).includes(i.occurrence) ? (i.occurrence as Occurrence) : "Annually";
-    return { id: i.id, fundId: i.fund_id, costType: i.cost_type === "Fixed" ? "Fixed" : "Variable", occurrence, description: i.description, amount: String(perOccurrenceAmount(Number(i.amount), occurrence)), month: i.expected_month ? String(i.expected_month) : "", file: null };
+    return { id: i.id, fundId: i.fund_id, costType: i.cost_type === "Fixed" ? "Fixed" : "Variable", occurrence, description: i.description, amount: String(perOccurrenceAmount(Number(i.amount), occurrence)), month: i.expected_month ? String(i.expected_month) : "", date: i.expected_date ?? "", file: null };
   })
     : [emptyDraftLine(funds[0]?.id)];
 const jsonLineItemsToDraft = (items: DraftLineItemJson[], funds: BudgetFund[]): DraftLine[] =>
@@ -377,6 +383,30 @@ const refundText = (levy: Levy, diff: number, financialYear: string) => {
     : `Hi ${who},\n\nFollowing a correction to the ${financialYear} budget, your paid levy for Lot ${lot} of ${money(Number(levy.amount))} has been reassessed at ${money(reassessed)}.\n\nAn additional ${money(diff)} is now owing. The committee will follow up with you about this.\n\nThanks,\nYour owners corporation committee`;
 };
 
+/** Money field with live thousands separators. `value` is the plain number text (no commas). */
+export function MoneyInput({ value, onChange, className = "", ...rest }: { value: string; onChange: (raw: string) => void; className?: string | undefined } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
+  const display = (() => {
+    if (value === "") return "";
+    const [whole = "", frac] = value.split(".");
+    const w = whole.replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return frac !== undefined ? `${w}.${frac}` : w;
+  })();
+  return <Input {...rest} type="text" inputMode="decimal" autoComplete="off" value={display} className={className}
+    onChange={e => {
+      let raw = e.target.value.replace(/[^\d.]/g, "");
+      const dot = raw.indexOf(".");
+      if (dot !== -1) raw = raw.slice(0, dot + 1) + raw.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+      raw = raw.replace(/^0+(?=\d)/, "");
+      onChange(raw);
+    }} />;
+}
+
+/** MoneyInput for plain forms read with FormData: submits the number without commas under `name`. */
+export function MoneyFormField({ name, defaultValue, id, ...rest }: { name: string; defaultValue?: number | string | null; id?: string } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type" | "name" | "defaultValue">) {
+  const [v, setV] = useState(defaultValue === null || defaultValue === undefined ? "" : String(defaultValue));
+  return <><MoneyInput {...rest} {...(id ? { id } : {})} value={v} onChange={setV} /><input type="hidden" name={name} value={v} /></>;
+}
+
 // A spreadsheet-style editor: one row per cost, fund/type/occurrence/month as dropdowns,
 // amount as a plain number field, live subtotals per fund at the bottom. Used both for
 // building a brand-new budget and for editing an existing one. Renders as a stacked-card
@@ -391,38 +421,45 @@ export function LineItemsEditor({ lines, setLines, funds, startYear, spentByLine
   const totals = draftTotals(lines, funds);
   const tracking = !!spentByLineId;
 
-  const FundSelect = ({ line }: { line: DraftLine }) => (
+  // Plain render helpers (not nested components): a nested component is a new type on every
+  // render, so React would remount the inputs on each keystroke and drop the cursor.
+  const fundSelect = (line: DraftLine) => (
     <Select value={line.fundId} onValueChange={(v) => update(line.id, { fundId: v })}>
-      <SelectTrigger className="h-9 w-full sm:w-[130px]"><SelectValue placeholder="Choose a fund" /></SelectTrigger>
+      <SelectTrigger className="h-9 w-full sm:w-[130px]" aria-label="Fund"><SelectValue placeholder="Choose a fund" /></SelectTrigger>
       <SelectContent>{funds.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
     </Select>
   );
-  const TypeSelect = ({ line }: { line: DraftLine }) => (
+  const typeSelect = (line: DraftLine) => (
     <Select value={line.costType} onValueChange={(v) => update(line.id, { costType: v as "Fixed" | "Variable" })}>
-      <SelectTrigger className="h-9 w-full sm:w-[100px]"><SelectValue /></SelectTrigger>
+      <SelectTrigger className="h-9 w-full sm:w-[100px]" aria-label="Type"><SelectValue /></SelectTrigger>
       <SelectContent><SelectItem value="Fixed">Fixed</SelectItem><SelectItem value="Variable">Variable</SelectItem></SelectContent>
     </Select>
   );
-  const OccurrenceSelect = ({ line }: { line: DraftLine }) => (
+  const occurrenceSelect = (line: DraftLine) => (
     <Select value={line.occurrence} onValueChange={(v) => update(line.id, { occurrence: v as Occurrence })}>
-      <SelectTrigger className="h-9 w-full sm:w-[110px]"><SelectValue /></SelectTrigger>
+      <SelectTrigger className="h-9 w-full sm:w-[110px]" aria-label="Occurrence"><SelectValue /></SelectTrigger>
       <SelectContent>{OCCURRENCES.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
     </Select>
   );
-  const MonthSelect = ({ line }: { line: DraftLine }) => (
-    <Select value={line.month} onValueChange={(v) => update(line.id, { month: v })}>
-      <SelectTrigger className="h-9 w-full sm:w-[110px]"><SelectValue placeholder="Not yet" /></SelectTrigger>
-      <SelectContent>{FY_MONTHS.map(m => <SelectItem key={m} value={String(m)}>{startYear ? monthLabel(m, startYear) : monthName(m)}</SelectItem>)}</SelectContent>
-    </Select>
+  // A real date within the budget's financial year, or blank. Older lines with only a month show it until a date is picked.
+  const dateField = (line: DraftLine) => (
+    <div className="flex items-center gap-1">
+      <Input type="date" value={line.date ?? ""} aria-label="Expected date" className="h-9 w-full sm:w-[150px]"
+        min={startYear ? `${startYear}-07-01` : undefined} max={startYear ? `${startYear + 1}-06-30` : undefined}
+        onChange={e => update(line.id, { date: e.target.value, month: e.target.value ? String(Number(e.target.value.slice(5, 7))) : line.month })} />
+      {line.date
+        ? <Button type="button" size="icon" variant="ghost" className="size-7 shrink-0 rounded-full text-muted-foreground" aria-label="Clear date" onClick={() => update(line.id, { date: "", month: "" })}><X className="size-3.5" /></Button>
+        : line.month && <span className="shrink-0 text-[11px] text-muted-foreground">{startYear ? monthLabel(Number(line.month), startYear) : monthName(Number(line.month))}</span>}
+    </div>
   );
-  const AmountField = ({ line }: { line: DraftLine }) => {
+  const amountField = (line: DraftLine) => {
     const annual = annualAmount(Number(line.amount) || 0, line.occurrence);
     return <div>
-      <Input type="number" min="0" step="0.01" placeholder="0" value={line.amount} onChange={e => update(line.id, { amount: e.target.value })} className="h-9 text-right" />
-      {line.occurrence !== "Annually" && Number(line.amount) > 0 && <p className="mt-1 text-right text-[11px] text-muted-foreground">= {money(annual)}/yr</p>}
+      <MoneyInput placeholder="0" value={line.amount} onChange={raw => update(line.id, { amount: raw })} className="h-9 w-full sm:w-[130px]" aria-label="Budgeted amount" />
+      {line.occurrence !== "Annually" && Number(line.amount) > 0 && <p className="mt-1 text-[11px] text-muted-foreground">= {money(annual)}/yr</p>}
     </div>;
   };
-  const AttachRemove = ({ line }: { line: DraftLine }) => (
+  const attachRemove = (line: DraftLine) => (
     <div className="flex items-center justify-end gap-0.5">
       <Button asChild type="button" size="icon" variant="ghost" className="rounded-full" aria-label="Attach evidence of cost">
         <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0] ?? null; update(line.id, { file: f }); e.currentTarget.value = ""; }} /></label>
@@ -433,7 +470,7 @@ export function LineItemsEditor({ lines, setLines, funds, startYear, spentByLine
 
   return <div className="space-y-3">
     <p className="text-[11px] leading-5 text-muted-foreground">
-      <span className="font-medium">Fixed</span> — a known, recurring cost (insurance, a cleaning contract). <span className="font-medium">Variable</span> — a one-off or estimated cost (a repair quote). Type the amount per occurrence and we'll work out the annual figure that gets budgeted. <span className="font-medium">When</span> — the month you expect to pay it; leave blank if you're not sure yet.
+      <span className="font-medium">Fixed</span> — a known, recurring cost (insurance, a cleaning contract). <span className="font-medium">Variable</span> — a one-off or estimated cost (a repair quote). Type the amount per occurrence and we'll work out the annual figure that gets budgeted. <span className="font-medium">Date</span> — when you expect to pay it; leave blank if you're not sure yet.
     </p>
 
     {/* Mobile: stacked cards, one per line item */}
@@ -444,17 +481,17 @@ export function LineItemsEditor({ lines, setLines, funds, startYear, spentByLine
         return <div key={line.id} className="space-y-3 rounded-2xl border border-border/70 p-3">
           <div className="flex items-start justify-between gap-2">
             <Input placeholder="What is it" value={line.description} onChange={e => update(line.id, { description: e.target.value })} className="h-9 flex-1" />
-            <AttachRemove line={line} />
+            {attachRemove(line)}
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <FundSelect line={line} />
-            <TypeSelect line={line} />
-            <OccurrenceSelect line={line} />
-            <MonthSelect line={line} />
+            {fundSelect(line)}
+            {typeSelect(line)}
+            {occurrenceSelect(line)}
+            {dateField(line)}
           </div>
           <div>
             <Label className="text-[11px] text-muted-foreground">Amount per {line.occurrence.toLowerCase()}</Label>
-            <div className="mt-1"><AmountField line={line} /></div>
+            <div className="mt-1">{amountField(line)}</div>
           </div>
           {tracking && <div className="flex justify-between border-t border-border/60 pt-2 text-[12px]">
             <span className="text-muted-foreground">Spent {money(spent)}</span>
@@ -466,17 +503,17 @@ export function LineItemsEditor({ lines, setLines, funds, startYear, spentByLine
 
     {/* Desktop / tablet: full spreadsheet table */}
     <div className="hidden overflow-x-auto rounded-2xl border border-border/70 sm:block">
-      <table className="w-full min-w-[920px] border-collapse text-[13px]">
+      <table className="w-full min-w-[1040px] border-collapse text-[13px]">
         <thead>
           <tr className="border-b border-border/70 bg-secondary/40 text-left text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
             <th className="px-3 py-2.5">Description</th>
             <th className="px-3 py-2.5">Fund</th>
             <th className="px-3 py-2.5">Type</th>
             <th className="px-3 py-2.5">Occurrence</th>
-            <th className="px-3 py-2.5">When</th>
-            <th className="px-3 py-2.5 text-right">Budgeted</th>
-            {tracking && <th className="px-3 py-2.5 text-right">Spent</th>}
-            {tracking && <th className="px-3 py-2.5 text-right">Remaining</th>}
+            <th className="px-3 py-2.5">Date</th>
+            <th className="px-3 py-2.5">Budgeted</th>
+            {tracking && <th className="px-3 py-2.5">Spent</th>}
+            {tracking && <th className="px-3 py-2.5">Remaining</th>}
             <th className="w-[72px] px-3 py-2.5" />
           </tr>
         </thead>
@@ -486,15 +523,15 @@ export function LineItemsEditor({ lines, setLines, funds, startYear, spentByLine
             const annual = annualAmount(Number(line.amount) || 0, line.occurrence);
             const remaining = annual - spent;
             return <tr key={line.id} className="border-b border-border/60 last:border-0">
-              <td className="px-3 py-2"><Input placeholder="What is it" value={line.description} onChange={e => update(line.id, { description: e.target.value })} className="h-9" /></td>
-              <td className="px-3 py-2"><FundSelect line={line} /></td>
-              <td className="px-3 py-2"><TypeSelect line={line} /></td>
-              <td className="px-3 py-2"><OccurrenceSelect line={line} /></td>
-              <td className="px-3 py-2"><MonthSelect line={line} /></td>
-              <td className="px-3 py-2"><AmountField line={line} /></td>
-              {tracking && <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{money(spent)}</td>}
-              {tracking && <td className={`px-3 py-2 text-right tabular-nums font-medium ${remaining < 0 ? "text-destructive" : ""}`}>{money(remaining)}</td>}
-              <td className="px-3 py-2"><AttachRemove line={line} /></td>
+              <td className="min-w-[220px] px-3 py-2"><Input placeholder="What is it" value={line.description} onChange={e => update(line.id, { description: e.target.value })} className="h-9" /></td>
+              <td className="px-3 py-2">{fundSelect(line)}</td>
+              <td className="px-3 py-2">{typeSelect(line)}</td>
+              <td className="px-3 py-2">{occurrenceSelect(line)}</td>
+              <td className="px-3 py-2">{dateField(line)}</td>
+              <td className="px-3 py-2">{amountField(line)}</td>
+              {tracking && <td className="px-3 py-2 tabular-nums text-muted-foreground">{money(spent)}</td>}
+              {tracking && <td className={`px-3 py-2 tabular-nums font-medium ${remaining < 0 ? "text-destructive" : ""}`}>{money(remaining)}</td>}
+              <td className="px-3 py-2">{attachRemove(line)}</td>
             </tr>;
           })}
         </tbody>
@@ -628,7 +665,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
       category: category === "" ? null : category === "Other" && otherCategory.trim() ? otherCategory.trim() : category,
       description: String(form.get("description") ?? "").trim(),
       supplier: text("supplier"),
-      amount: Number(text("amount") ?? 0) || 0,
+      amount: Number(amountText) || 0,
       occurred_on: text("occurred_on") ?? new Date().toISOString().slice(0, 10),
       notes: text("notes"),
       budget_line_item_id: direction === "out" && budgetLineItemId !== "" ? budgetLineItemId : null,
@@ -693,7 +730,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
           <div className="space-y-2"><Label htmlFor="supplier">{direction === "in" ? "Payer" : "Payee"}</Label><Input id="supplier" name="supplier" defaultValue={tx?.supplier ?? ""} placeholder={direction === "in" ? "Who paid" : "Supplier or contractor"} /></div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2"><Label htmlFor="amount">Amount</Label><Input id="amount" name="amount" type="number" min="0" step="0.01" value={amountText} onChange={e => setAmountText(e.target.value)} required /></div>
+          <div className="space-y-2"><Label htmlFor="amount">Amount</Label><MoneyInput id="amount" value={amountText} onChange={setAmountText} required /></div>
           <div className="space-y-2"><Label htmlFor="occurred_on">Date</Label><Input id="occurred_on" name="occurred_on" type="date" value={dateText} onChange={e => setDateText(e.target.value)} />
             {dateText && <p className="text-[11px] text-muted-foreground">Counts towards {fyLabel(startYearOf(dateText))}</p>}</div>
           <div className="space-y-2">
@@ -773,7 +810,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
       const { data: item, error: itemError } = await supabase.from("budget_line_items").insert({
         budget_id: budget.id as string, scheme_id: schemeId, fund_id: line.fundId, cost_type: line.costType,
         occurrence: line.occurrence, description: line.description, amount: annualAmount(Number(line.amount), line.occurrence),
-        expected_month: line.month ? Number(line.month) : null,
+        expected_month: lineMonth(line), expected_date: line.date || null,
       }).select().single();
       if (itemError || !item) { failures.push(line.description); continue; }
       if (line.file) {
@@ -831,7 +868,8 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, funds, 
   </Dialog>;
 }
 
-type EditOutcome = { adjustments: { levy: Levy; oldAmount: number; newAmount: number; diff: number }[]; recalculated: boolean };
+type EditOutcome = { adjustments: { levy: Levy; oldAmount: number; newAmount: number; diff: number }[]; recalculated: boolean; extraLevies?: { label: string; total: number; count: number; due: string }[] };
+type LevyMode = "recalculate" | "record" | "separate";
 
 // The single, always-live budget editor: the same component builds a brand-new budget for a
 // year with none yet, and edits/tracks an existing one — never a separate "edit" step. When
@@ -851,7 +889,13 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
   const [financialYear, setFinancialYear] = useState(budget?.financial_year ?? financialYearHint);
   const [dueDate, setDueDate] = useState(revertFrom ? revertFrom.previous_levy_due_date : (budget?.levy_due_date ?? ""));
   const [reason, setReason] = useState(revertFrom ? `Reverted to the version from ${niceDate(revertFrom.created_at)}` : "");
-  const [recalculate, setRecalculate] = useState(true);
+  // What happens to levies when an issued budget changes. Once every levy is paid, an added
+  // cost is best issued as its own levy rather than reworking what owners already paid.
+  const baseLevies = budget ? levies.filter(l => l.budget_id === budget.id && !l.label) : [];
+  const allPaid = baseLevies.length > 0 && baseLevies.every(l => l.status === "Paid");
+  const [levyMode, setLevyMode] = useState<LevyMode>(allPaid ? "separate" : "recalculate");
+  const recalculate = levyMode === "recalculate";
+  const [extraDue, setExtraDue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [outcome, setOutcome] = useState<EditOutcome | null>(null);
   const totals = draftTotals(lines, funds);
@@ -860,6 +904,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
   const prevFundTotals = budget ? Object.fromEntries(budget.budget_fund_totals.map(t => [fundName(funds, t.fund_id), t.total])) : {};
 
   const spentByLineId = isEdit ? spentAgainstLine : undefined;
+  const increase = budget ? Math.round((totals.total - Number(budget.total_amount)) * 100) / 100 : 0;
 
   const submitNew = async () => {
     if (!schemeId) return;
@@ -879,7 +924,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
       const { data: item, error: itemError } = await supabase.from("budget_line_items").insert({
         budget_id: newBudget.id as string, scheme_id: schemeId, fund_id: line.fundId, cost_type: line.costType,
         occurrence: line.occurrence, description: line.description, amount: annualAmount(Number(line.amount), line.occurrence),
-        expected_month: line.month ? Number(line.month) : null,
+        expected_month: lineMonth(line), expected_date: line.date || null,
       }).select().single();
       if (itemError || !item) { failures.push(line.description); continue; }
       if (line.file) {
@@ -901,6 +946,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     if (reason.trim() === "") { toast("Add a short reason for this change first"); return; }
     const validLines = lines.filter(l => l.description.trim() !== "" && Number(l.amount) > 0 && l.fundId !== "");
     if (validLines.length === 0) { toast("Add at least one line item"); return; }
+    if (levyMode === "separate" && increase > 0 && !(extraDue || dueDate)) { toast("Choose a due date for the separate levy"); return; }
     setSubmitting(true);
 
     const { error: revError } = await supabase.from("budget_revisions").insert({
@@ -938,7 +984,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     for (const line of validLines) {
       const annual = annualAmount(Number(line.amount), line.occurrence);
       if (originalIds.has(line.id)) {
-        const { error } = await supabase.from("budget_line_items").update({ fund_id: line.fundId, cost_type: line.costType, occurrence: line.occurrence, description: line.description, amount: annual, expected_month: line.month ? Number(line.month) : null }).eq("id", line.id);
+        const { error } = await supabase.from("budget_line_items").update({ fund_id: line.fundId, cost_type: line.costType, occurrence: line.occurrence, description: line.description, amount: annual, expected_month: lineMonth(line), expected_date: line.date || null }).eq("id", line.id);
         if (error) { failures.push(line.description); continue; }
         if (line.file) {
           const up = await uploadFinanceDoc(schemeId, line.file, { category: "Budget line item", budget_line_item_id: line.id });
@@ -947,7 +993,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
       } else {
         const { data: item, error } = await supabase.from("budget_line_items").insert({
           budget_id: budget.id, scheme_id: schemeId, fund_id: line.fundId, cost_type: line.costType, occurrence: line.occurrence, description: line.description, amount: annual,
-          expected_month: line.month ? Number(line.month) : null,
+          expected_month: lineMonth(line), expected_date: line.date || null,
         }).select().single();
         if (error || !item) { failures.push(line.description); continue; }
         if (line.file) {
@@ -958,8 +1004,23 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     }
 
     const adjustments: EditOutcome["adjustments"] = [];
+    const extraLevies: NonNullable<EditOutcome["extraLevies"]> = [];
+    if (levyMode === "separate" && increase > 0) {
+      // One extra levy per lot for each fund that went up, so fund balances stay exact.
+      const prevByFund = Object.fromEntries(budget.budget_fund_totals.map(t => [t.fund_id, Number(t.total)]));
+      for (const f of funds) {
+        const diff = Math.round(((totals.byFund[f.id] ?? 0) - (prevByFund[f.id] ?? 0)) * 100) / 100;
+        if (diff <= 0 || lots.length === 0) continue;
+        const added = validLines.filter(l => l.fundId === f.id && !originalIds.has(l.id)).map(l => l.description.trim()).filter(Boolean);
+        const label = `Additional levy: ${added.length ? added.join(", ") : `${f.name} fund increase`}`;
+        const rows = lots.map(l => ({ lot_id: l.id, budget_id: budget.id, amount: shareAmount(method, l.entitlement_percent, lots.length, diff), due_date: extraDue || dueDate, status: "Pending" as const, label, fund_id: f.id }));
+        const { error } = await supabase.from("levies").insert(rows);
+        if (error) failures.push(`${label} (${error.message})`);
+        else extraLevies.push({ label, total: diff, count: rows.length, due: extraDue || dueDate });
+      }
+    }
     if (recalculate) {
-      const budgetLevies = levies.filter(l => l.budget_id === budget.id);
+      const budgetLevies = levies.filter(l => l.budget_id === budget.id && !l.label);
       for (const levy of budgetLevies) {
         const entitlement = Number(levy.lots?.entitlement_percent ?? 0);
         const newAmount = shareAmount(method, entitlement, budgetLevies.length, totals.total);
@@ -976,7 +1037,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     setSubmitting(false);
     if (failures.length > 0) toast("Some parts of this update need attention", { description: failures.join(", ") });
     onSaved();
-    setOutcome({ adjustments, recalculated: recalculate });
+    setOutcome({ adjustments, recalculated: recalculate, extraLevies });
   };
 
   const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); void (isEdit ? submitEdit() : submitNew()); };
@@ -986,8 +1047,15 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     return <div className="space-y-4">
       <div>
         <h2 className="font-display text-xl tracking-[-0.02em]">Budget updated for {budget.financial_year}</h2>
-        <p className="mt-1 text-[13px] text-muted-foreground">{outcome.recalculated ? "Unpaid levies were recalculated to match the correction." : "Existing levy amounts were left as they were."}</p>
+        <p className="mt-1 text-[13px] text-muted-foreground">{outcome.recalculated ? "Unpaid levies were recalculated to match the correction." : outcome.extraLevies?.length ? "Existing levies were left as they were, and the added cost was issued as its own levy." : "Existing levy amounts were left as they were."}</p>
       </div>
+      {outcome.extraLevies && outcome.extraLevies.length > 0 && <div className="divide-y divide-border/60 rounded-2xl border border-border/70">
+        {outcome.extraLevies.map(x => <div key={x.label} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-[13px]">
+          <span className="font-medium">{x.label}</span>
+          <span className="text-muted-foreground">{money(x.total)} across {x.count} lots · due {niceDate(x.due)}</span>
+        </div>)}
+        <p className="px-4 py-3 text-[12px] text-muted-foreground">They're in the Levies section below, ready to send to each owner.</p>
+      </div>}
       <Button asChild variant="outline" className="rounded-full">
         <a href={`mailto:?bcc=${encodeURIComponent(allOwnerEmails.join(","))}&subject=${encodeURIComponent(`Update to your ${budget.financial_year} levies`)}&body=${encodeURIComponent(budgetChangeText(budget.financial_year, reason, funds, prevFundTotals, Object.fromEntries(funds.map(f => [f.name, totals.byFund[f.id] ?? 0])), outcome.recalculated))}`}>Email all owners</a>
       </Button>
@@ -1048,12 +1116,26 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
       <Label>{isEdit ? "Preview if recalculated — what each lot would be billed" : "Preview — what each lot will be billed"}</Label>
       <InvoicePreview lots={lots} method={method} total={totals.total} />
     </div>}
-    {isEdit && <div className="flex items-center justify-between rounded-2xl border border-border/70 p-4">
-      <div>
-        <p className="text-sm font-medium">Recalculate unpaid levies to match</p>
-        <p className="mt-1 text-[12px] text-muted-foreground">{recalculate ? "Levies not yet paid will update to the new totals. Paid levies are never changed — you'll see any refund or extra amount owing next." : "This is a record-only correction. No levy amounts will change."}</p>
+    {isEdit && <div className="space-y-2">
+      <Label>What should happen to levies?</Label>
+      <div className="grid gap-2" role="radiogroup" aria-label="What should happen to levies">
+        {([
+          ["separate", "Issue the added cost as a separate levy", allPaid ? "Best when owners have already paid: existing levies stay as they are, and each lot gets a new levy for its share of just the increase." : "Existing levies stay as they are; each lot gets a new levy for its share of just the increase.", increase > 0],
+          ["recalculate", "Recalculate unpaid levies", "Levies not yet paid update to the new totals. Paid levies are never changed. You'll see any refund or extra owing next.", true],
+          ["record", "Record only", "The budget changes, but no levy amounts change.", true],
+        ] as const).filter(([, , , show]) => show).map(([value, title, blurb]) =>
+          <button key={value} type="button" role="radio" aria-checked={levyMode === value} onClick={() => setLevyMode(value)}
+            className={`flex items-start gap-3 rounded-2xl border p-4 text-left transition ${levyMode === value ? "border-primary bg-primary/5" : "border-border/70 hover:bg-secondary/40"}`}>
+            <span className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border ${levyMode === value ? "border-primary" : "border-border"}`}>{levyMode === value && <span className="size-2 rounded-full bg-primary" />}</span>
+            <span><span className="block text-sm font-medium">{title}</span><span className="mt-0.5 block text-[12px] text-muted-foreground">{blurb}</span></span>
+          </button>)}
       </div>
-      <Switch checked={recalculate} onCheckedChange={setRecalculate} />
+      {levyMode === "separate" && increase > 0 && <div className="grid gap-3 rounded-2xl bg-secondary/40 p-4 sm:grid-cols-2">
+        <div><p className="text-[12px] text-muted-foreground">Added to the budget</p><p className="text-lg font-medium tabular-nums">{money(increase)}</p>
+          <p className="text-[11px] text-muted-foreground">{method === "Equal" ? `About ${money(increase / Math.max(1, lots.length))} per lot` : "Split by each lot's entitlement"}</p></div>
+        <div className="space-y-1.5"><Label htmlFor="extra_due">Due date for the new levy</Label><Input id="extra_due" type="date" value={extraDue} onChange={e => setExtraDue(e.target.value)} /></div>
+      </div>}
+      {levyMode === "separate" && increase <= 0 && <p className="text-[12px] text-muted-foreground">The budget hasn't gone up, so there's nothing extra to levy.</p>}
     </div>}
     <div className="flex justify-end gap-2 pt-2">
       <Button type="submit" className="rounded-full" disabled={submitting}>{submitting ? "Saving…" : (isEdit ? "Save changes" : "Lock in budget and issue levies")}</Button>
@@ -1113,7 +1195,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
   const overdueCount = unpaid.filter(l => daysUntil(l.due_date) < 0).length;
   const soonCount = unpaid.filter(l => { const d = daysUntil(l.due_date); return d >= 0 && d <= 14; }).length;
 
-  const lotsInBudget = (levy: Levy) => levies.filter(l => l.budgets?.financial_year === levy.budgets?.financial_year).length || 1;
+  const lotsInBudget = (levy: Levy) => levies.filter(l => l.budgets?.financial_year === levy.budgets?.financial_year && (l.label ?? null) === (levy.label ?? null) && (l.fund_id ?? null) === (levy.fund_id ?? null)).length || 1;
   const isEqual = (levy: Levy) => levy.budgets?.allocation_method === "Equal";
 
   const attachProof = async (levy: Levy, file: File) => {
@@ -1172,7 +1254,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
             <div className="min-w-0">
               <p className="text-sm font-medium">{levy.lots ? `Lot ${levy.lots.lot_number}${levy.lots.owner_name ? ` · ${levy.lots.owner_name}` : ""}` : "Your levy"}</p>
               <p className="mt-1 text-[12px] text-muted-foreground">
-                {levy.budgets?.financial_year ? `${levy.budgets.financial_year} · ` : ""}Due {niceDate(levy.due_date)}
+                {levy.label ? `${levy.label} · ` : ""}{levy.budgets?.financial_year ? `${levy.budgets.financial_year} · ` : ""}Due {niceDate(levy.due_date)}
                 {levy.status === "Paid" && levy.paid_at ? ` · Paid ${niceDate(levy.paid_at)}` : ""}
               </p>
               {sendState && <p className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${sendState.tone}`}>{sendState.text}</p>}
@@ -1203,7 +1285,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="font-display tracking-[-0.02em]">Levy invoice</DialogTitle>
-          <DialogDescription>{invoice?.budgets?.financial_year ? `Financial year ${invoice.budgets.financial_year}` : "How this amount was worked out."}</DialogDescription>
+          <DialogDescription>{invoice?.label ? `${invoice.label} · ` : ""}{invoice?.budgets?.financial_year ? `Financial year ${invoice.budgets.financial_year}` : "How this amount was worked out."}</DialogDescription>
         </DialogHeader>
         {invoice && <div className="space-y-4 text-sm">
           <div className="rounded-2xl border border-border/70 p-4">

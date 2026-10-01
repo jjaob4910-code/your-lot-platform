@@ -257,6 +257,7 @@ export type Database = {
           occurrence: string
           scheme_id: string
           updated_at: string
+          expected_date: string | null
         }
         Insert: {
           amount?: number
@@ -270,6 +271,7 @@ export type Database = {
           occurrence?: string
           scheme_id: string
           updated_at?: string
+          expected_date?: string | null
         }
         Update: {
           amount?: number
@@ -283,6 +285,7 @@ export type Database = {
           occurrence?: string
           scheme_id?: string
           updated_at?: string
+          expected_date?: string | null
         }
         Relationships: [
           {
@@ -1237,6 +1240,8 @@ export type Database = {
           notified_at: string | null
           paid_at: string | null
           status: Database["public"]["Enums"]["levy_status"]
+          label: string | null
+          fund_id: string | null
         }
         Insert: {
           amount?: number
@@ -1249,6 +1254,8 @@ export type Database = {
           notified_at?: string | null
           paid_at?: string | null
           status?: Database["public"]["Enums"]["levy_status"]
+          label?: string | null
+          fund_id?: string | null
         }
         Update: {
           amount?: number
@@ -1261,6 +1268,8 @@ export type Database = {
           notified_at?: string | null
           paid_at?: string | null
           status?: Database["public"]["Enums"]["levy_status"]
+          label?: string | null
+          fund_id?: string | null
         }
         Relationships: [
           {
