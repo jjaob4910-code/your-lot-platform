@@ -395,7 +395,7 @@ function DashboardPage() {
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
         canManagePaid={canManagePaid.data ?? false} treasurerName={treasurerName}
-        recordedBalances={recordedBalances} warnOverdrawn={warnOverdrawn} onOpenSettings={()=>setActive("Settings")}
+        recordedBalances={recordedBalances} warnOverdrawn={warnOverdrawn} userId={userId} onOpenSettings={()=>setActive("Settings")}
         onChanged={()=>refresh(["finance","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
