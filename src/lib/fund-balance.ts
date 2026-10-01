@@ -67,6 +67,15 @@ export function recordedFundBalances(levies: Levy[], transactions: FundTx[]): Re
   return out;
 }
 
+// Each fund's closing balance at the end of the year before `year`: everything recorded
+// in earlier financial years, carried forward automatically. Voided entries must already
+// be filtered out by the caller.
+export function broughtForwardBalances(levies: Levy[], transactions: FundTx[], year: number): Record<string, number> {
+  const earlierLevies = levies.filter(l => (l.budgets ? budgetStartYear(l.budgets.financial_year) : startYearOf(l.due_date)) < year);
+  const earlierTx = transactions.filter(t => startYearOf(t.occurred_on) < year);
+  return recordedFundBalances(earlierLevies, earlierTx);
+}
+
 export function computeFundBalances(levies: Levy[], transactions: FundTx[], year: number) {
   const yearLevies = levies.filter(l => l.budgets ? budgetStartYear(l.budgets.financial_year) === year : startYearOf(l.due_date) === year);
   const yearTx = transactions.filter(t => startYearOf(t.occurred_on) === year);
