@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import type { DocFile } from "@/components/documents";
 import { DocPreviewTile, type Policy } from "@/components/insurance";
+import { MoneyFormField, MoneyInput } from "@/components/finance";
 
 export type ClaimUpdate = { id: string; claim_id: string; note: string; author_label: string | null; status_at_time: string | null; created_at: string };
 export type Claim = {
@@ -225,9 +226,9 @@ function ClaimDialog({ open, onOpenChange, schemeId, claim, policies, lots, orde
           <Input id="c-rep-email" name="insurer_contact_email" type="email" defaultValue={claim?.insurer_contact_email ?? ""}/></div>
 
         <div className="space-y-2"><Label htmlFor="c-amount">Claim amount ($)</Label>
-          <Input id="c-amount" name="claim_amount" type="number" min="0" step="0.01" defaultValue={claim?.claim_amount ?? ""}/></div>
+          <MoneyFormField id="c-amount" name="claim_amount" defaultValue={claim?.claim_amount ?? ""}/></div>
         <div className="space-y-2"><Label htmlFor="c-excess">Excess ($)</Label>
-          <Input id="c-excess" name="excess" type="number" min="0" step="0.01" value={excess} onChange={e => setExcess(e.target.value)}/>
+          <MoneyInput id="c-excess" name="excess" value={excess} onChange={setExcess}/>
           <p className="text-[11px] text-muted-foreground">Pre-filled from the policy. Change it if this claim differs.</p></div>
 
         <div className="space-y-2 sm:col-span-2"><Label>Linked work order</Label>
@@ -283,7 +284,7 @@ function DecisionDialog({ open, onOpenChange, claim, onDone }: { open: boolean; 
             <SelectContent>{["Approved", "Partially approved", "Declined"].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
           </Select></div>
         {outcome !== "Declined" && <div className="space-y-2"><Label htmlFor="d-amt">Amount covered ($)</Label>
-          <Input id="d-amt" name="approved_amount" type="number" min="0" step="0.01"
+          <MoneyFormField id="d-amt" name="approved_amount"
             defaultValue={claim.approved_amount ?? (claim.claim_amount !== null ? Math.max(0, Number(claim.claim_amount) - Number(claim.excess ?? 0)) : "")}/>
           <p className="text-[11px] text-muted-foreground">What the insurer will pay, after the excess.</p></div>}
         <div className="space-y-2"><Label htmlFor="d-date">Decision date</Label><Input id="d-date" name="decision_date" type="date" defaultValue={today()}/></div>
@@ -332,7 +333,7 @@ function PayoutDialog({ open, onOpenChange, claim, funds, policy, onDone }: {
         <DialogDescription>This records the money coming in to Finance, linked to this claim.</DialogDescription></DialogHeader>
       <form onSubmit={e => { void submit(e); }} className="space-y-4">
         <div className="space-y-2"><Label htmlFor="p-amt">Amount received ($)</Label>
-          <Input id="p-amt" name="amount" type="number" min="0" step="0.01" defaultValue={claim.approved_amount ?? ""}/></div>
+          <MoneyFormField id="p-amt" name="amount" defaultValue={claim.approved_amount ?? ""}/></div>
         <div className="space-y-2"><Label>Paid into</Label>
           <Select value={fundId} onValueChange={setFundId}>
             <SelectTrigger aria-label="Fund"><SelectValue placeholder="Choose a fund"/></SelectTrigger>
