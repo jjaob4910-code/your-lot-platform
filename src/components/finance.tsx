@@ -20,7 +20,11 @@ export type FinanceTx = {
   id: string; scheme_id: string; direction: string; fund_id: string; category: string | null;
   description: string; supplier: string | null; amount: number; occurred_on: string;
   status: string; work_order_id: string | null; notes: string | null; budget_line_item_id: string | null; levy_id: string | null; insurance_claim_id?: string | null;
-  voided_at?: string | null; void_reason?: string | null; created_at?: string; created_by?: string | null;
+  voided_at?: string | null; void_reason?: string | null; created_at?: string; created_by?: string | null; recurring_id?: string | null;
+};
+export type RecurringTx = {
+  id: string; scheme_id: string; direction: string; fund_id: string; category: string | null; description: string; supplier: string | null;
+  amount: number; frequency: string; next_date: string; end_date: string | null; active: boolean;
 };
 
 type TxHistory = { id: string; action: string; changes: Record<string, { from: unknown; to: unknown } | unknown>; reason: string | null; actor_label: string | null; created_at: string };
@@ -141,12 +145,20 @@ const fyLabel = (startYear: number) => `${startYear}/${String(startYear + 1).sli
 function FinancialYearSelect({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
   const now = new Date(); const current = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
   const picked = value.match(/\d{4}/) ? Number(value.match(/\d{4}/)![0]) : current;
-  const years = [...new Set([current - 2, current - 1, current, current + 1, current + 2, picked])].sort((a, b) => a - b);
-  return <Select value={value || fyLabel(current)} onValueChange={onChange} disabled={!!disabled}>
+  const years = [...new Set([...Array.from({ length: 8 }, (_, i) => current - 5 + i), picked])].sort((a, b) => b - a);
+  const [typing, setTyping] = useState(false);
+  const [typed, setTyped] = useState("");
+  if (typing) return <div className="flex gap-2">
+    <Input autoFocus inputMode="numeric" maxLength={4} value={typed} onChange={e => setTyped(e.target.value.replace(/\D/g, ""))} placeholder="Start year, e.g. 2019" aria-label="Start year" />
+    <Button type="button" variant="outline" className="shrink-0 rounded-full" disabled={typed.length !== 4}
+      onClick={() => { onChange(fyLabel(Number(typed))); setTyping(false); setTyped(""); }}>Use {typed.length === 4 ? fyLabel(Number(typed)) : "year"}</Button>
+  </div>;
+  return <Select value={value || fyLabel(current)} onValueChange={v => { if (v === "__other") setTyping(true); else onChange(v); }} disabled={!!disabled}>
     <SelectTrigger id="financial_year" aria-label="Financial year"><SelectValue /></SelectTrigger>
     <SelectContent>
       {!years.some(y => fyLabel(y) === value) && value && <SelectItem value={value}>{value}</SelectItem>}
       {years.map(y => <SelectItem key={y} value={fyLabel(y)}>{fyLabel(y)} (1 Jul {y} – 30 Jun {y + 1})</SelectItem>)}
+      <SelectItem value="__other">Other year…</SelectItem>
     </SelectContent>
   </Select>;
 }
@@ -588,7 +600,13 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
   const [amountText, setAmountText] = useState(tx ? String(tx.amount) : "");
   const [direction, setDirection] = useState(tx?.direction ?? "out");
   const [fundId, setFundId] = useState(tx?.fund_id ?? defaultFundId ?? funds[0]?.id ?? "");
-  const [category, setCategory] = useState(tx?.category ?? "");
+  // A category outside the list was typed under "Other": load it back that way.
+  const knownCategory = (c: string | null | undefined, dir: string) => !c || (dir === "in" ? IN_CATEGORIES : OUT_CATEGORIES).includes(c);
+  const [category, setCategory] = useState(tx?.category ? (knownCategory(tx.category, tx.direction) ? tx.category : "Other") : "");
+  const [otherCategory, setOtherCategory] = useState(tx?.category && !knownCategory(tx.category, tx.direction) ? tx.category : "");
+  const [repeat, setRepeat] = useState(false);
+  const [frequency, setFrequency] = useState("Monthly");
+  const [endDate, setEndDate] = useState("");
   const [status, setStatus] = useState(tx?.status ?? "Paid");
   const [budgetLineItemId, setBudgetLineItemId] = useState(tx?.budget_line_item_id ?? "");
   const categories = direction === "in" ? IN_CATEGORIES : OUT_CATEGORIES;
@@ -607,7 +625,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
     const text = (k: string) => { const v = String(form.get(k) ?? "").trim(); return v === "" ? null : v; };
     const payload = {
       scheme_id: schemeId, direction, fund_id: fundId, status,
-      category: category === "" ? null : category,
+      category: category === "" ? null : category === "Other" && otherCategory.trim() ? otherCategory.trim() : category,
       description: String(form.get("description") ?? "").trim(),
       supplier: text("supplier"),
       amount: Number(text("amount") ?? 0) || 0,
@@ -618,11 +636,23 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
     if (payload.description === "") { toast("Give it a short description first"); return; }
     const reason = text("change_reason");
     if (lockedPaid && !reason) { toast("Give a reason for changing a paid transaction"); return; }
+    if (!tx && repeat && payload.amount <= 0) { toast("Enter an amount for the repeating transaction"); return; }
+    let recurringId: string | null = null;
+    if (!tx && repeat) {
+      // The rule's next date is one step after this first entry; the database creates the rest on their dates.
+      const { data: step } = await supabase.rpc("recurring_step", { _d: payload.occurred_on, _freq: frequency });
+      const { data: rule, error: ruleErr } = await supabase.from("recurring_transactions").insert({
+        scheme_id: schemeId, direction, fund_id: fundId, category: payload.category, description: payload.description, supplier: payload.supplier,
+        amount: payload.amount, budget_line_item_id: payload.budget_line_item_id, frequency, next_date: (step as string | null) ?? payload.occurred_on, end_date: endDate || null,
+      }).select("id").single();
+      if (ruleErr || !rule) { toast("Could not set up the repeat", { description: ruleErr?.message }); return; }
+      recurringId = rule.id as string;
+    }
     const { error } = tx
       ? await supabase.from("finance_transactions").update({ ...payload, change_reason: reason }).eq("id", tx.id)
-      : await supabase.from("finance_transactions").insert(payload);
+      : await supabase.from("finance_transactions").insert({ ...payload, recurring_id: recurringId });
     if (error) { toast("Could not save that", { description: error.message }); return; }
-    onOpenChange(false); onSaved(); toast(tx ? "Transaction updated" : "Transaction recorded");
+    onOpenChange(false); onSaved(); toast(tx ? "Transaction updated" : recurringId ? `Transaction recorded, repeating ${frequency.toLowerCase()}` : "Transaction recorded");
   };
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
@@ -636,10 +666,10 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
           <Input id="change_reason" name="change_reason" required placeholder="e.g. Invoice amount corrected" /></div>}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label>Direction</Label>
-            <Select value={direction} onValueChange={v => { setDirection(v); setCategory(""); }}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="out">Money out</SelectItem><SelectItem value="in">Money in</SelectItem></SelectContent>
+            <Label>Type</Label>
+            <Select value={direction} onValueChange={v => { setDirection(v); setCategory(""); setOtherCategory(""); }}>
+              <SelectTrigger aria-label="Type"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="out">Expense (payment)</SelectItem><SelectItem value="in">Income (receipt)</SelectItem></SelectContent>
             </Select>
           </div>
           <div className="space-y-2">
@@ -650,16 +680,17 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
             </Select>
           </div>
         </div>
-        <div className="space-y-2"><Label htmlFor="description">What was it</Label><Input id="description" name="description" defaultValue={tx?.description ?? ""} placeholder="Gutter clean, front block" required /></div>
+        <div className="space-y-2"><Label htmlFor="description">Description</Label><Input id="description" name="description" defaultValue={tx?.description ?? ""} placeholder="Gutter clean, front block" required /></div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Category</Label>
             <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger><SelectValue placeholder="Choose one" /></SelectTrigger>
+              <SelectTrigger aria-label="Category"><SelectValue placeholder="Choose one" /></SelectTrigger>
               <SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
+            {category === "Other" && <Input value={otherCategory} onChange={e => setOtherCategory(e.target.value)} placeholder="Specify category" aria-label="Specify category" />}
           </div>
-          <div className="space-y-2"><Label htmlFor="supplier">{direction === "in" ? "Received from" : "Paid to"}</Label><Input id="supplier" name="supplier" defaultValue={tx?.supplier ?? ""} placeholder="Supplier or person" /></div>
+          <div className="space-y-2"><Label htmlFor="supplier">{direction === "in" ? "Payer" : "Payee"}</Label><Input id="supplier" name="supplier" defaultValue={tx?.supplier ?? ""} placeholder={direction === "in" ? "Who paid" : "Supplier or contractor"} /></div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2"><Label htmlFor="amount">Amount</Label><Input id="amount" name="amount" type="number" min="0" step="0.01" value={amountText} onChange={e => setAmountText(e.target.value)} required /></div>
@@ -685,10 +716,24 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
           <p className="text-[11px] leading-5 text-muted-foreground">Matching this to a budget line lets Finance track spend against what was planned. Leave as "Not budgeted" for a cost that wasn't forecast — it'll be flagged for the AGM.</p>
         </div>}
         <div className="space-y-2"><Label htmlFor="notes">Notes</Label><Textarea id="notes" name="notes" rows={3} defaultValue={tx?.notes ?? ""} placeholder="Anything the committee should remember" /></div>
+        {!tx && <div className="rounded-2xl border border-border/70 p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div><p className="text-sm font-medium">Repeat this</p><p className="mt-0.5 text-[12px] text-muted-foreground">Each repeat appears as Scheduled on its date. Mark it paid once the money has moved.</p></div>
+            <Switch checked={repeat} onCheckedChange={setRepeat} aria-label="Repeat this" />
+          </div>
+          {repeat && <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Frequency</Label>
+              <Select value={frequency} onValueChange={setFrequency}>
+                <SelectTrigger aria-label="Frequency"><SelectValue /></SelectTrigger>
+                <SelectContent>{["Weekly", "Fortnightly", "Monthly", "Quarterly", "Annually"].map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
+              </Select></div>
+            <div className="space-y-1.5"><Label htmlFor="repeat_end">Ends (optional)</Label><Input id="repeat_end" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></div>
+          </div>}
+        </div>}
         {balanceAfter !== null && balanceAfter < 0 && <OverdrawWarning fundName={fundName(funds, fundId)} after={balanceAfter} />}
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" className="rounded-full">{tx ? "Save changes" : "Record it"}</Button>
+          <Button type="submit" className="rounded-full">{tx ? "Save changes" : "Save transaction"}</Button>
         </div>
       </form>
     </DialogContent>
@@ -1054,7 +1099,6 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
   const [invoice, setInvoice] = useState<Levy | null>(null);
   const [reminder, setReminder] = useState<Levy | null>(null);
   const [showPaid, setShowPaid] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState<Levy[] | null>(null);
   const [markingPaid, setMarkingPaid] = useState<Levy | null>(null);
 
@@ -1082,26 +1126,16 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
   const levyDocsFor = (id: string) => documents.filter(d => d.levy_id === id);
 
   const rows = showPaid ? [...unpaid, ...paid] : unpaid;
-  const sendable = rows.filter(l => l.status !== "Paid");
-  const toggleSelected = (id: string) => setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const selectedLevies = sendable.filter(l => selected.has(l.id));
 
   return <div>
     <div className="flex flex-wrap items-end justify-between gap-4">
       <p className="max-w-2xl text-[13px] leading-6 text-muted-foreground">Who still owes and how close they are to their due date. Setting the budget above is what raises these.</p>
-      {isCommittee && selectedLevies.length > 0 && <Button size="sm" className="rounded-full" onClick={() => setSending(selectedLevies)}>
-        <Send className="size-3.5" />Send {selectedLevies.length} {selectedLevies.length === 1 ? "levy" : "levies"}
-      </Button>}
     </div>
 
     <div className="mt-6 flex flex-wrap items-center gap-2">
       {["All years", ...years].map(option =>
         <button key={option} type="button" onClick={() => setYear(option)}
           className={`rounded-full px-4 py-2 text-[12px] font-medium transition ${year === option ? "bg-primary text-primary-foreground" : "border border-border/70 bg-card text-muted-foreground hover:text-foreground"}`}>{option}</button>)}
-      {isCommittee && sendable.length > 0 && <button type="button" onClick={() => setSelected(new Set(sendable.map(l => l.id)))}
-        className="rounded-full border border-border/70 bg-card px-4 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground">
-        Select all pending
-      </button>}
       <button type="button" onClick={() => setShowPaid(v => !v)}
         className="ml-auto rounded-full border border-border/70 bg-card px-4 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground">
         {showPaid ? "Hide the lots that have paid" : `Show the ${paid.length} lots that have paid`}
@@ -1135,7 +1169,6 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
           : { tone: "bg-secondary text-muted-foreground", text: "Not sent yet" };
         return <div key={levy.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
           <div className="flex min-w-0 items-start gap-3">
-            {isCommittee && status !== "Paid" && <input type="checkbox" className="mt-1 size-4 shrink-0 rounded border-border" checked={selected.has(levy.id)} onChange={() => toggleSelected(levy.id)} aria-label={`Select levy for Lot ${levy.lots?.lot_number ?? ""}`} />}
             <div className="min-w-0">
               <p className="text-sm font-medium">{levy.lots ? `Lot ${levy.lots.lot_number}${levy.lots.owner_name ? ` · ${levy.lots.owner_name}` : ""}` : "Your levy"}</p>
               <p className="mt-1 text-[12px] text-muted-foreground">
@@ -1217,7 +1250,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
     </Dialog>
 
     {schemeId && <SendLevyDialog levies={sending} funds={funds} schemeId={schemeId} onOpenChange={(o) => { if (!o) setSending(null); }}
-      onSent={() => { setSending(null); setSelected(new Set()); onChanged(); }} />}
+      onSent={() => { setSending(null); onChanged(); }} />}
     <MarkPaidDialog levy={markingPaid} funds={funds} onOpenChange={(o) => { if (!o) setMarkingPaid(null); }}
       onConfirm={(paidAt) => { onPaid(markingPaid!.id, paidAt); setMarkingPaid(null); }} />
   </div>;
@@ -1305,24 +1338,24 @@ function CashflowChart({ year, levies, transactions, openingBalance, selected, o
   const any = data.some(d => d.in || d.out);
   return <Card className="p-4 sm:p-6">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Money in and out · {fyLabel(year)}</p>
+      <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Income and expenditure · {fyLabel(year)}</p>
         <p className="mt-1 text-[12px] text-muted-foreground">{selected ? `Showing ${data.find(d => d.key === selected)?.label ?? ""} in the transactions below.` : "Tap a month to see its transactions."}</p></div>
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-primary" />In</span>
-        <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-destructive/70" />Out</span>
+        <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-primary" />Income</span>
+        <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-destructive/70" />Expenditure</span>
         <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded bg-foreground/60" />Balance</span>
         {selected && <Button size="sm" variant="ghost" className="h-7 rounded-full px-2.5 text-[11px]" onClick={() => onSelect(null)}>Show all</Button>}
       </div>
     </div>
-    {any
-      ? <div className="mt-4 h-56 w-full">
+    {/* Always drawn, even before anything is recorded, so it's clear where the picture will appear. */}
+    <div className="relative mt-4 h-56 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -12 }}
               onClick={(e: { activeLabel?: string | number } | null) => { const hit = data.find(d => d.label === e?.activeLabel); if (hit) onSelect(selected === hit.key ? null : hit.key); }}>
               <CartesianGrid vertical={false} stroke="var(--border)" />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} interval={0} tick={{ fill: "var(--muted-foreground)" }} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} interval="preserveStartEnd" minTickGap={6} tick={{ fill: "var(--muted-foreground)" }} />
               <YAxis tickLine={false} axisLine={false} fontSize={11} width={52} tick={{ fill: "var(--muted-foreground)" }} tickFormatter={(v: number) => `$${Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : v}`} />
-              <ChartTooltip cursor={{ fill: "var(--secondary)" }} formatter={(v: number, name: string) => [money(Number(v)), name === "in" ? "Money in" : name === "out" ? "Money out" : "Balance"]} />
+              <ChartTooltip cursor={{ fill: "var(--secondary)" }} formatter={(v: number, name: string) => [money(Number(v)), name === "in" ? "Income" : name === "out" ? "Expenditure" : "Balance"]} />
               <Bar dataKey="in" fill="var(--primary)" radius={[4, 4, 0, 0]} maxBarSize={18}>
                 {data.map(d => <Cell key={d.key} fillOpacity={!selected || selected === d.key ? 1 : 0.3} />)}
               </Bar>
@@ -1332,8 +1365,8 @@ function CashflowChart({ year, levies, transactions, openingBalance, selected, o
               <Line dataKey="balance" type="monotone" stroke="var(--foreground)" strokeOpacity={0.6} strokeWidth={1.5} dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
+          {!any && <p className="absolute inset-0 grid place-items-center pb-8 text-center text-[13px] text-muted-foreground">No income or expenditure recorded for {fyLabel(year)} yet.</p>}
         </div>
-      : <p className="mt-4 py-8 text-center text-[13px] text-muted-foreground">Nothing paid in or out in {fyLabel(year)} yet.</p>}
   </Card>;
 }
 
@@ -1361,25 +1394,52 @@ function FinancePanel({ id, title, summary, open, onToggle, actions, children }:
   </section>;
 }
 
-export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged, view, onViewChange, canManagePaid = false, treasurerName = null, onOpenSettings, recordedBalances = {}, warnOverdrawn = true, userId }: {
+export function FinanceSection({ transactions, budgets, lineItems, levies, revisions, lots, funds, documents, isCommittee, schemeId, onMarkLevyPaid, onChanged, view, onViewChange, canManagePaid = false, treasurerName = null, onOpenSettings, recordedBalances = {}, warnOverdrawn = true, userId, recurring = [] }: {
   transactions: FinanceTx[]; budgets: FinanceBudget[]; lineItems: BudgetLineItem[]; levies: Levy[]; revisions: BudgetRevision[]; lots: FinLot[];
   funds: BudgetFund[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
   /** Treasurer (or any committee member when none is set) — may edit or void paid entries. */
   canManagePaid?: boolean; treasurerName?: string | null; onOpenSettings?: () => void;
   /** Each fund's all-time recorded balance; warnOverdrawn is the viewer's own alert preference. */
-  recordedBalances?: Record<string, number>; warnOverdrawn?: boolean; userId?: string | undefined;
+  recordedBalances?: Record<string, number>; warnOverdrawn?: boolean; userId?: string | undefined; recurring?: RecurringTx[];
   onMarkLevyPaid: (id: string, paidAt: string) => void; onChanged: () => void;
   /** Section to bring into view, e.g. from a "Finance/Levies" deep link. */
   view?: FinanceView | undefined; onViewChange?: (v: FinanceView) => void;
 }) {
   const today = new Date();
   const currentFy = today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1;
+  // Bring recurring rules up to date whenever the committee opens Finance.
+  useEffect(() => {
+    if (!isCommittee || !schemeId) return;
+    void supabase.rpc("generate_recurring_transactions", { _scheme: schemeId }).then(({ data }) => { if (Number(data) > 0) onChanged(); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCommittee, schemeId]);
+  const [stoppingRule, setStoppingRule] = useState<RecurringTx | null>(null);
+  const setRuleActive = async (r: RecurringTx, active: boolean) => {
+    const { error } = await supabase.from("recurring_transactions").update({ active }).eq("id", r.id);
+    if (error) { toast("Could not update it", { description: error.message }); return; }
+    onChanged(); toast(active ? "Repeat resumed" : "Repeat paused");
+  };
+  const stopRule = async () => {
+    if (!stoppingRule) return;
+    const { error } = await supabase.from("recurring_transactions").delete().eq("id", stoppingRule.id);
+    if (error) { toast("Could not stop it", { description: error.message }); return; }
+    setStoppingRule(null); onChanged(); toast("Repeat stopped", { description: "Entries already in the ledger stay." });
+  };
+  const markPaid = async (t: FinanceTx) => {
+    const { error } = await supabase.from("finance_transactions").update({ status: "Paid" }).eq("id", t.id);
+    if (error) { toast("Could not mark it paid", { description: error.message }); return; }
+    onChanged(); toast("Marked paid");
+  };
+  const [extraYears, setExtraYears] = useState<number[]>([]);
+  const [addingYear, setAddingYear] = useState(false);
+  const [newYearText, setNewYearText] = useState("");
   const years = useMemo(() => {
-    const set = new Set<number>([currentFy, currentFy + 1]); // next year is always there to start
+    // Five years back and two ahead are always there, plus any year with data or opened by hand.
+    const set = new Set<number>([...Array.from({ length: 8 }, (_, i) => currentFy - 5 + i), ...extraYears]);
     transactions.forEach(t => set.add(startYearOf(t.occurred_on)));
     budgets.forEach(b => set.add(budgetStartYear(b.financial_year)));
     return [...set].sort((a, b) => b - a);
-  }, [transactions, budgets, currentFy]);
+  }, [transactions, budgets, currentFy, extraYears]);
   const [collapsed, setCollapsed] = useState<FinanceView[]>(readCollapsed);
   const [editingBudget, setEditingBudget] = useState(false);
   const isOpen = (v: FinanceView) => !collapsed.includes(v);
@@ -1519,9 +1579,18 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
 
   return <div className="space-y-6">
     <PageHead eyebrow="Your property" title="Finance" blurb="Your budget, levies and cashflow for the year, on one page. Fold away what you don't need and open it again when you do."
-      action={<Select value={String(year)} onValueChange={v => { setYear(Number(v)); setEditingBudget(false); setMonthFilter(null); }}>
-        <SelectTrigger className="h-9 w-[150px] rounded-full text-xs" aria-label="Financial year"><SelectValue /></SelectTrigger>
-        <SelectContent>{years.map(y => <SelectItem key={y} value={String(y)}>{fyLabel(y)}{y > currentFy && !budgets.some(b => budgetStartYear(b.financial_year) === y) ? " (start new year)" : ""}</SelectItem>)}</SelectContent>
+      action={addingYear
+        ? <div className="flex items-center gap-2">
+            <Input autoFocus inputMode="numeric" maxLength={4} value={newYearText} onChange={e => setNewYearText(e.target.value.replace(/\D/g, ""))} placeholder="Start year, e.g. 2019" aria-label="Start year" className="h-9 w-[170px] rounded-full text-xs" />
+            <Button size="sm" className="rounded-full" disabled={newYearText.length !== 4} onClick={() => { const y = Number(newYearText); setExtraYears(prev => [...prev, y]); setYear(y); setAddingYear(false); setNewYearText(""); setEditingBudget(false); setMonthFilter(null); }}>Open {newYearText.length === 4 ? fyLabel(Number(newYearText)) : ""}</Button>
+            <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setAddingYear(false)}>Cancel</Button>
+          </div>
+        : <Select value={String(year)} onValueChange={v => { if (v === "__add") { setAddingYear(true); return; } setYear(Number(v)); setEditingBudget(false); setMonthFilter(null); }}>
+        <SelectTrigger className="h-9 w-[190px] rounded-full text-xs" aria-label="Financial year"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {years.map(y => <SelectItem key={y} value={String(y)}>{fyLabel(y)}{y === currentFy ? " (this year)" : y > currentFy && !budgets.some(b => budgetStartYear(b.financial_year) === y) ? " (start new year)" : ""}</SelectItem>)}
+          <SelectItem value="__add">Add another year…</SelectItem>
+        </SelectContent>
       </Select>} />
 
     <FinancePanel id="Budget" title="Budget" open={isOpen("Budget")} onToggle={() => toggle("Budget")}
@@ -1571,7 +1640,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
 
     {/* Cashflow is one system: the money in each fund, then the ledger that explains it. */}
     <FinancePanel id="Cashflow" title="Cashflow" open={isOpen("Cashflow")} onToggle={() => toggle("Cashflow")}
-      summary={`Balance ${money(totalBalance)} · ${money(totalIn)} in, ${money(totalOut)} out`}
+      summary={`Balance ${money(totalBalance)} · ${money(totalIn)} income · ${money(totalOut)} expenditure`}
       actions={<>
         <Button size="sm" variant="outline" className="rounded-full" onClick={() => setForecastOpen(true)}><Send className="size-3.5" />Send forecast</Button>
         {isCommittee && <Button size="sm" className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Add transaction</Button>}
@@ -1600,7 +1669,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
           <div className="mt-2">
             <Row label="Brought forward" value={money(stat.broughtForward)} />
             <Row label="Balance" value={money(stat.balance)} />
-            <Row label="Collected" value={money(stat.collected)} />
+            <Row label="Income received" value={money(stat.collected)} />
             <Row label="Still owing" value={money(stat.owing)} tone={stat.owing > 0 ? "text-destructive" : ""} />
             <Row label="Committed" value={money(stat.committed)} />
           </div>
@@ -1622,8 +1691,8 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
             <SelectTrigger className="h-9 w-[160px] rounded-full text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Everything</SelectItem>
-              <SelectItem value="in">Money in</SelectItem>
-              <SelectItem value="out">Money out</SelectItem>
+              <SelectItem value="in">Income</SelectItem>
+              <SelectItem value="out">Expenses</SelectItem>
               {funds.map(f => <SelectItem key={f.id} value={f.id}>{f.name} fund</SelectItem>)}
             </SelectContent>
           </Select>
@@ -1635,11 +1704,11 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
             {visible.map(t => { const voided = !!t.voided_at; const source = txSource(t); const grace = isCommittee && !source ? graceUntil(t, userId) : null;
               const paid = t.status === "Paid" && !grace; // inside the 24-hour window it behaves like an unlocked entry
               return <div key={t.id} className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 sm:px-6 ${voided ? "opacity-60" : ""}`}>
-              <span className={`grid size-8 shrink-0 place-items-center rounded-full ${t.direction === "in" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
+              <span className={`grid size-8 shrink-0 place-items-center rounded-full ${t.direction === "in" ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>
                 {t.direction === "in" ? <ArrowUpRight className="size-4" /> : <ArrowDownRight className="size-4" />}
               </span>
               <div className="min-w-[180px] flex-1">
-                <p className={`text-sm font-medium ${voided ? "line-through" : ""}`}>{t.status === "Paid" && !grace && !voided && <Lock className="mr-1.5 inline size-3 -translate-y-px text-muted-foreground" aria-label="Paid, locked" />}{t.description}{t.work_order_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Work order</span>}{t.insurance_claim_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Insurance claim</span>}</p>
+                <p className={`text-sm font-medium ${voided ? "line-through" : ""}`}>{t.status === "Paid" && !grace && !voided && <Lock className="mr-1.5 inline size-3 -translate-y-px text-muted-foreground" aria-label="Paid, locked" />}{t.description}{t.work_order_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Work order</span>}{t.insurance_claim_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Insurance claim</span>}{t.recurring_id && <span className="ml-2 inline-flex rounded-full border border-border px-2 py-0.5 align-middle text-[10px] font-medium text-muted-foreground">Recurring</span>}</p>
                 <p className="mt-0.5 text-[12px] text-muted-foreground">{[niceDate(t.occurred_on), t.category, t.supplier, `${fundName(funds, t.fund_id)} fund`].filter(Boolean).join(" · ")}
                   {t.direction === "out" && t.status === "Paid" && !voided && !t.budget_line_item_id && <span className="ml-1.5 text-destructive">· not budgeted</span>}</p>
                 {voided && <p className="mt-1 text-[12px] text-destructive">Voided{t.void_reason ? `: ${t.void_reason}` : ""}</p>}
@@ -1651,13 +1720,14 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
                 </div>}
               </div>
               <span className={`rounded-full border border-border px-2.5 py-1 text-[11px] ${t.status === "Paid" ? "text-muted-foreground" : "text-foreground"}`}>{voided ? "Voided" : t.status}</span>
-              <span className={`w-28 text-right text-sm font-medium tabular-nums ${voided ? "line-through" : ""}`}>{t.direction === "in" ? "+" : "−"}{money2(Number(t.amount))}</span>
+              <span className={`w-28 text-right text-sm font-medium tabular-nums ${voided ? "line-through" : ""} ${t.direction === "in" ? "text-primary" : "text-destructive"}`}>{t.direction === "in" ? "+" : "−"}{money2(Number(t.amount))}</span>
               <div className="flex items-center gap-1">
                 <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground" aria-label={`History of ${t.description}`} onClick={() => setHistoryFor(t)}><History className="size-4" /></Button>
                 {isCommittee && !voided && <>
                   <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Attach a receipt">
                     <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attach(t, f); e.currentTarget.value = ""; }} /></label>
                   </Button>
+                  {!source && t.status !== "Paid" && <Button size="sm" variant="outline" className="rounded-full text-xs" onClick={() => void markPaid(t)}>Mark paid</Button>}
                   {!source && (!paid || canManagePaid) && <Button size="sm" variant="ghost" className="rounded-full text-xs" onClick={() => { setEditing(t); setEditingGrace(!!grace); setTxOpen(true); }}>Edit</Button>}
                   {!source && paid && canManagePaid && <Button size="sm" variant="ghost" className="rounded-full text-xs text-destructive hover:text-destructive" onClick={() => setVoiding(t)}>Void</Button>}
                   {!source && !paid && <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" aria-label={`Delete ${t.description}`} onClick={() => setDeleting(t)}><Trash2 className="size-4" /></Button>}
@@ -1666,8 +1736,39 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
             </div>; })}
           </div>}
     </Card>
+
+    {recurring.length > 0 && <Card className="overflow-hidden">
+      <div className="border-b border-border/70 p-6">
+        <h2 className="font-display text-xl tracking-[-0.02em]">Recurring transactions</h2>
+        <p className="mt-1 text-[13px] text-muted-foreground">Each one appears in the ledger as Scheduled on its date. Pause it any time, or stop it for good.</p>
+      </div>
+      <div className="divide-y divide-border/60">
+        {recurring.map(r => <div key={r.id} className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 sm:px-6 ${r.active ? "" : "opacity-60"}`}>
+          <div className="min-w-[180px] flex-1">
+            <p className="text-sm font-medium">{r.description}</p>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">{[r.frequency, r.active ? `next ${niceDate(r.next_date)}` : "Paused", r.end_date ? `ends ${niceDate(r.end_date)}` : null, r.category, `${fundName(funds, r.fund_id)} fund`].filter(Boolean).join(" · ")}</p>
+          </div>
+          <span className={`w-28 text-right text-sm font-medium tabular-nums ${r.direction === "in" ? "text-primary" : "text-destructive"}`}>{r.direction === "in" ? "+" : "−"}{money2(Number(r.amount))}</span>
+          {isCommittee && <div className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" className="rounded-full text-xs" onClick={() => void setRuleActive(r, !r.active)}>{r.active ? "Pause" : "Resume"}</Button>
+            <Button size="sm" variant="ghost" className="rounded-full text-xs text-muted-foreground hover:text-destructive" onClick={() => setStoppingRule(r)}>Stop</Button>
+          </div>}
+        </div>)}
+      </div>
+    </Card>}
     </div>
     </FinancePanel>
+
+    <Dialog open={!!stoppingRule} onOpenChange={o => { if (!o) setStoppingRule(null); }}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Stop this repeat?</DialogTitle>
+          <DialogDescription>“{stoppingRule?.description}” won't be added again. Entries already in the ledger stay as they are.</DialogDescription></DialogHeader>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" className="rounded-full" onClick={() => setStoppingRule(null)}>Cancel</Button>
+          <Button variant="destructive" className="rounded-full" onClick={() => void stopRule()}>Stop repeating</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
 
     <Dialog open={deletingBudget} onOpenChange={setDeletingBudget}>
       <DialogContent className="sm:max-w-[440px]">
