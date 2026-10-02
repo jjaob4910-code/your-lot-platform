@@ -13,11 +13,15 @@ import type { Lot } from "@/routes/dashboard";
 import type { DocFile } from "@/components/documents";
 import { ensureStandardWidget, type ComplianceWidget, type Task } from "@/lib/action-publish";
 import { buildAgmMinutesPdf, buildAgmNoticePdf } from "@/lib/agm-pdf";
+import { ItemAttachments, ItemLinks, ResolutionPanel, linkSummary, resolutionSummary, type AgmAttachment, type AgmContextData, type ItemLink, type ResolutionType, type VoteChoice } from "@/components/agm-extras";
+
+const EMPTY_CTX: AgmContextData = { orders: [], policies: [], claims: [], budgets: [], levies: [], funds: [], fundBalances: {} };
 
 export type AgendaItem = {
   id?: string; label: string; notes: string;
   discussion?: string; motion?: string; moved_by?: string; seconded_by?: string; outcome?: string;
   suggested_by_lot_id?: string | null;
+  resolution_type?: ResolutionType; votes?: Record<string, VoteChoice>; links?: ItemLink[];
 };
 export type AgmStage = "Draft" | "Notice sent" | "Minutes" | "Published";
 export type AgmMeeting = {
@@ -28,7 +32,7 @@ export type AgmMeeting = {
   attendance?: Record<string, string> | null;
 };
 export type AgmSuggestion = { id: string; meeting_id: string; lot_id: string | null; title: string; details: string | null; status: string; created_at: string };
-type AgmLot = Pick<Lot, "id" | "lot_number" | "owner_name" | "owner_email">;
+type AgmLot = Pick<Lot, "id" | "lot_number" | "owner_name" | "owner_email" | "entitlement_percent">;
 
 const AGM_WIDGET_SPEC = { key: "agm_notice", label: "AGM Notice", detail: "Written notice to every owner ahead of the annual general meeting." };
 const AGM_FOLDER = "AGM";
@@ -87,6 +91,23 @@ async function agmFolderId(schemeId: string) {
 }
 
 // Files a generated PDF under AGM in Documents, shared with every owner.
+// Files or photos attached to an agenda item: filed under AGM in Documents, shared with owners.
+async function uploadAgmFiles(schemeId: string, files: File[]) {
+  const folderId = await agmFolderId(schemeId);
+  const ids: string[] = [];
+  for (const file of files) {
+    const path = `${schemeId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]/g, "_")}`;
+    const { error: upErr } = await supabase.storage.from("documents").upload(path, file);
+    if (upErr) throw upErr;
+    const { data, error } = await supabase.from("documents").insert({
+      scheme_id: schemeId, name: file.name, category: "AGM", folder_id: folderId, storage_path: path, file_size: file.size, mime_type: file.type, shared_with_owners: true,
+    }).select("id").single();
+    if (error || !data) throw error ?? new Error("Could not file it");
+    ids.push(data.id as string);
+  }
+  return ids;
+}
+
 async function fileAgmPdf(schemeId: string, blob: Blob, name: string, category: string) {
   const folderId = await agmFolderId(schemeId);
   const path = `${schemeId}/${crypto.randomUUID()}-${name.replace(/[^\w.-]/g, "_")}`;
@@ -129,10 +150,11 @@ function noticeEmail(m: AgmMeeting, lots: AgmLot[]) {
 
 type Draft = Pick<AgmMeeting, "title" | "meeting_date" | "meeting_time" | "location" | "video_link"> & { agenda: AgendaItem[]; attendance: Record<string, string>; notes: string };
 
-function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents, isCommittee, schemeId, task, widgets, onBack, onChanged }: {
+function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents, isCommittee, schemeId, task, widgets, onBack, onChanged, ctx, attachments }: {
   meeting: AgmMeeting; scheme: { name: string; address: string | null } | null; lots: AgmLot[]; myLot: AgmLot | null;
   suggestions: AgmSuggestion[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
   task: Task | undefined; widgets: ComplianceWidget[]; onBack: () => void; onChanged: () => void;
+  ctx: AgmContextData; attachments: AgmAttachment[];
 }) {
   const stage = stageOf(meeting);
   const [d, setD] = useState<Draft>(() => ({
@@ -195,7 +217,13 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
     setDirty(false);
   };
 
-  const pdfMeeting = () => ({ ...d, title: d.title.trim() || "Annual General Meeting", agenda: d.agenda.map(a => ({ ...a, discussion: a.discussion ?? "", motion: a.motion ?? "" })) });
+  // Resolutions, attachments and links are frozen into the PDF as plain lines.
+  const pdfMeeting = () => ({ ...d, title: d.title.trim() || "Annual General Meeting", agenda: d.agenda.map(a => ({
+    ...a, discussion: a.discussion ?? "", motion: a.motion ?? "",
+    resolution: resolutionSummary(a, lots),
+    attachments: attachments.filter(x => x.meeting_id === meeting.id && x.item_id === a.id).map(x => documents.find(doc => doc.id === x.document_id)?.name).filter((n): n is string => !!n),
+    links: (a.links ?? []).map(l => linkSummary(l, ctx)).filter(Boolean).map(sm => `${sm!.title}: ${sm!.detail}`),
+  })) });
   const fileName = (kind: string) => `${kind} — ${(d.title.trim() || "AGM").replace(/[/\\]/g, "-")}.pdf`;
 
   const completeObligation = async () => {
@@ -358,27 +386,16 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
                   {canEditAgenda
                     ? <div className="-mx-3"><RichTextEditor value={a.notes} onChange={html => setItem(a.id!, { notes: html })} placeholder="Add detail, a list or a checklist…" ariaLabel={`Description for item ${i + 1}`} minHeight={28}/></div>
                     : <RichTextView value={a.notes} className="text-muted-foreground"/>}
+                  <ItemLinks links={a.links ?? []} ctx={ctx} editable={canEditAgenda || canEditMinutes} onChange={links => setItem(a.id!, { links })}/>
+                  <ItemAttachments meetingId={meeting.id} itemId={a.id!} attachments={attachments} documents={documents} editable={canEditAgenda || canEditMinutes}
+                    onUpload={files => schemeId ? uploadAgmFiles(schemeId, files) : Promise.resolve([])} onChanged={onChanged}/>
 
                   {(stage === "Minutes" || stage === "Published") && <div className="mt-3 space-y-2 rounded-2xl bg-secondary/40 p-3 sm:p-4">
                     <SectionLabel>Discussion</SectionLabel>
                     {canEditMinutes
                       ? <div className="-mx-1"><RichTextEditor value={a.discussion ?? ""} onChange={html => setItem(a.id!, { discussion: html })} placeholder="What was discussed and decided" ariaLabel={`Discussion for item ${i + 1}`} minHeight={56}/></div>
                       : <RichTextView value={a.discussion}/>}
-                    {canEditMinutes
-                      ? <div className="grid gap-2 sm:grid-cols-2">
-                          <Input className="sm:col-span-2" value={a.motion ?? ""} onChange={e => setItem(a.id!, { motion: e.target.value })} placeholder="Motion (optional)" aria-label={`Motion for item ${i + 1}`}/>
-                          {a.motion?.trim() && <>
-                            <Input value={a.moved_by ?? ""} onChange={e => setItem(a.id!, { moved_by: e.target.value })} placeholder="Moved by" aria-label="Moved by"/>
-                            <Input value={a.seconded_by ?? ""} onChange={e => setItem(a.id!, { seconded_by: e.target.value })} placeholder="Seconded by" aria-label="Seconded by"/>
-                            <div className="flex gap-2 sm:col-span-2">
-                              {["Carried", "Lost"].map(o => <Button key={o} type="button" size="sm" variant={a.outcome === o ? "default" : "outline"} className="rounded-full"
-                                onClick={() => setItem(a.id!, { outcome: a.outcome === o ? "" : o })}>{o}</Button>)}
-                            </div>
-                          </>}
-                        </div>
-                      : a.motion && <p className="text-[13px]"><span className="font-medium">Motion:</span> {a.motion}
-                          <span className="text-muted-foreground">{a.moved_by ? ` · Moved ${a.moved_by}` : ""}{a.seconded_by ? ` · Seconded ${a.seconded_by}` : ""}</span>
-                          {a.outcome && <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${a.outcome === "Carried" ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>{a.outcome}</span>}</p>}
+                    <ResolutionPanel item={a} lots={lots} attendance={d.attendance} editable={canEditMinutes} onChange={patch => setItem(a.id!, patch)}/>
                   </div>}
                 </div>
               </div>
@@ -471,10 +488,11 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
-export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lots, myLot = null, scheme = null, suggestions = [], documents = [], onChanged }: {
+export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lots, myLot = null, scheme = null, suggestions = [], documents = [], onChanged, ctx = EMPTY_CTX, attachments = [] }: {
   schemeId?: string | undefined; isCommittee: boolean; meetings: AgmMeeting[]; task: Task | undefined;
   widgets: ComplianceWidget[]; lots: AgmLot[]; myLot?: AgmLot | null; scheme?: { name: string; address: string | null } | null;
   suggestions?: AgmSuggestion[]; documents?: DocFile[]; onChanged: () => void;
+  ctx?: AgmContextData; attachments?: AgmAttachment[];
 }) {
   const bootstrapped = useRef(false);
   useEffect(() => {
@@ -516,7 +534,7 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
       action={isCommittee && !open ? <Button className="rounded-full" onClick={() => void create()} disabled={!schemeId}><Plus/> New AGM</Button> : undefined}/>
 
     {open
-      ? <MeetingNotebook key={open.id} meeting={open} scheme={scheme} lots={lots} myLot={myLot} suggestions={suggestions.filter(s => s.meeting_id === open.id)}
+      ? <MeetingNotebook key={open.id} meeting={open} scheme={scheme} lots={lots} myLot={myLot} suggestions={suggestions.filter(s => s.meeting_id === open.id)} ctx={ctx} attachments={attachments}
           documents={documents} isCommittee={isCommittee} schemeId={schemeId} task={task} widgets={widgets} onBack={() => setOpenId(null)} onChanged={onChanged}/>
       : <Card className="mt-10 overflow-hidden">
           {sorted.length === 0

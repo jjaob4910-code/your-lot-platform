@@ -46,6 +46,12 @@ export type Database = {
           },
         ]
       }
+      agm_item_attachments: {
+        Row: { created_at: string; document_id: string; id: string; item_id: string; meeting_id: string }
+        Insert: { created_at?: string; document_id: string; id?: string; item_id: string; meeting_id: string }
+        Update: { created_at?: string; document_id?: string; id?: string; item_id?: string; meeting_id?: string }
+        Relationships: []
+      }
       agm_meetings: {
         Row: {
           agenda: Json

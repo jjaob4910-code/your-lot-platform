@@ -4,6 +4,7 @@
 export type AgmPdfItem = {
   label: string; notes: string;
   discussion?: string; motion?: string; moved_by?: string; seconded_by?: string; outcome?: string;
+  resolution?: { heading: string; detail: string } | null; attachments?: string[]; links?: string[];
 };
 export type AgmPdfMeeting = {
   title: string; meeting_date: string | null; meeting_time: string | null; location: string | null; video_link: string | null;
@@ -111,6 +112,8 @@ export async function buildAgmNoticePdf(m: AgmPdfMeeting, scheme: AgmPdfScheme):
   m.agenda.filter(a => a.label.trim()).forEach((a, i) => {
     w.text(`${i + 1}. ${a.label}`, 11.5, { bold: true, gap: a.notes ? 1 : 3 });
     if (a.notes && a.notes.replace(/<[^>]*>/g, "").trim()) w.rich(a.notes, 10.5, { indent: 6, color: 60, gap: 3 });
+    for (const l of a.links ?? []) w.text(`See: ${l}`, 9.5, { indent: 6, color: 90, gap: 1 });
+    if (a.attachments?.length) w.text(`Attached: ${a.attachments.join(", ")} (in Documents)`, 9.5, { indent: 6, color: 90, gap: 2 });
   });
   w.space(4); w.rule();
   w.text(`Issued ${longDate(new Date().toISOString())}. If you can't attend, you can send your apologies or appoint a proxy through the committee.`, 9.5, { color: 110 });
@@ -132,11 +135,12 @@ export async function buildAgmMinutesPdf(m: AgmPdfMeeting, scheme: AgmPdfScheme,
   m.agenda.filter(a => a.label.trim()).forEach((a, i) => {
     w.text(`${i + 1}. ${a.label}`, 11.5, { bold: true, gap: 1.5 });
     if (a.discussion && a.discussion.replace(/<[^>]*>/g, "").trim()) w.rich(a.discussion, 10.5, { indent: 6, gap: 2 });
-    if (a.motion) {
-      w.text(`Motion: ${a.motion}`, 10.5, { indent: 6, bold: true, gap: 1 });
-      const who = [a.moved_by ? `Moved: ${a.moved_by}` : "", a.seconded_by ? `Seconded: ${a.seconded_by}` : "", a.outcome ? `Result: ${a.outcome}` : ""].filter(Boolean).join("   ");
-      if (who) w.text(who, 10, { indent: 6, color: 70, gap: 2 });
+    if (a.resolution) {
+      w.text(a.resolution.heading, 10.5, { indent: 6, bold: true, gap: 1 });
+      if (a.resolution.detail) w.text(a.resolution.detail, 10, { indent: 6, color: 70, gap: 2 });
     }
+    for (const l of a.links ?? []) w.text(`See: ${l}`, 9.5, { indent: 6, color: 90, gap: 1 });
+    if (a.attachments?.length) w.text(`Attached: ${a.attachments.join(", ")}`, 9.5, { indent: 6, color: 90, gap: 1 });
     w.space(2);
   });
   if (m.notes && m.notes.replace(/<[^>]*>/g, "").trim()) { w.rule(); w.text("Meeting notes", 14, { bold: true, gap: 3 }); w.rich(m.notes, 10.5, { gap: 3 }); }
