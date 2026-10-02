@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, Copy, Download, FileText, GripVertical, Lightbulb, Plus, Send, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, CalendarDays, Check, Clock, Copy, Download, FileText, GripVertical, Lightbulb, MapPin, Plus, Send, Trash2, Video } from "lucide-react";
+import { RichTextEditor, RichTextView, isRichEmpty } from "@/components/rich-text";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -126,7 +127,7 @@ function noticeEmail(m: AgmMeeting, lots: AgmLot[]) {
 
 // ─── Notebook ────────────────────────────────────────────────────────────────
 
-type Draft = Pick<AgmMeeting, "title" | "meeting_date" | "meeting_time" | "location" | "video_link"> & { agenda: AgendaItem[]; attendance: Record<string, string> };
+type Draft = Pick<AgmMeeting, "title" | "meeting_date" | "meeting_time" | "location" | "video_link"> & { agenda: AgendaItem[]; attendance: Record<string, string>; notes: string };
 
 function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents, isCommittee, schemeId, task, widgets, onBack, onChanged }: {
   meeting: AgmMeeting; scheme: { name: string; address: string | null } | null; lots: AgmLot[]; myLot: AgmLot | null;
@@ -136,7 +137,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
   const stage = stageOf(meeting);
   const [d, setD] = useState<Draft>(() => ({
     title: meeting.title, meeting_date: meeting.meeting_date, meeting_time: meeting.meeting_time, location: meeting.location, video_link: meeting.video_link,
-    agenda: withIds(meeting.agenda), attendance: meeting.attendance ?? {},
+    agenda: withIds(meeting.agenda), attendance: meeting.attendance ?? {}, notes: meeting.notes ?? "",
   }));
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [dirty, setDirty] = useState(false);
@@ -176,7 +177,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
       const v = latest.current;
       const { error } = await supabase.from("agm_meetings").update({
         title: v.title.trim(), meeting_date: v.meeting_date || null, meeting_time: v.meeting_time || null,
-        location: v.location || null, video_link: v.video_link || null, agenda: v.agenda, attendance: v.attendance,
+        location: v.location || null, video_link: v.video_link || null, agenda: v.agenda, attendance: v.attendance, notes: v.notes,
       }).eq("id", meeting.id);
       if (error) { setSaveState("idle"); toast("Could not save", { description: error.message }); return; }
       setDirty(false); setSaveState("saved"); onChanged();
@@ -189,7 +190,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
     const v = latest.current;
     await supabase.from("agm_meetings").update({
       title: v.title.trim(), meeting_date: v.meeting_date || null, meeting_time: v.meeting_time || null,
-      location: v.location || null, video_link: v.video_link || null, agenda: v.agenda, attendance: v.attendance,
+      location: v.location || null, video_link: v.video_link || null, agenda: v.agenda, attendance: v.attendance, notes: v.notes,
     }).eq("id", meeting.id);
     setDirty(false);
   };
@@ -310,83 +311,98 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
       {stage === "Notice sent" && meeting.notice_sent_at && <p className="mt-3 text-[12px] text-muted-foreground">Notice sent {niceDate(meeting.notice_sent_at)}. On the day, start the minutes to record what's discussed and decided.</p>}
     </Card>
 
-    {/* Meeting details */}
-    <Card className="p-5 sm:p-7">
-      {canEditDetails
-        ? <input value={d.title} onChange={e => change({ title: e.target.value })} placeholder="Annual General Meeting 2026" aria-label="Meeting title"
-            className="w-full border-0 bg-transparent p-0 font-display text-2xl tracking-[-0.02em] outline-none placeholder:text-muted-foreground/50 sm:text-3xl"/>
-        : <h2 className="font-display text-2xl tracking-[-0.02em] sm:text-3xl">{d.title || "Annual General Meeting"}</h2>}
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5"><Label htmlFor="agm_date">Date</Label><Input id="agm_date" type="date" disabled={!canEditDetails} value={d.meeting_date ?? ""} onChange={e => change({ meeting_date: e.target.value })}/></div>
-        <div className="space-y-1.5"><Label htmlFor="agm_time">Time</Label><Input id="agm_time" disabled={!canEditDetails} value={d.meeting_time ?? ""} onChange={e => change({ meeting_time: e.target.value })} placeholder="7:00 PM"/></div>
-        <div className="space-y-1.5"><Label htmlFor="agm_location">Location</Label><Input id="agm_location" disabled={!canEditDetails} value={d.location ?? ""} onChange={e => change({ location: e.target.value })} placeholder="Common room"/></div>
-        <div className="space-y-1.5"><Label htmlFor="agm_video">Video link</Label><Input id="agm_video" disabled={!canEditDetails} value={d.video_link ?? ""} onChange={e => change({ video_link: e.target.value })} placeholder="https://..."/></div>
+    {/* The notebook: one sheet — title, details, then numbered sections — read like a document. */}
+    <Card className="overflow-hidden">
+      <div className="px-5 pb-5 pt-7 sm:px-10 sm:pt-10">
+        {canEditDetails
+          ? <input value={d.title} onChange={e => change({ title: e.target.value })} placeholder="Annual General Meeting 2026" aria-label="Meeting title"
+              className="w-full border-0 bg-transparent p-0 font-display text-3xl tracking-[-0.03em] outline-none placeholder:text-muted-foreground/50 sm:text-4xl"/>
+          : <h2 className="font-display text-3xl tracking-[-0.03em] sm:text-4xl">{d.title || "Annual General Meeting"}</h2>}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {([
+            ["agm_date", CalendarDays, "Date", <input key="d" id="agm_date" type="date" disabled={!canEditDetails} value={d.meeting_date ?? ""} onChange={e => change({ meeting_date: e.target.value })} className="min-w-0 bg-transparent outline-none disabled:opacity-100" aria-label="Date"/>],
+            ["agm_time", Clock, "Time", <input key="t" id="agm_time" disabled={!canEditDetails} value={d.meeting_time ?? ""} onChange={e => change({ meeting_time: e.target.value })} placeholder="Time" className="w-24 min-w-0 bg-transparent outline-none placeholder:text-muted-foreground/60" aria-label="Time"/>],
+            ["agm_location", MapPin, "Location", <input key="l" id="agm_location" disabled={!canEditDetails} value={d.location ?? ""} onChange={e => change({ location: e.target.value })} placeholder="Location" className="w-36 min-w-0 bg-transparent outline-none placeholder:text-muted-foreground/60" aria-label="Location"/>],
+            ["agm_video", Video, "Video link", <input key="v" id="agm_video" disabled={!canEditDetails} value={d.video_link ?? ""} onChange={e => change({ video_link: e.target.value })} placeholder="Video link" className="w-44 min-w-0 bg-transparent outline-none placeholder:text-muted-foreground/60" aria-label="Video link"/>],
+          ] as const).map(([id, Icon, label, field]) => <label key={id} htmlFor={id} title={label}
+            className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1.5 text-[13px] focus-within:border-primary/50">
+            <Icon className="size-3.5 shrink-0 text-muted-foreground"/>{field}
+          </label>)}
+        </div>
       </div>
-    </Card>
 
-    {/* Agenda / minutes */}
-    <div>
-      <div className="flex flex-wrap items-end justify-between gap-3 px-1">
-        <div><SectionLabel>{stage === "Minutes" || stage === "Published" ? "Minutes" : "Agenda"}</SectionLabel>
-          <p className="mt-1 text-[13px] text-muted-foreground">{stage === "Draft" ? "What the meeting will cover. Owners see this once the notice goes out." : stage === "Notice sent" ? "The agenda as sent to owners." : "What was discussed and decided under each item."}</p></div>
-      </div>
-      <ol className="mt-3 space-y-3">
-        {d.agenda.map((a, i) => {
-          const suggestedBy = a.suggested_by_lot_id ? lots.find(l => l.id === a.suggested_by_lot_id) : undefined;
-          return <li key={a.id} onDragOver={canEditAgenda ? e => e.preventDefault() : undefined} onDrop={canEditAgenda ? dropOn(a.id!) : undefined}
-            className={`rounded-2xl border bg-card p-4 sm:p-5 ${dragId === a.id ? "border-primary/50 opacity-60" : "border-border/70"}`}>
-            <div className="flex items-start gap-3">
-              {canEditAgenda && <span draggable onDragStart={() => setDragId(a.id!)} onDragEnd={() => setDragId(null)} className="mt-1.5 hidden cursor-grab text-muted-foreground sm:block" aria-hidden><GripVertical className="size-4"/></span>}
-              <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-secondary text-[12px] font-medium tabular-nums">{i + 1}</span>
-              <div className="min-w-0 flex-1 space-y-2">
-                {canEditAgenda
-                  ? <input value={a.label} onChange={e => setItem(a.id!, { label: e.target.value })} placeholder="Agenda item" aria-label={`Agenda item ${i + 1}`}
-                      className="w-full border-0 bg-transparent p-0 text-[15px] font-medium outline-none placeholder:text-muted-foreground/50"/>
-                  : <p className="text-[15px] font-medium">{a.label || "Untitled item"}</p>}
-                {suggestedBy && <p className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Suggested by Lot {suggestedBy.lot_number}</p>}
-                {canEditAgenda
-                  ? <Textarea value={a.notes} onChange={e => setItem(a.id!, { notes: e.target.value })} rows={2} placeholder="Description (optional)" aria-label={`Description for item ${i + 1}`} className="min-h-0 resize-none text-[13px]"/>
-                  : a.notes && <p className="whitespace-pre-line text-[13px] text-muted-foreground">{a.notes}</p>}
+      <div className="border-t border-border/70 px-5 py-6 sm:px-10">
+        <SectionLabel>{stage === "Minutes" || stage === "Published" ? "Minutes" : "Agenda"}</SectionLabel>
+        <p className="mt-1 text-[13px] text-muted-foreground">{stage === "Draft" ? "What the meeting will cover. Owners see this once the notice goes out. Use the toolbar for lists, checklists, bold and highlights." : stage === "Notice sent" ? "The agenda as sent to owners." : "What was discussed and decided under each item."}</p>
+        <ol className="mt-4 divide-y divide-border/60">
+          {d.agenda.map((a, i) => {
+            const suggestedBy = a.suggested_by_lot_id ? lots.find(l => l.id === a.suggested_by_lot_id) : undefined;
+            return <li key={a.id} onDragOver={canEditAgenda ? e => e.preventDefault() : undefined} onDrop={canEditAgenda ? dropOn(a.id!) : undefined}
+              className={`group/item py-5 first:pt-2 ${dragId === a.id ? "opacity-50" : ""}`}>
+              <div className="flex items-start gap-3">
+                {canEditAgenda && <span draggable onDragStart={() => setDragId(a.id!)} onDragEnd={() => setDragId(null)} className="mt-1.5 hidden cursor-grab text-muted-foreground opacity-0 transition group-hover/item:opacity-100 sm:block" aria-hidden><GripVertical className="size-4"/></span>}
+                <span className="mt-0.5 w-6 shrink-0 font-display text-lg tabular-nums text-muted-foreground">{i + 1}.</span>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="flex items-start gap-2">
+                    {canEditAgenda
+                      ? <input value={a.label} onChange={e => setItem(a.id!, { label: e.target.value })} placeholder="Agenda item" aria-label={`Agenda item ${i + 1}`}
+                          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-display text-lg tracking-[-0.01em] outline-none placeholder:text-muted-foreground/50"/>
+                      : <p className="min-w-0 flex-1 font-display text-lg tracking-[-0.01em]">{a.label || "Untitled item"}</p>}
+                    {canEditAgenda && <div className="flex shrink-0 items-center gap-0.5 transition sm:opacity-0 sm:group-focus-within/item:opacity-100 sm:group-hover/item:opacity-100">
+                      <Button type="button" size="icon" variant="ghost" className="size-7 rounded-full" aria-label="Move up" disabled={i === 0} onClick={() => move(a.id!, -1)}><ArrowUp className="size-3.5"/></Button>
+                      <Button type="button" size="icon" variant="ghost" className="size-7 rounded-full" aria-label="Move down" disabled={i === d.agenda.length - 1} onClick={() => move(a.id!, 1)}><ArrowDown className="size-3.5"/></Button>
+                      <Button type="button" size="icon" variant="ghost" className="size-7 rounded-full text-muted-foreground hover:text-destructive" aria-label={`Remove ${a.label || "item"}`} onClick={() => change({ agenda: d.agenda.filter(x => x.id !== a.id) })}><Trash2 className="size-3.5"/></Button>
+                    </div>}
+                  </div>
+                  {suggestedBy && <p className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Suggested by Lot {suggestedBy.lot_number}</p>}
+                  {canEditAgenda
+                    ? <div className="-mx-3"><RichTextEditor value={a.notes} onChange={html => setItem(a.id!, { notes: html })} placeholder="Add detail, a list or a checklist…" ariaLabel={`Description for item ${i + 1}`} minHeight={28}/></div>
+                    : <RichTextView value={a.notes} className="text-muted-foreground"/>}
 
-                {(stage === "Minutes" || stage === "Published") && <div className="space-y-2 border-t border-border/60 pt-3">
-                  {canEditMinutes
-                    ? <Textarea value={a.discussion ?? ""} onChange={e => setItem(a.id!, { discussion: e.target.value })} rows={3} placeholder="Discussion notes" aria-label={`Discussion for item ${i + 1}`} className="text-[13px]"/>
-                    : a.discussion && <p className="whitespace-pre-line text-[13px]">{a.discussion}</p>}
-                  {canEditMinutes
-                    ? <div className="grid gap-2 sm:grid-cols-2">
-                        <Input className="sm:col-span-2" value={a.motion ?? ""} onChange={e => setItem(a.id!, { motion: e.target.value })} placeholder="Motion (optional)" aria-label={`Motion for item ${i + 1}`}/>
-                        {a.motion?.trim() && <>
-                          <Input value={a.moved_by ?? ""} onChange={e => setItem(a.id!, { moved_by: e.target.value })} placeholder="Moved by" aria-label="Moved by"/>
-                          <Input value={a.seconded_by ?? ""} onChange={e => setItem(a.id!, { seconded_by: e.target.value })} placeholder="Seconded by" aria-label="Seconded by"/>
-                          <div className="flex gap-2 sm:col-span-2">
-                            {["Carried", "Lost"].map(o => <Button key={o} type="button" size="sm" variant={a.outcome === o ? "default" : "outline"} className="rounded-full"
-                              onClick={() => setItem(a.id!, { outcome: a.outcome === o ? "" : o })}>{o}</Button>)}
-                          </div>
-                        </>}
-                      </div>
-                    : a.motion && <p className="text-[13px]"><span className="font-medium">Motion:</span> {a.motion}
-                        <span className="text-muted-foreground">{a.moved_by ? ` · Moved ${a.moved_by}` : ""}{a.seconded_by ? ` · Seconded ${a.seconded_by}` : ""}</span>
-                        {a.outcome && <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${a.outcome === "Carried" ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>{a.outcome}</span>}</p>}
-                </div>}
+                  {(stage === "Minutes" || stage === "Published") && <div className="mt-3 space-y-2 rounded-2xl bg-secondary/40 p-3 sm:p-4">
+                    <SectionLabel>Discussion</SectionLabel>
+                    {canEditMinutes
+                      ? <div className="-mx-1"><RichTextEditor value={a.discussion ?? ""} onChange={html => setItem(a.id!, { discussion: html })} placeholder="What was discussed and decided" ariaLabel={`Discussion for item ${i + 1}`} minHeight={56}/></div>
+                      : <RichTextView value={a.discussion}/>}
+                    {canEditMinutes
+                      ? <div className="grid gap-2 sm:grid-cols-2">
+                          <Input className="sm:col-span-2" value={a.motion ?? ""} onChange={e => setItem(a.id!, { motion: e.target.value })} placeholder="Motion (optional)" aria-label={`Motion for item ${i + 1}`}/>
+                          {a.motion?.trim() && <>
+                            <Input value={a.moved_by ?? ""} onChange={e => setItem(a.id!, { moved_by: e.target.value })} placeholder="Moved by" aria-label="Moved by"/>
+                            <Input value={a.seconded_by ?? ""} onChange={e => setItem(a.id!, { seconded_by: e.target.value })} placeholder="Seconded by" aria-label="Seconded by"/>
+                            <div className="flex gap-2 sm:col-span-2">
+                              {["Carried", "Lost"].map(o => <Button key={o} type="button" size="sm" variant={a.outcome === o ? "default" : "outline"} className="rounded-full"
+                                onClick={() => setItem(a.id!, { outcome: a.outcome === o ? "" : o })}>{o}</Button>)}
+                            </div>
+                          </>}
+                        </div>
+                      : a.motion && <p className="text-[13px]"><span className="font-medium">Motion:</span> {a.motion}
+                          <span className="text-muted-foreground">{a.moved_by ? ` · Moved ${a.moved_by}` : ""}{a.seconded_by ? ` · Seconded ${a.seconded_by}` : ""}</span>
+                          {a.outcome && <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-medium ${a.outcome === "Carried" ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>{a.outcome}</span>}</p>}
+                  </div>}
+                </div>
               </div>
-              {canEditAgenda && <div className="flex shrink-0 flex-col items-center gap-0.5">
-                <Button type="button" size="icon" variant="ghost" className="size-8 rounded-full" aria-label="Move up" disabled={i === 0} onClick={() => move(a.id!, -1)}><ArrowUp className="size-4"/></Button>
-                <Button type="button" size="icon" variant="ghost" className="size-8 rounded-full" aria-label="Move down" disabled={i === d.agenda.length - 1} onClick={() => move(a.id!, 1)}><ArrowDown className="size-4"/></Button>
-                <Button type="button" size="icon" variant="ghost" className="size-8 rounded-full text-muted-foreground hover:text-destructive" aria-label={`Remove ${a.label || "item"}`} onClick={() => change({ agenda: d.agenda.filter(x => x.id !== a.id) })}><Trash2 className="size-4"/></Button>
-              </div>}
-            </div>
-          </li>;
-        })}
-        {d.agenda.length === 0 && <li className="rounded-2xl border border-dashed border-border p-6 text-center text-[13px] text-muted-foreground">No agenda items yet.</li>}
-      </ol>
-      {canEditAgenda && <div className="mt-3 flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => change({ agenda: [...d.agenda, { id: crypto.randomUUID(), label: "", notes: "" }] })}><Plus/> Add item</Button>
-        {standardLeft.length > 0 && <Select value="" onValueChange={label => { const s = STANDARD_AGM_AGENDA.find(x => x.label === label); if (s) change({ agenda: [...d.agenda, { id: crypto.randomUUID(), ...s }] }); }}>
-          <SelectTrigger className="h-9 w-auto rounded-full text-[12px]" aria-label="Add standard item"><SelectValue placeholder="Add standard item"/></SelectTrigger>
-          <SelectContent>{standardLeft.map(s => <SelectItem key={s.label} value={s.label}>{s.label}</SelectItem>)}</SelectContent>
-        </Select>}
+            </li>;
+          })}
+          {d.agenda.length === 0 && <li className="py-6 text-center text-[13px] text-muted-foreground">No agenda items yet.</li>}
+        </ol>
+        {canEditAgenda && <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-dashed border-border/70 pt-4">
+          <Button type="button" variant="ghost" size="sm" className="rounded-full text-muted-foreground" onClick={() => change({ agenda: [...d.agenda, { id: crypto.randomUUID(), label: "", notes: "" }] })}><Plus/> Add agenda item</Button>
+          {standardLeft.length > 0 && <Select value="" onValueChange={label => { const s = STANDARD_AGM_AGENDA.find(x => x.label === label); if (s) change({ agenda: [...d.agenda, { id: crypto.randomUUID(), ...s }] }); }}>
+            <SelectTrigger className="h-8 w-auto rounded-full border-dashed text-[12px]" aria-label="Add standard item"><SelectValue placeholder="Add standard item"/></SelectTrigger>
+            <SelectContent>{standardLeft.map(s => <SelectItem key={s.label} value={s.label}>{s.label}</SelectItem>)}</SelectContent>
+          </Select>}
+        </div>}
+      </div>
+
+      {/* Free-form notes for the whole meeting */}
+      {(canEditDetails || !isRichEmpty(d.notes)) && <div className="border-t border-border/70 px-5 py-6 sm:px-10">
+        <SectionLabel>Meeting notes</SectionLabel>
+        {canEditDetails
+          ? <div className="-mx-3 mt-2"><RichTextEditor value={d.notes} onChange={html => change({ notes: html })} placeholder="Anything else: background, reminders, actions for the committee…" ariaLabel="Meeting notes" minHeight={56}/></div>
+          : <RichTextView value={d.notes} className="mt-2"/>}
       </div>}
-    </div>
+    </Card>
 
     {/* Attendance */}
     {(stage === "Minutes" || stage === "Published") && lots.length > 0 && <Card className="p-5 sm:p-7">
