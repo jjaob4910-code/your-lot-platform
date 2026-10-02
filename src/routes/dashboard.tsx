@@ -20,7 +20,7 @@ import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
 import type { Claim } from "@/components/insurance-claims";
 import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment, type BudgetFund } from "@/components/overview";
-import { FinanceSection, ensureDefaultFunds, type RecurringTx, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
+import { FinanceSection, ensureDefaultFunds, type RecurringTx, type LevyReversal, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
 import { recordedFundBalances, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
@@ -251,6 +251,22 @@ function DashboardPage() {
       return (data ?? []) as unknown as FinanceTx[];
     },
   });
+  const financialYears = useQuery({
+    queryKey: ["financial-years"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("financial_years").select("id, start_year").order("start_year");
+      if (error) throw error;
+      return (data ?? []) as { id: string; start_year: number }[];
+    },
+  });
+  const levyReversals = useQuery({
+    queryKey: ["levy-reversals"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("levy_payment_reversals").select("id, levy_id, reason, actor_label, created_at");
+      if (error) throw error;
+      return (data ?? []) as LevyReversal[];
+    },
+  });
   const recurringTx = useQuery({
     queryKey: ["recurring"],
     queryFn: async () => {
@@ -391,7 +407,8 @@ function DashboardPage() {
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
         documents={documents.data ?? []} funds={budgetFunds.data ?? []} contractors={contractors.data ?? []} claims={claims.data ?? []}
         fundBalances={warnOverdrawn ? recordedBalances : undefined}
-        onChanged={()=>refresh(["repairs","documents","document-folders","finance","notices","contractors"])}/>}
+        budgetLines={(budgetLineItems.data ?? []).map(l => ({ id: l.id, fund_id: l.fund_id, description: l.description, fy: (budgets.data ?? []).find(b => b.id === l.budget_id)?.financial_year ?? null }))}
+        onChanged={()=>refresh(["repairs","documents","document-folders","finance","notices","contractors","budget-line-items"])}/>}
 
       {active === "AGM" && <AgmSection schemeId={schemeId} isCommittee={isCommittee} meetings={agmMeetings.data ?? []}
         task={currentAgmTask} widgets={complianceWidgets.data ?? []} lots={lots.data ?? []} myLot={myLot}
@@ -403,8 +420,9 @@ function DashboardPage() {
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
         canManagePaid={canManagePaid.data ?? false} treasurerName={treasurerName}
-        recordedBalances={recordedBalances} warnOverdrawn={warnOverdrawn} userId={userId} recurring={recurringTx.data ?? []} onOpenSettings={()=>setActive("Settings")}
-        onChanged={()=>refresh(["finance","recurring","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
+        recordedBalances={recordedBalances} warnOverdrawn={warnOverdrawn} userId={userId} recurring={recurringTx.data ?? []}
+        financialYears={financialYears.data ?? []} levyReversals={levyReversals.data ?? []} onOpenSettings={()=>setActive("Settings")}
+        onChanged={()=>refresh(["finance","recurring","financial-years","levy-reversals","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","insurance-claims","documents","document-folders"])}
