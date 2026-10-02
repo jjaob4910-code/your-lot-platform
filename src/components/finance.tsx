@@ -1547,7 +1547,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
     const hasBudget = budgets.some(b => budgetStartYear(b.financial_year) === year);
     const hasTx = transactions.some(t => startYearOf(t.occurred_on) === year);
     if (hasBudget || hasTx) {
-      toast(`${fyLabel(year)} can't be removed`, { description: hasBudget ? "It has a budget. Delete the budget first." : "It has transactions recorded in it." });
+      toast(`${fyLabel(year)} can't be removed`, { description: hasBudget ? "It has a budget, so it stays." : "It has transactions recorded in it." });
       return;
     }
     const row = financialYears.find(f => f.start_year === year);
@@ -1685,7 +1685,6 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
   const [voiding, setVoiding] = useState<FinanceTx | null>(null);
   const [historyFor, setHistoryFor] = useState<FinanceTx | null>(null);
   const [editingGrace, setEditingGrace] = useState(false);
-  const [deletingBudget, setDeletingBudget] = useState(false);
 
   const attach = async (tx: FinanceTx, file: File) => {
     if (!schemeId) return;
@@ -1747,7 +1746,6 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
       actions={isCommittee ? <>
         {activeBudget && !editingBudget && <Button size="sm" className="rounded-full" onClick={() => setEditingBudget(true)}><Pencil className="size-3.5" />Edit budget</Button>}
         {activeBudget && editingBudget && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setEditingBudget(false)}>Back to overview</Button>}
-        {activeBudget && !editingBudget && <Button size="sm" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" onClick={() => setDeletingBudget(true)} aria-label="Delete budget"><Trash2 className="size-3.5" /><span className="hidden sm:inline">Delete</span></Button>}
         <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setManageFundsOpen(true)} aria-label="Manage funds"><Settings2 className="size-3.5" /><span className="hidden sm:inline">Manage funds</span></Button>
       </> : undefined}>
       {/* Building a new budget and editing one are the same spreadsheet. Once a budget is set,
@@ -1940,25 +1938,6 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
           <Button variant="ghost" className="rounded-full" onClick={() => setStoppingRule(null)}>Cancel</Button>
           <Button variant="destructive" className="rounded-full" onClick={() => void stopRule()}>Stop repeating</Button>
         </div>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog open={deletingBudget} onOpenChange={setDeletingBudget}>
-      <DialogContent className="sm:max-w-[440px]">
-        {activeBudget && (levies.some(l => l.budget_id === activeBudget.id && l.status === "Paid")
-          ? <><DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">This budget can't be deleted</DialogTitle>
-              <DialogDescription>Some of its levies have already been paid. Use Edit budget instead: it can recalculate the unpaid levies and keeps a history of every change.</DialogDescription></DialogHeader>
-              <div className="flex justify-end pt-2"><Button className="rounded-full" onClick={() => { setDeletingBudget(false); setEditingBudget(true); }}>Edit budget</Button></div></>
-          : <><DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Delete the {activeBudget.financial_year} budget?</DialogTitle>
-              <DialogDescription>Its line items and the unpaid levies it raised ({levies.filter(l => l.budget_id === activeBudget.id).length}) are removed too. Use this to start over when a budget was entered by mistake.</DialogDescription></DialogHeader>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="ghost" className="rounded-full" onClick={() => setDeletingBudget(false)}>Cancel</Button>
-                <Button variant="destructive" className="rounded-full" onClick={() => void (async () => {
-                  const { error } = await supabase.from("budgets").delete().eq("id", activeBudget.id);
-                  if (error) { toast("Could not delete the budget", { description: error.message }); return; }
-                  setDeletingBudget(false); onChanged(); toast("Budget deleted");
-                })()}>Delete budget</Button>
-              </div></>)}
       </DialogContent>
     </Dialog>
 
