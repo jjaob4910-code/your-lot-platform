@@ -557,12 +557,12 @@ function ContractorsList({ contractors, orders, isCommittee, schemeId, onChanged
   </div>;
 }
 
-export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, documents = [], funds = [], contractors = [], claims = [], fundBalances, onChanged }: {
+export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, documents = [], funds = [], contractors = [], claims = [], fundBalances, budgetLines = [], onChanged }: {
   orders: WorkOrder[]; lots: WorkOrderLot[]; isCommittee: boolean; myLot: WorkOrderLot | null;
   schemeId?: string | undefined;
   documents?: DocFile[]; funds?: BudgetFund[]; contractors?: Contractor[]; claims?: LinkedClaim[];
   /** Recorded fund balances, only when the viewer wants overdrawn warnings. */
-  fundBalances?: Record<string, number> | undefined; onChanged: () => void;
+  fundBalances?: Record<string, number> | undefined; budgetLines?: WoBudgetLine[]; onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [viewing, setViewing] = useState<string | null>(null);
@@ -604,7 +604,7 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
     <Dialog open={!!current} onOpenChange={o => { if (!o) setViewing(null); }}>
       <DialogContent className="h-[100dvh] max-h-[100dvh] w-screen max-w-none overflow-y-auto overflow-x-hidden rounded-none p-4 pb-0 sm:h-auto sm:max-h-[90vh] sm:w-[calc(100vw-2rem)] sm:max-w-3xl sm:rounded-lg sm:p-6">
         {current && <WorkOrderDetail order={current} lots={lots} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
-          documents={documents} funds={funds} contractors={contractors} claims={claims.filter(c => c.work_order_id === current.id)} fundBalances={fundBalances} onChanged={onChanged} onDeleted={() => setViewing(null)}/>}
+          documents={documents} funds={funds} contractors={contractors} claims={claims.filter(c => c.work_order_id === current.id)} fundBalances={fundBalances} budgetLines={budgetLines} onChanged={onChanged} onDeleted={() => setViewing(null)}/>}
       </DialogContent>
     </Dialog>
   </div>;
@@ -661,14 +661,26 @@ function StepChain({ steps, onJump }: { steps: WorkOrderStep[]; onJump: (step: W
   </div>;
 }
 
-function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBalances, onClose, onDone }: {
+function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBalances, budgetLines = [], onClose, onDone }: {
   quote: WorkOrderQuote | null; order: WorkOrder; contractorName: string | null; funds: BudgetFund[]; schemeId?: string | undefined;
-  fundBalances?: Record<string, number> | undefined; onClose: () => void; onDone: () => void;
+  fundBalances?: Record<string, number> | undefined; budgetLines?: WoBudgetLine[]; onClose: () => void; onDone: () => void;
 }) {
+  const [lineId, setLineId] = useState<string>("");
+  // Payment date decides the financial year (1 Jul – 30 Jun); offer that year's lines in the chosen fund.
+  const fyOf = (iso: string) => { const d = new Date(`${iso}T00:00:00`); const y = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; return `${y}/${String(y + 1).slice(2)}`; };
   const [fundId, setFundId] = useState<string>("");
   const [date, setDate] = useState(todayIso());
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (quote) { setFundId(funds[0]?.id ?? ""); setDate(todayIso()); } }, [quote, funds]);
+  useEffect(() => { if (quote) { setFundId(funds[0]?.id ?? ""); setDate(todayIso()); setLineId(""); } }, [quote, funds]);
+  const lineChoices = budgetLines.filter(l => l.fund_id === fundId && (!l.fy || !date || l.fy.startsWith(fyOf(date).slice(0, 4))));
+  // Suggest the line whose name overlaps the work order title.
+  useEffect(() => {
+    if (lineId || !quote) return;
+    const words = order.title.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+    const hit = lineChoices.find(l => words.some(w => l.description.toLowerCase().includes(w)));
+    if (hit) setLineId(hit.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fundId, quote]);
 
   const confirm = async () => {
     if (!quote || !schemeId || !fundId) return;
@@ -676,6 +688,7 @@ function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBal
     const { data, error } = await supabase.from("finance_transactions").insert({
       scheme_id: schemeId, direction: "out", status: "Paid", amount: Number(quote.amount), occurred_on: date, fund_id: fundId,
       category: "Repairs and maintenance", description: `Work order — ${order.title}`, supplier: contractorName, work_order_id: order.id,
+      budget_line_item_id: lineId && lineId !== "none" ? lineId : null,
     }).select("id").single();
     if (error || !data) { setSaving(false); toast("Could not record the payment", { description: error?.message }); return; }
     const { error: qErr } = await supabase.from("work_order_quotes").update({ paid_at: date, finance_transaction_id: data.id }).eq("id", quote.id);
@@ -697,6 +710,15 @@ function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBal
           <Select value={fundId} onValueChange={setFundId}><SelectTrigger><SelectValue placeholder="Choose a fund"/></SelectTrigger>
             <SelectContent>{funds.map(f => <SelectItem key={f.id} value={f.id}>{f.name} fund</SelectItem>)}</SelectContent></Select></div>
         <div className="space-y-2"><Label htmlFor="paid_on">Payment date</Label><Input id="paid_on" type="date" value={date} onChange={e => setDate(e.target.value)}/></div>
+        <div className="space-y-2"><Label>Budget line</Label>
+          <Select value={lineId || "none"} onValueChange={setLineId}>
+            <SelectTrigger aria-label="Budget line"><SelectValue/></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Not budgeted</SelectItem>
+              {lineChoices.map(l => <SelectItem key={l.id} value={l.id}>{l.description}{l.fy ? ` (${l.fy})` : ""}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">{lineChoices.length ? "Counts this payment against that line's budget." : "No budget lines in this fund for that year. It'll show as unbudgeted spend."}</p></div>
         {quote && fundBalances && fundId && (fundBalances[fundId] ?? 0) - Number(quote.amount) < 0 &&
           <OverdrawWarning fundName={funds.find(f => f.id === fundId)?.name ?? "chosen"} after={(fundBalances[fundId] ?? 0) - Number(quote.amount)}/>}
       </div>
@@ -755,11 +777,12 @@ function AddQuoteForm({ order, contractors, schemeId, onAddContractor, pendingCo
   </div>;
 }
 
+export type WoBudgetLine = { id: string; fund_id: string; description: string; fy: string | null };
 export type LinkedClaim = { id: string; title: string; status: string; work_order_id: string | null };
 
-export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, documents, funds, contractors, claims = [], fundBalances, onChanged, onDeleted }: {
+export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, documents, funds, contractors, claims = [], fundBalances, budgetLines = [], onChanged, onDeleted }: {
   order: WorkOrder; lots: WorkOrderLot[]; isCommittee: boolean; myLot: WorkOrderLot | null; schemeId?: string | undefined;
-  documents: DocFile[]; funds: BudgetFund[]; contractors: Contractor[]; claims?: LinkedClaim[]; fundBalances?: Record<string, number> | undefined;
+  documents: DocFile[]; funds: BudgetFund[]; contractors: Contractor[]; claims?: LinkedClaim[]; fundBalances?: Record<string, number> | undefined; budgetLines?: WoBudgetLine[];
   onChanged: () => void; onDeleted: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -1181,7 +1204,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
     </div>}
 
     <ContractorDialog open={contractorOpen} onOpenChange={setContractorOpen} schemeId={schemeId} contractor={null} onSaved={id => { setNewContractorId(id); onChanged(); }}/>
-    <MarkPaidDialog quote={payingQuote} order={order} contractorName={payingQuote ? contractorName(payingQuote.contractor_id) : null} funds={funds} schemeId={schemeId} fundBalances={fundBalances}
+    <MarkPaidDialog quote={payingQuote} order={order} contractorName={payingQuote ? contractorName(payingQuote.contractor_id) : null} funds={funds} schemeId={schemeId} fundBalances={fundBalances} budgetLines={budgetLines}
       onClose={() => setPayingQuote(null)} onDone={refreshAll}/>
     <ConfirmDialog open={confirmClose} onOpenChange={setConfirmClose} title="Close this work order?"
       body="Every remaining step will be marked done and the work order moves to Completed." confirmLabel="Close work order" busy={busy} onConfirm={() => void closeOrder()}/>

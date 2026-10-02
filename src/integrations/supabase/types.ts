@@ -251,13 +251,13 @@ export type Database = {
           cost_type: string
           created_at: string
           description: string
+          expected_date: string | null
           expected_month: number | null
           fund_id: string
           id: string
           occurrence: string
           scheme_id: string
           updated_at: string
-          expected_date: string | null
         }
         Insert: {
           amount?: number
@@ -265,13 +265,13 @@ export type Database = {
           cost_type?: string
           created_at?: string
           description: string
+          expected_date?: string | null
           expected_month?: number | null
           fund_id: string
           id?: string
           occurrence?: string
           scheme_id: string
           updated_at?: string
-          expected_date?: string | null
         }
         Update: {
           amount?: number
@@ -279,13 +279,13 @@ export type Database = {
           cost_type?: string
           created_at?: string
           description?: string
+          expected_date?: string | null
           expected_month?: number | null
           fund_id?: string
           id?: string
           occurrence?: string
           scheme_id?: string
           updated_at?: string
-          expected_date?: string | null
         }
         Relationships: [
           {
@@ -1014,6 +1014,35 @@ export type Database = {
           },
         ]
       }
+      financial_years: {
+        Row: {
+          created_at: string
+          id: string
+          scheme_id: string
+          start_year: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          scheme_id: string
+          start_year: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          scheme_id?: string
+          start_year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_years_scheme_id_fkey"
+            columns: ["scheme_id"]
+            isOneToOne: false
+            referencedRelation: "schemes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       insurance_claim_updates: {
         Row: {
           author_label: string | null
@@ -1234,42 +1263,42 @@ export type Database = {
           budget_id: string
           created_at: string
           due_date: string
+          fund_id: string | null
           id: string
+          label: string | null
           lot_id: string
           notified_amount: number | null
           notified_at: string | null
           paid_at: string | null
           status: Database["public"]["Enums"]["levy_status"]
-          label: string | null
-          fund_id: string | null
         }
         Insert: {
           amount?: number
           budget_id: string
           created_at?: string
           due_date: string
+          fund_id?: string | null
           id?: string
+          label?: string | null
           lot_id: string
           notified_amount?: number | null
           notified_at?: string | null
           paid_at?: string | null
           status?: Database["public"]["Enums"]["levy_status"]
-          label?: string | null
-          fund_id?: string | null
         }
         Update: {
           amount?: number
           budget_id?: string
           created_at?: string
           due_date?: string
+          fund_id?: string | null
           id?: string
+          label?: string | null
           lot_id?: string
           notified_amount?: number | null
           notified_at?: string | null
           paid_at?: string | null
           status?: Database["public"]["Enums"]["levy_status"]
-          label?: string | null
-          fund_id?: string | null
         }
         Relationships: [
           {
@@ -1280,10 +1309,55 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "levies_fund_id_fkey"
+            columns: ["fund_id"]
+            isOneToOne: false
+            referencedRelation: "budget_funds"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "levies_lot_id_fkey"
             columns: ["lot_id"]
             isOneToOne: false
             referencedRelation: "lots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      levy_payment_reversals: {
+        Row: {
+          actor_label: string | null
+          actor_user_id: string | null
+          created_at: string
+          id: string
+          levy_id: string
+          previous_paid_at: string | null
+          reason: string
+        }
+        Insert: {
+          actor_label?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          levy_id: string
+          previous_paid_at?: string | null
+          reason: string
+        }
+        Update: {
+          actor_label?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          levy_id?: string
+          previous_paid_at?: string | null
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "levy_payment_reversals_levy_id_fkey"
+            columns: ["levy_id"]
+            isOneToOne: false
+            referencedRelation: "levies"
             referencedColumns: ["id"]
           },
         ]
@@ -1969,6 +2043,10 @@ export type Database = {
       }
       owns_lot: { Args: { _lot_id: string }; Returns: boolean }
       recurring_step: { Args: { _d: string; _freq: string }; Returns: string }
+      reverse_levy_payment: {
+        Args: { _levy: string; _reason: string }
+        Returns: undefined
+      }
       scheme_has_treasurer: { Args: { _scheme: string }; Returns: boolean }
     }
     Enums: {
