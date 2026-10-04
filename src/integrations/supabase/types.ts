@@ -638,27 +638,36 @@ export type Database = {
       }
       dashboard_widgets: {
         Row: {
+          config: Json
           created_at: string
           id: string
           scheme_id: string
+          size: string
           sort_order: number
           updated_at: string
+          user_id: string | null
           widget_type: string
         }
         Insert: {
+          config?: Json
           created_at?: string
           id?: string
           scheme_id: string
+          size?: string
           sort_order?: number
           updated_at?: string
+          user_id?: string | null
           widget_type: string
         }
         Update: {
+          config?: Json
           created_at?: string
           id?: string
           scheme_id?: string
+          size?: string
           sort_order?: number
           updated_at?: string
+          user_id?: string | null
           widget_type?: string
         }
         Relationships: [
