@@ -108,7 +108,6 @@ function CashWidgetBody({ funds, balances, goTo }: { funds: BudgetFund[]; balanc
         <span className="truncate text-muted-foreground">{f.name}</span><span className={`font-medium tabular-nums ${b < 0 ? "text-destructive" : ""}`}>{money(b)}{b < 0 ? " overdrawn" : ""}</span>
       </div>; })}
     </div>
-    <Button size="sm" variant="ghost" className="mt-4 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance/Cashflow")}>Open cashflow <ChevronRight className="size-3.5" /></Button>
   </div>;
 }
 
@@ -117,7 +116,6 @@ function NextMeetingWidgetBody({ scheme, goTo }: { scheme: OvScheme | null; goTo
   return <div>
     <p className="font-display text-4xl font-medium tracking-[-0.03em]">{days === null ? "—" : days < 0 ? `${Math.abs(days)}d overdue` : `${days} days`}</p>
     <p className="mt-1 text-[12px] text-muted-foreground">{scheme?.next_agm_date ? `Next AGM · ${niceDate(scheme.next_agm_date)}` : "No AGM date set yet"}</p>
-    <Button size="sm" variant="ghost" className="mt-4 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Calendar")}>Open calendar <ChevronRight className="size-3.5" /></Button>
   </div>;
 }
 
@@ -217,7 +215,6 @@ function LeviesWidgetBody({ levies, mine, goTo }: { levies: Levy[]; mine: boolea
   const pct = issued > 0 ? Math.round((paid / issued) * 100) : 0;
   if (list.length === 0) return <div>
     <p className="text-[13px] text-muted-foreground">{mine ? `No levies issued to your lot for ${fyLabel(fy)} yet.` : `No levies issued for ${fyLabel(fy)} yet.`}</p>
-    <Button size="sm" variant="ghost" className="mt-3 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance/Levies")}>Open levies <ChevronRight className="size-3.5" /></Button>
   </div>;
   return <div>
     <p className="text-[12px] text-muted-foreground">{mine ? "Your levies" : "Levies"} for {fyLabel(fy)}</p>
@@ -240,7 +237,6 @@ function LeviesWidgetBody({ levies, mine, goTo }: { levies: Levy[]; mine: boolea
       </li>; })}
       {owingList.length > 4 && <li className="text-muted-foreground">and {owingList.length - 4} more</li>}
     </ul>}
-    <Button size="sm" variant="ghost" className="mt-3 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance/Levies")}>Open levies <ChevronRight className="size-3.5" /></Button>
   </div>;
 }
 
@@ -275,7 +271,6 @@ function BudgetWidgetBody({ budgets, funds, transactions, goTo }: { budgets: OvB
         </div>;
       })}
     </div>
-    <Button size="sm" variant="ghost" className="mt-3 h-7 rounded-full px-3 text-[11px]" onClick={() => goTo("Finance/Budget")}>Open budget <ChevronRight className="size-3.5" /></Button>
   </div>;
 }
 
@@ -285,7 +280,8 @@ function yearGlance({ budgets, levies, meetings, policies, scheme, agmTask }: { 
   const fy = currentFinancialYearStart();
   const budget = budgets.find(b => budgetStartYear(b.financial_year) === fy);
   const list = fyLevies(levies, fy);
-  const sent = list.filter(l => l.notified_at).length;
+  // Levies paid before the app could send them still count as issued.
+  const sent = list.filter(l => l.notified_at || l.status === "Paid").length;
   const meeting = meetings.find(m => inFy(m.meeting_date ?? m.created_at, fy));
   const stage = meeting?.stage ?? "Draft";
   const agmDue = meeting?.meeting_date ?? scheme?.next_agm_date ?? agmTask?.due_date ?? null;
@@ -297,7 +293,7 @@ function yearGlance({ budgets, levies, meetings, policies, scheme, agmTask }: { 
   const renewLeft = nextRenewal ? daysUntil(nextRenewal) : null;
   return [
     { label: `Budget set for ${fyLabel(fy)}`, done: !!budget, note: budget ? `${money(Number(budget.total_amount))}` : "Not set yet", urgent: !budget, tab: "Finance/Budget" },
-    { label: "Levies issued", done: list.length > 0 && sent === list.length, note: list.length === 0 ? "None issued yet" : `${sent} of ${list.length} sent to owners`, urgent: false, tab: "Finance/Levies" },
+    { label: "Levies issued", done: list.length > 0 && sent === list.length, note: list.length === 0 ? "None issued yet" : `${sent} of ${list.length} lots`, urgent: false, tab: "Finance/Levies" },
     { label: "AGM notice sent", done: stage !== "Draft" || agmTask?.status === "Complete", note: stage !== "Draft" ? "Sent" : dueNote(agmLeft, "No date yet"), urgent: stage === "Draft" && agmLeft !== null && agmLeft < 21, tab: "AGM" },
     { label: "AGM minutes published", done: stage === "Published", note: stage === "Published" ? "Published" : stage === "Minutes" ? "Minutes in progress" : "After the meeting", urgent: false, tab: "AGM" },
     { label: "Insurance current", done: current.length > 0 && (renewLeft ?? 99) >= 30, note: policies.length === 0 ? "No policy recorded" : current.length === 0 ? "Policy has lapsed" : `Renews ${niceDate(nextRenewal!)}`, urgent: policies.length > 0 && (current.length === 0 || (renewLeft ?? 99) < 30), tab: "Insurance" },
@@ -379,12 +375,13 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
   const seeded = useRef(false);
   const [seedFailed, setSeedFailed] = useState(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const canCustomise = (!!userId || isCommittee) && !seedFailed;
+  const canCustomise = !!userId || isCommittee;
 
   // Each person has their own layout; rows without a user are the scheme's default,
   // copied for someone the first time they open the dashboard.
   const defaults = widgets.filter(w => !w.user_id);
   // If a personal copy can't be saved, fall back to showing the default layout.
+  const personalUser = userId && !seedFailed ? userId : null;
   const mine = userId && !seedFailed ? widgets.filter(w => w.user_id === userId) : defaults;
   const fromRows: Slot[] = useMemo(() => mine.slice().sort((a, b) => a.sort_order - b.sort_order)
     .filter(w => WIDGET_CATALOG[typeOf(w)])
@@ -402,7 +399,11 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
       .map(w => ({ widget_type: typeOf(w), size: asSize(w.size), config: w.config ?? {} }))
       : STARTER.map(t => ({ widget_type: t, size: WIDGET_CATALOG[t]!.size, config: {} }));
     void supabase.from("dashboard_widgets").insert(source.map((s, i) => ({ ...s, scheme_id: schemeId, user_id: userId ?? null, sort_order: i })))
-      .then(({ error }) => { if (error) setSeedFailed(true); else onChanged(); });
+      .then(({ error }) => {
+        if (!error) { onChanged(); return; }
+        setSeedFailed(true);
+        toast(isCommittee ? "Couldn't save your own layout yet — changes apply to the shared layout" : "Couldn't save your layout", { description: error.message });
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schemeId, userId, widgetsLoading, mine.length]);
 
@@ -435,13 +436,13 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
   const addWidget = async (type: string) => {
     if (!schemeId) return;
     const cfg = WIDGET_CATALOG[type]!;
-    const { error } = await supabase.from("dashboard_widgets").insert({ scheme_id: schemeId, user_id: userId ?? null, widget_type: type, size: cfg.size, sort_order: slots.length, config: {} });
+    const { error } = await supabase.from("dashboard_widgets").insert({ scheme_id: schemeId, user_id: personalUser, widget_type: type, size: cfg.size, sort_order: slots.length, config: {} });
     if (error) { toast("Could not add that", { description: error.message }); return; }
     onChanged(); toast(`Added ${cfg.label}`);
   };
   const reinsert = async (s: Slot, index: number) => {
     if (!schemeId) return;
-    await supabase.from("dashboard_widgets").insert({ scheme_id: schemeId, user_id: userId ?? null, widget_type: s.type, size: s.size, sort_order: index, config: s.config });
+    await supabase.from("dashboard_widgets").insert({ scheme_id: schemeId, user_id: personalUser, widget_type: s.type, size: s.size, sort_order: index, config: s.config });
   };
   const removeWidget = async (s: Slot) => {
     const index = slots.findIndex(x => x.id === s.id);
@@ -488,8 +489,8 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
     onChanged();
   };
   const resetToDefault = async () => {
-    if (!userId) return;
-    const { error } = await supabase.from("dashboard_widgets").delete().eq("user_id", userId);
+    if (!personalUser) return;
+    const { error } = await supabase.from("dashboard_widgets").delete().eq("user_id", personalUser);
     if (error) { toast("Could not reset", { description: error.message }); return; }
     seeded.current = false; snapshot.current = null; setCustomising(false); setLocal(null); onChanged();
     toast("Your dashboard is back to the default layout");
@@ -524,11 +525,11 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
       onCancel={() => setLocal(null)} /> : null;
     const shell = { grip, menu, resize, customising, tone };
     switch (s.type) {
-      case "cash": return <WidgetCard {...shell} title="Current cash" icon={Coins}><CashWidgetBody funds={funds} balances={balances} goTo={goTo} /></WidgetCard>;
-      case "levies": return <WidgetCard {...shell} title={isCommittee ? "Levies" : "Your levies"} icon={Landmark}><LeviesWidgetBody levies={myLevies} mine={!isCommittee} goTo={goTo} /></WidgetCard>;
-      case "budget": return <WidgetCard {...shell} title="Budget" icon={PiggyBank}><BudgetWidgetBody budgets={budgets} funds={funds} transactions={transactions} goTo={goTo} /></WidgetCard>;
+      case "cash": return <WidgetCard {...shell} title="Current cash" icon={Coins} action={linkBtn("Cashflow", "Finance/Cashflow")}><CashWidgetBody funds={funds} balances={balances} goTo={goTo} /></WidgetCard>;
+      case "levies": return <WidgetCard {...shell} title={isCommittee ? "Levies" : "Your levies"} icon={Landmark} action={linkBtn("Levies", "Finance/Levies")}><LeviesWidgetBody levies={myLevies} mine={!isCommittee} goTo={goTo} /></WidgetCard>;
+      case "budget": return <WidgetCard {...shell} title="Budget" icon={PiggyBank} action={linkBtn("Budget", "Finance/Budget")}><BudgetWidgetBody budgets={budgets} funds={funds} transactions={transactions} goTo={goTo} /></WidgetCard>;
       case "year_glance": return <WidgetCard {...shell} title="Year at a glance" icon={FileCheck2} action={<span className="font-display text-lg text-primary-foreground">{glance.filter(g => g.done).length}/{glance.length}</span>}><YearGlanceWidgetBody items={glance} goTo={goTo} /></WidgetCard>;
-      case "next_meeting": return <WidgetCard {...shell} title="Next meeting" icon={CalendarClock}><NextMeetingWidgetBody scheme={scheme} goTo={goTo} /></WidgetCard>;
+      case "next_meeting": return <WidgetCard {...shell} title="Next meeting" icon={CalendarClock} action={linkBtn("Calendar", "Calendar")}><NextMeetingWidgetBody scheme={scheme} goTo={goTo} /></WidgetCard>;
       case "upcoming": return <WidgetCard {...shell} title="Upcoming" icon={CalendarDays} action={linkBtn("Calendar", "Calendar")}><UpcomingWidgetBody scheme={scheme} tasks={tasks} widgets={complianceWidgets} levies={levies} orders={repairs} goTo={goTo} /></WidgetCard>;
       case "notices": return <WidgetCard {...shell} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={visibleNotices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetCard>;
       case "work_orders": return <WidgetCard {...shell} title="Work orders" icon={Wrench} action={linkBtn("Open", "Work orders")}><WorkOrdersWidgetBody repairs={repairs} goTo={goTo} /></WidgetCard>;
@@ -564,7 +565,7 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
                   </div>}
             </DialogContent>
           </Dialog>
-          {userId && <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground" onClick={() => void resetToDefault()}><RotateCcw className="size-3.5" />Reset to default</Button>}
+          {personalUser && <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground" onClick={() => void resetToDefault()}><RotateCcw className="size-3.5" />Reset to default</Button>}
           <p className="w-full text-[11px] text-muted-foreground sm:w-auto">Drag <GripVertical className="inline size-3" /> to move{" "}<span className="hidden lg:inline">· drag a corner to resize</span><span className="lg:hidden">· hold, then drag on a phone</span></p>
         </>}
     </div>}
