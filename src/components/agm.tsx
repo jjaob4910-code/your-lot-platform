@@ -549,10 +549,10 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
-function SortableMeetingRow({ id, enabled, label, first, last, onMove, children }: { id: string; enabled: boolean; label: string; first: boolean; last: boolean; onMove: (dir: -1 | 1) => void; children: React.ReactNode }) {
+function SortableMeetingRow({ id, fresh = false, enabled, label, first, last, onMove, children }: { id: string; fresh?: boolean; enabled: boolean; label: string; first: boolean; last: boolean; onMove: (dir: -1 | 1) => void; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !enabled });
-  return <li ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition }}
-    className={`group/meeting relative flex flex-wrap items-center gap-3 bg-card px-5 py-4 sm:px-7 ${isDragging ? "z-10 shadow-lg" : ""}`}>
+  return <li ref={setNodeRef} data-meeting={id} style={{ transform: CSS.Translate.toString(transform), transition }}
+    className={`group/meeting relative flex flex-wrap items-center gap-3 px-5 py-4 transition-colors duration-700 sm:px-7 ${fresh ? "bg-primary/[0.07]" : "bg-card"} ${isDragging ? "z-10 shadow-lg" : ""}`}>
     {enabled && <span className="-ml-2 flex items-center sm:-ml-4">
       <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={`Drag to reorder ${label}`}
         className="grid size-7 cursor-grab touch-none place-items-center rounded-full text-muted-foreground hover:bg-secondary active:cursor-grabbing"><GripVertical className="size-4"/></button>
@@ -611,7 +611,25 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
   };
   const open = openId ? meetings.find(m => m.id === openId) ?? null : null;
 
-  const create = async (from?: AgmMeeting) => {
+  const [fresh, setFresh] = useState<string | null>(null);
+  useEffect(() => {
+    if (!fresh) return;
+    document.querySelector(`[data-meeting="${fresh}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const t = setTimeout(() => setFresh(null), 6000);
+    return () => clearTimeout(t);
+  }, [fresh]);
+
+  // Duplicate keeps you on the list: the copy lands right under the original, highlighted.
+  const duplicate = async (from: AgmMeeting) => {
+    const id = await create(from, { open: false });
+    if (!id) return;
+    const at = sorted.findIndex(m => m.id === from.id);
+    const next = [...sorted]; next.splice(at + 1, 0, { ...from, id, sort_order: null });
+    setFresh(id);
+    await saveOrder(next);
+  };
+
+  const create = async (from?: AgmMeeting, opts: { open?: boolean } = {}) => {
     if (!schemeId) return;
     // A template copies the agenda (descriptions and links), place and time; minutes, votes
     // and attendance stay with the original. Years in the title and date move on by one.
@@ -623,9 +641,15 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
       scheme_id: schemeId, status: "Draft", stage: "Draft", agenda, notes: "", title, meeting_date,
       location: from?.location ?? null, video_link: from?.video_link ?? null, meeting_time: from?.meeting_time ?? null,
     }).select("id").single();
-    if (error || !data) { toast(from ? "Could not duplicate the meeting" : "Could not start a meeting", { description: error?.message }); return; }
-    onChanged(); setOpenId(data.id as string);
+    if (error || !data) { toast(from ? "Could not duplicate the meeting" : "Could not start a meeting", { description: error?.message }); return undefined; }
+    const newId = data.id as string;
+    if (opts.open === false) {
+      toast(`Duplicated as “${title}”`, { action: { label: "Open", onClick: () => setOpenId(newId) } });
+      return newId;
+    }
+    onChanged(); setOpenId(newId);
     if (from) toast(`Started from ${from.title || "the previous meeting"}`, { description: meeting_date ? "Agenda carried over. Check the date." : "Agenda carried over. Set the date." });
+    return newId;
   };
 
   const remove = async () => {
@@ -670,11 +694,12 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
               </div>
             : <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}><SortableContext items={sorted.map(m => m.id)} strategy={verticalListSortingStrategy}><ul className="divide-y divide-border/70">
                 {sorted.map((m, idx) => { const st = stageOf(m); const pendingCount = suggestions.filter(s => s.meeting_id === m.id && s.status === "Pending").length;
-                  return <SortableMeetingRow key={m.id} id={m.id} enabled={isCommittee && sorted.length > 1} label={m.title || "meeting"} first={idx === 0} last={idx === sorted.length - 1} onMove={dir => moveMeeting(m.id, dir)}>
+                  return <SortableMeetingRow key={m.id} id={m.id} fresh={fresh === m.id} enabled={isCommittee && sorted.length > 1} label={m.title || "meeting"} first={idx === 0} last={idx === sorted.length - 1} onMove={dir => moveMeeting(m.id, dir)}>
                     <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => setOpenId(m.id)}>
                       <FileText className="size-4 shrink-0 text-muted-foreground"/>
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">{m.title || "Untitled meeting"}</span>
+                        <span className="flex min-w-0 items-center gap-2"><span className="truncate text-sm font-medium">{m.title || "Untitled meeting"}</span>
+                          {fresh === m.id && <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground">New copy</span>}</span>
                         <span className="block text-[12px] text-muted-foreground">{m.meeting_date ? niceDate(m.meeting_date) : "No date set"} · {m.agenda.length} agenda {m.agenda.length === 1 ? "item" : "items"}
                           {isCommittee && pendingCount > 0 ? ` · ${pendingCount} suggestion${pendingCount === 1 ? "" : "s"}` : ""}</span>
                       </span>
@@ -682,7 +707,8 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
                     <StagePill stage={st}/>
                     <div className="flex items-center gap-1">
                       <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => setOpenId(m.id)}>Open</Button>
-                      {isCommittee && <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label={`Use ${m.title || "meeting"} as a template`} title="Use as a template for a new AGM" onClick={() => void create(m)}><Copy className="size-4"/></Button>}
+                      {isCommittee && <Button type="button" size="sm" variant="outline" className="rounded-full px-2.5 sm:px-3" aria-label={`Duplicate ${m.title || "meeting"}`}
+                        title="Make a copy of this meeting. Agenda, place and time are copied; minutes, votes and attendance aren't." onClick={() => void duplicate(m)}><Copy className="size-3.5"/><span className="hidden sm:inline">Duplicate</span></Button>}
                       {isCommittee && <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" aria-label={`Delete ${m.title || "meeting"}`} onClick={() => setDeleting(m)}><Trash2 className="size-4"/></Button>}
                     </div>
                   </SortableMeetingRow>; })}
