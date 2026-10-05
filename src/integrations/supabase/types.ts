@@ -56,6 +56,7 @@ export type Database = {
         Row: {
           agenda: Json
           attendance: Json
+          attendance_confirmed_at: string | null
           created_at: string
           id: string
           location: string | null
@@ -67,6 +68,7 @@ export type Database = {
           notice_sent_at: string | null
           published_at: string | null
           scheme_id: string
+          sort_order: number | null
           stage: string
           status: string
           title: string
@@ -76,6 +78,7 @@ export type Database = {
         Insert: {
           agenda?: Json
           attendance?: Json
+          attendance_confirmed_at?: string | null
           created_at?: string
           id?: string
           location?: string | null
@@ -87,6 +90,7 @@ export type Database = {
           notice_sent_at?: string | null
           published_at?: string | null
           scheme_id: string
+          sort_order?: number | null
           stage?: string
           status?: string
           title: string
@@ -96,6 +100,7 @@ export type Database = {
         Update: {
           agenda?: Json
           attendance?: Json
+          attendance_confirmed_at?: string | null
           created_at?: string
           id?: string
           location?: string | null
@@ -107,6 +112,7 @@ export type Database = {
           notice_sent_at?: string | null
           published_at?: string | null
           scheme_id?: string
+          sort_order?: number | null
           stage?: string
           status?: string
           title?: string

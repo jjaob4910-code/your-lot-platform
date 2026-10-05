@@ -157,9 +157,10 @@ async function openDoc(doc: DocFile) {
   window.open(data.signedUrl, "_blank");
 }
 
-export function ItemAttachments({ meetingId, itemId, attachments, documents, editable, onUpload, onChanged }: {
+// part: "menu" renders just the Attach button (for the item's title row), "list" just the files.
+export function ItemAttachments({ meetingId, itemId, attachments, documents, editable, onUpload, onChanged, part = "all" }: {
   meetingId: string; itemId: string; attachments: AgmAttachment[]; documents: DocFile[]; editable: boolean;
-  onUpload: (files: File[]) => Promise<string[]>; onChanged: () => void;
+  onUpload: (files: File[]) => Promise<string[]>; onChanged: () => void; part?: "all" | "menu" | "list";
 }) {
   const [picking, setPicking] = useState(false);
   const [q, setQ] = useState("");
@@ -188,14 +189,16 @@ export function ItemAttachments({ meetingId, itemId, attachments, documents, edi
   };
   const choices = documents.filter(d => !mine.some(m => m.document_id === d.id) && d.name.toLowerCase().includes(q.toLowerCase())).slice(0, 40);
 
-  return <div className="space-y-2">
-    {docs.length > 0 && <div className="flex flex-wrap gap-3">
+  if (part === "list" && docs.length === 0) return null;
+  if (part === "menu" && !editable) return null;
+  return <div className={part === "menu" ? "contents" : "space-y-2"}>
+    {part !== "menu" && docs.length > 0 && <div className="flex flex-wrap gap-3">
       {docs.map(({ a, doc }) => <DocPreviewTile key={a.id} doc={doc} canRemove={editable} onOpen={d => { void openDoc(d); }} onRemove={() => { void unlink(a); }}/>)}
     </div>}
-    {editable && <>
+    {editable && part !== "list" && <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="sm" className="rounded-full text-muted-foreground" disabled={busy}><Paperclip/>{busy ? "Uploading…" : "Attach"}</Button></DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
+        <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="sm" className="h-7 rounded-full px-2.5 text-[12px] text-muted-foreground" disabled={busy} aria-label="Attach"><Paperclip/><span className="hidden sm:inline">{busy ? "Uploading…" : "Attach"}</span></Button></DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
           <DropdownMenuItem asChild><label className="cursor-pointer"><Upload className="size-4"/>Upload files or photos<input type="file" multiple className="sr-only" onChange={e => { void upload(e.target.files); e.target.value = ""; }}/></label></DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setPicking(true)}><FileText className="size-4"/>Choose from Documents</DropdownMenuItem>
         </DropdownMenuContent>
@@ -250,11 +253,13 @@ export function linkSummary(link: ItemLink, ctx: AgmContextData): { icon: typeof
   }
 }
 
-export function ItemLinks({ links, ctx, editable, onChange }: { links: ItemLink[]; ctx: AgmContextData; editable: boolean; onChange: (links: ItemLink[]) => void }) {
+export function ItemLinks({ links, ctx, editable, onChange, part = "all" }: { links: ItemLink[]; ctx: AgmContextData; editable: boolean; onChange: (links: ItemLink[]) => void; part?: "all" | "menu" | "list" }) {
   const add = (l: ItemLink) => { if (!links.some(x => x.type === l.type && x.id === l.id)) onChange([...links, l]); };
   const cards = links.map(l => ({ l, s: linkSummary(l, ctx) })).filter((x): x is { l: ItemLink; s: NonNullable<ReturnType<typeof linkSummary>> } => !!x.s);
-  return <div className="space-y-2">
-    {cards.length > 0 && <div className="grid gap-2 sm:grid-cols-2">
+  if (part === "list" && cards.length === 0) return null;
+  if (part === "menu" && !editable) return null;
+  return <div className={part === "menu" ? "contents" : "space-y-2"}>
+    {part !== "menu" && cards.length > 0 && <div className="grid gap-2 sm:grid-cols-2">
       {cards.map(({ l, s }) => <div key={`${l.type}-${l.id}`} className="flex items-start gap-3 rounded-xl border border-border/70 bg-background/60 p-3">
         <span className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary"><s.icon className="size-4 text-primary"/></span>
         <div className="min-w-0 flex-1">
@@ -265,9 +270,9 @@ export function ItemLinks({ links, ctx, editable, onChange }: { links: ItemLink[
         {editable && <Button type="button" size="icon" variant="ghost" className="size-7 shrink-0 rounded-full text-muted-foreground" aria-label={`Remove link ${s.title}`} onClick={() => onChange(links.filter(x => !(x.type === l.type && x.id === l.id)))}><X className="size-3.5"/></Button>}
       </div>)}
     </div>}
-    {editable && <DropdownMenu>
-      <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="sm" className="rounded-full text-muted-foreground"><Link2/>Link…</Button></DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-[60vh] w-72 overflow-y-auto">
+    {editable && part !== "list" && <DropdownMenu>
+      <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="sm" className="h-7 rounded-full px-2.5 text-[12px] text-muted-foreground" aria-label="Link"><Link2/><span className="hidden sm:inline">Link</span></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-[60vh] w-72 overflow-y-auto">
         {ctx.orders.length > 0 && <><DropdownMenuLabel>Work orders</DropdownMenuLabel>
           {ctx.orders.slice(0, 12).map(o => <DropdownMenuItem key={o.id} onSelect={() => add({ type: "work_order", id: o.id })}><Wrench className="size-4"/><span className="truncate">{o.title}</span></DropdownMenuItem>)}
           <DropdownMenuSeparator/></>}

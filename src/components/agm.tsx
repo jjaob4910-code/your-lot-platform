@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, CalendarDays, Check, Clock, Copy, Download, FileText, GripVertical, Lightbulb, MapPin, Plus, Send, Trash2, Video } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, CalendarDays, Check, ChevronDown, Clock, Copy, Download, FileText, GripVertical, Lightbulb, MapPin, Pencil, Plus, Send, Trash2, Users, Video } from "lucide-react";
+import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { RichTextEditor, RichTextView, isRichEmpty } from "@/components/rich-text";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +33,7 @@ export type AgmMeeting = {
   status: string; created_at: string; published_at: string | null;
   stage?: AgmStage; notice_sent_at?: string | null; notice_document_id?: string | null; minutes_document_id?: string | null;
   attendance?: Record<string, string> | null;
+  sort_order?: number | null; attendance_confirmed_at?: string | null;
 };
 export type AgmSuggestion = { id: string; meeting_id: string; lot_id: string | null; title: string; details: string | null; status: string; created_at: string };
 type AgmLot = Pick<Lot, "id" | "lot_number" | "owner_name" | "owner_email" | "entitlement_percent">;
@@ -150,6 +154,55 @@ function noticeEmail(m: AgmMeeting, lots: AgmLot[]) {
 
 type Draft = Pick<AgmMeeting, "title" | "meeting_date" | "meeting_time" | "location" | "video_link"> & { agenda: AgendaItem[]; attendance: Record<string, string>; notes: string };
 
+function AttendancePanel({ lots, attendance, editable, confirmedAt, onChange, onConfirm }: {
+  lots: AgmLot[]; attendance: Record<string, string>; editable: boolean; confirmedAt: string | null;
+  onChange: (a: Record<string, string>) => void; onConfirm: (confirm: boolean) => Promise<void>;
+}) {
+  const [peek, setPeek] = useState(false);
+  const count = (st: string) => lots.filter(l => attendance[l.id] === st).length;
+  const recorded = lots.filter(l => attendance[l.id]).length;
+  const voting = lots.filter(l => attendance[l.id] === "Present" || attendance[l.id] === "Proxy").reduce((s, l) => s + Number(l.entitlement_percent ?? 0), 0);
+  const summary = `${count("Present")} present · ${count("Proxy")} by proxy · ${count("Apologies")} ${count("Apologies") === 1 ? "apology" : "apologies"} · ${lots.length - recorded} not recorded`;
+  const collapsed = !!confirmedAt || !editable;
+  const set = (id: string, st: string) => { const next = { ...attendance }; if (next[id] === st) delete next[id]; else next[id] = st; onChange(next); };
+
+  if (collapsed && !peek) return <div className="border-t border-border/70 px-5 py-4 sm:px-10">
+    <div className="flex flex-wrap items-center gap-3">
+      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">{confirmedAt ? <Check className="size-4"/> : <Users className="size-4"/>}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium">Attendance{confirmedAt ? " confirmed" : ""}</p>
+        <p className="text-[12px] text-muted-foreground">{summary} · {Math.round(voting)}% of entitlement voting</p>
+      </div>
+      <Button type="button" size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[12px]" onClick={() => setPeek(true)}>Show <ChevronDown className="size-3.5"/></Button>
+      {editable && confirmedAt && <Button type="button" size="sm" variant="outline" className="h-7 rounded-full px-3 text-[12px]" onClick={() => void onConfirm(false)}>Edit</Button>}
+    </div>
+  </div>;
+
+  return <div className="border-t border-border/70 bg-secondary/30 px-5 py-6 sm:px-10">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <SectionLabel>Attendance</SectionLabel>
+        <p className="mt-1 text-[13px] text-muted-foreground">{editable ? "Record who's here before you start. Present and proxy lots can vote." : summary}</p>
+      </div>
+      {collapsed
+        ? <Button type="button" size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[12px]" onClick={() => setPeek(false)}>Hide</Button>
+        : <Button type="button" size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[12px]" onClick={() => onChange(Object.fromEntries(lots.map(l => [l.id, attendance[l.id] ?? "Present"])))}>Mark the rest present</Button>}
+    </div>
+    <ul className="mt-3 divide-y divide-border/60">
+      {lots.map(l => <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+        <span className="text-[13px]">{lotLabel(l)}</span>
+        {editable && !collapsed
+          ? <div className="flex gap-1">{ATTENDANCE.map(st => <Button key={st} type="button" size="sm" variant={attendance[l.id] === st ? "default" : "ghost"} className="h-8 rounded-full px-3 text-[12px]" onClick={() => set(l.id, st)}>{st}</Button>)}</div>
+          : <span className="text-[12px] text-muted-foreground">{attendance[l.id] ?? "Not recorded"}</span>}
+      </li>)}
+    </ul>
+    {editable && !collapsed && <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+      <p className="text-[12px] text-muted-foreground">{summary}</p>
+      <Button type="button" size="sm" className="rounded-full" onClick={() => void onConfirm(true)}><Check className="size-3.5"/>Confirm attendance</Button>
+    </div>}
+  </div>;
+}
+
 function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents, isCommittee, schemeId, task, widgets, onBack, onChanged, ctx, attachments }: {
   meeting: AgmMeeting; scheme: { name: string; address: string | null } | null; lots: AgmLot[]; myLot: AgmLot | null;
   suggestions: AgmSuggestion[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
@@ -188,6 +241,17 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
     const moving = d.agenda.find(a => a.id === dragId)!;
     next.splice(next.findIndex(a => a.id === targetId), 0, moving);
     setDragId(null); change({ agenda: next });
+  };
+
+  // Attendance is taken first; once confirmed it folds down to a one-line summary.
+  const [confirmedAt, setConfirmedAt] = useState<string | null>(meeting.attendance_confirmed_at ?? null);
+  const confirmAttendance = async (confirm: boolean) => {
+    const at = confirm ? new Date().toISOString() : null;
+    setConfirmedAt(at);
+    if (confirm) await flush();
+    const { error } = await supabase.from("agm_meetings").update({ attendance_confirmed_at: at }).eq("id", meeting.id);
+    if (error) { setConfirmedAt(meeting.attendance_confirmed_at ?? null); toast("Could not save attendance", { description: error.message }); return; }
+    onChanged();
   };
 
   // Autosave: write ~0.8s after the last change.
@@ -343,8 +407,11 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
     <Card className="overflow-hidden">
       <div className="px-5 pb-5 pt-7 sm:px-10 sm:pt-10">
         {canEditDetails
-          ? <input value={d.title} onChange={e => change({ title: e.target.value })} placeholder="Annual General Meeting 2026" aria-label="Meeting title"
-              className="w-full border-0 bg-transparent p-0 font-display text-3xl tracking-[-0.03em] outline-none placeholder:text-muted-foreground/50 sm:text-4xl"/>
+          ? <label className="group/title block cursor-text">
+              <span className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Meeting title <Pencil className="size-3"/></span>
+              <input value={d.title} onChange={e => change({ title: e.target.value })} placeholder="Annual General Meeting 2026" aria-label="Meeting title"
+                className="-mx-2 w-[calc(100%+1rem)] rounded-xl border border-dashed border-border bg-transparent px-2 py-1 font-display text-3xl tracking-[-0.03em] outline-none transition placeholder:text-muted-foreground/50 hover:border-primary/40 hover:bg-background/60 focus:border-solid focus:border-primary/60 focus:bg-background sm:text-4xl"/>
+            </label>
           : <h2 className="font-display text-3xl tracking-[-0.03em] sm:text-4xl">{d.title || "Annual General Meeting"}</h2>}
         <div className="mt-4 flex flex-wrap gap-2">
           {([
@@ -358,6 +425,9 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
           </label>)}
         </div>
       </div>
+
+      {(stage === "Minutes" || stage === "Published") && lots.length > 0 && <AttendancePanel lots={lots} attendance={d.attendance} editable={canEditMinutes}
+        confirmedAt={confirmedAt} onChange={attendance => change({ attendance })} onConfirm={confirmAttendance}/>}
 
       <div className="border-t border-border/70 px-5 py-6 sm:px-10">
         <SectionLabel>{stage === "Minutes" || stage === "Published" ? "Minutes" : "Agenda"}</SectionLabel>
@@ -376,6 +446,11 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
                       ? <input value={a.label} onChange={e => setItem(a.id!, { label: e.target.value })} placeholder="Agenda item" aria-label={`Agenda item ${i + 1}`}
                           className="min-w-0 flex-1 border-0 bg-transparent p-0 font-display text-lg tracking-[-0.01em] outline-none placeholder:text-muted-foreground/50"/>
                       : <p className="min-w-0 flex-1 font-display text-lg tracking-[-0.01em]">{a.label || "Untitled item"}</p>}
+                    {(canEditAgenda || canEditMinutes) && <div className="flex shrink-0 items-center">
+                      <ItemLinks part="menu" links={a.links ?? []} ctx={ctx} editable onChange={links => setItem(a.id!, { links })}/>
+                      <ItemAttachments part="menu" meetingId={meeting.id} itemId={a.id!} attachments={attachments} documents={documents} editable
+                        onUpload={files => schemeId ? uploadAgmFiles(schemeId, files) : Promise.resolve([])} onChanged={onChanged}/>
+                    </div>}
                     {canEditAgenda && <div className="flex shrink-0 items-center gap-0.5 transition sm:opacity-0 sm:group-focus-within/item:opacity-100 sm:group-hover/item:opacity-100">
                       <Button type="button" size="icon" variant="ghost" className="size-7 rounded-full" aria-label="Move up" disabled={i === 0} onClick={() => move(a.id!, -1)}><ArrowUp className="size-3.5"/></Button>
                       <Button type="button" size="icon" variant="ghost" className="size-7 rounded-full" aria-label="Move down" disabled={i === d.agenda.length - 1} onClick={() => move(a.id!, 1)}><ArrowDown className="size-3.5"/></Button>
@@ -386,8 +461,8 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
                   {canEditAgenda
                     ? <div className="-mx-3"><RichTextEditor value={a.notes} onChange={html => setItem(a.id!, { notes: html })} placeholder="Add detail, a list or a checklist…" ariaLabel={`Description for item ${i + 1}`} minHeight={28}/></div>
                     : <RichTextView value={a.notes} className="text-muted-foreground"/>}
-                  <ItemLinks links={a.links ?? []} ctx={ctx} editable={canEditAgenda || canEditMinutes} onChange={links => setItem(a.id!, { links })}/>
-                  <ItemAttachments meetingId={meeting.id} itemId={a.id!} attachments={attachments} documents={documents} editable={canEditAgenda || canEditMinutes}
+                  <ItemLinks part="list" links={a.links ?? []} ctx={ctx} editable={canEditAgenda || canEditMinutes} onChange={links => setItem(a.id!, { links })}/>
+                  <ItemAttachments part="list" meetingId={meeting.id} itemId={a.id!} attachments={attachments} documents={documents} editable={canEditAgenda || canEditMinutes}
                     onUpload={files => schemeId ? uploadAgmFiles(schemeId, files) : Promise.resolve([])} onChanged={onChanged}/>
 
                   {(stage === "Minutes" || stage === "Published") && <div className="mt-3 space-y-2 rounded-2xl bg-secondary/40 p-3 sm:p-4">
@@ -420,20 +495,6 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
           : <RichTextView value={d.notes} className="mt-2"/>}
       </div>}
     </Card>
-
-    {/* Attendance */}
-    {(stage === "Minutes" || stage === "Published") && lots.length > 0 && <Card className="p-5 sm:p-7">
-      <SectionLabel>Attendance</SectionLabel>
-      <ul className="mt-3 divide-y divide-border/60">
-        {lots.map(l => <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-          <span className="text-[13px]">{lotLabel(l)}</span>
-          {canEditMinutes
-            ? <div className="flex gap-1">{ATTENDANCE.map(s => <Button key={s} type="button" size="sm" variant={d.attendance[l.id] === s ? "default" : "ghost"} className="h-8 rounded-full px-3 text-[12px]"
-                onClick={() => { const next = { ...d.attendance }; if (next[l.id] === s) delete next[l.id]; else next[l.id] = s; change({ attendance: next }); }}>{s}</Button>)}</div>
-            : <span className="text-[12px] text-muted-foreground">{d.attendance[l.id] ?? "Not recorded"}</span>}
-        </li>)}
-      </ul>
-    </Card>}
 
     {/* Suggestions */}
     {isCommittee && stage === "Draft" && pending.length > 0 && <Card className="p-5 sm:p-7">
@@ -488,6 +549,22 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+function SortableMeetingRow({ id, enabled, label, first, last, onMove, children }: { id: string; enabled: boolean; label: string; first: boolean; last: boolean; onMove: (dir: -1 | 1) => void; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !enabled });
+  return <li ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition }}
+    className={`group/meeting relative flex flex-wrap items-center gap-3 bg-card px-5 py-4 sm:px-7 ${isDragging ? "z-10 shadow-lg" : ""}`}>
+    {enabled && <span className="-ml-2 flex items-center sm:-ml-4">
+      <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners} aria-label={`Drag to reorder ${label}`}
+        className="grid size-7 cursor-grab touch-none place-items-center rounded-full text-muted-foreground hover:bg-secondary active:cursor-grabbing"><GripVertical className="size-4"/></button>
+      <span className="hidden flex-col sm:flex">
+        <button type="button" aria-label={`Move ${label} up`} disabled={first} onClick={() => onMove(-1)} className="text-muted-foreground hover:text-foreground disabled:opacity-30"><ArrowUp className="size-3"/></button>
+        <button type="button" aria-label={`Move ${label} down`} disabled={last} onClick={() => onMove(1)} className="text-muted-foreground hover:text-foreground disabled:opacity-30"><ArrowDown className="size-3"/></button>
+      </span>
+    </span>}
+    {children}
+  </li>;
+}
+
 export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lots, myLot = null, scheme = null, suggestions = [], documents = [], onChanged, ctx = EMPTY_CTX, attachments = [] }: {
   schemeId?: string | undefined; isCommittee: boolean; meetings: AgmMeeting[]; task: Task | undefined;
   widgets: ComplianceWidget[]; lots: AgmLot[]; myLot?: AgmLot | null; scheme?: { name: string; address: string | null } | null;
@@ -504,20 +581,51 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<AgmMeeting | null>(null);
-  const sorted = [...meetings].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const [choosing, setChoosing] = useState(false);
+  const [order, setOrder] = useState<string[] | null>(null);
+  // Committee-set order first; meetings never placed fall back to newest first.
+  const byDefault = [...meetings].sort((a, b) => (a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER) || b.created_at.localeCompare(a.created_at));
+  const sorted = order ? order.map(id => meetings.find(m => m.id === id)).filter((m): m is AgmMeeting => !!m).concat(byDefault.filter(m => !order.includes(m.id))) : byDefault;
+  useEffect(() => { setOrder(null); }, [meetings]);
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const saveOrder = async (next: AgmMeeting[]) => {
+    setOrder(next.map(m => m.id));
+    const results = await Promise.all(next.map((m, i) => m.sort_order === i ? null : supabase.from("agm_meetings").update({ sort_order: i }).eq("id", m.id)));
+    const failed = results.find(r => r?.error);
+    if (failed?.error) toast("Could not save the order", { description: failed.error.message });
+    onChanged();
+  };
+  const moveMeeting = (id: string, dir: -1 | 1) => {
+    const i = sorted.findIndex(m => m.id === id); const j = i + dir;
+    if (i < 0 || j < 0 || j >= sorted.length) return;
+    void saveOrder(arrayMove(sorted, i, j));
+  };
+  const onDragEnd = (e: DragEndEvent) => {
+    if (!e.over || e.active.id === e.over.id) return;
+    const i = sorted.findIndex(m => m.id === e.active.id); const j = sorted.findIndex(m => m.id === e.over!.id);
+    if (i >= 0 && j >= 0) void saveOrder(arrayMove(sorted, i, j));
+  };
   const open = openId ? meetings.find(m => m.id === openId) ?? null : null;
 
   const create = async (from?: AgmMeeting) => {
     if (!schemeId) return;
-    const agenda = (from ? from.agenda.map(a => ({ label: a.label, notes: a.notes })) : STANDARD_AGM_AGENDA).map(a => ({ ...a, id: crypto.randomUUID() }));
+    // A template copies the agenda (descriptions and links), place and time; minutes, votes
+    // and attendance stay with the original. Years in the title and date move on by one.
+    const agenda = (from ? from.agenda.map(a => ({ label: a.label, notes: a.notes, ...(a.links?.length ? { links: a.links } : {}) })) : STANDARD_AGM_AGENDA).map(a => ({ ...a, id: crypto.randomUUID() }));
+    const nextYear = (t: string) => t.replace(/\b(20\d{2})\b/g, y => String(Number(y) + 1));
+    const title = from ? (/\b20\d{2}\b/.test(from.title) ? nextYear(from.title) : `${from.title || "Annual General Meeting"} (copy)`) : `Annual General Meeting ${new Date().getFullYear()}`;
+    const meeting_date = from?.meeting_date ? `${Number(from.meeting_date.slice(0, 4)) + 1}${from.meeting_date.slice(4, 10)}` : null;
     const { data, error } = await supabase.from("agm_meetings").insert({
-      scheme_id: schemeId, status: "Draft", stage: "Draft", agenda, notes: "",
-      title: from ? `${from.title || "Annual General Meeting"} (copy)` : `Annual General Meeting ${new Date().getFullYear()}`,
+      scheme_id: schemeId, status: "Draft", stage: "Draft", agenda, notes: "", title, meeting_date,
       location: from?.location ?? null, video_link: from?.video_link ?? null, meeting_time: from?.meeting_time ?? null,
     }).select("id").single();
     if (error || !data) { toast(from ? "Could not duplicate the meeting" : "Could not start a meeting", { description: error?.message }); return; }
     onChanged(); setOpenId(data.id as string);
-    if (from) toast("Copy made", { description: "Agenda carried over. Set the new date." });
+    if (from) toast(`Started from ${from.title || "the previous meeting"}`, { description: meeting_date ? "Agenda carried over. Check the date." : "Agenda carried over. Set the date." });
   };
 
   const remove = async () => {
@@ -531,7 +639,25 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
   return <div>
     <PageHead eyebrow="Your property" title="Annual General Meeting"
       blurb="Build the agenda, send the notice, then take the minutes on the day. Owners can suggest items while the agenda is being drafted."
-      action={isCommittee && !open ? <Button className="rounded-full" onClick={() => void create()} disabled={!schemeId}><Plus/> New AGM</Button> : undefined}/>
+      action={isCommittee && !open ? <Button className="rounded-full" onClick={() => meetings.length ? setChoosing(true) : void create()} disabled={!schemeId}><Plus/> New AGM</Button> : undefined}/>
+
+    <Dialog open={choosing} onOpenChange={setChoosing}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[520px]">
+        <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">New AGM</DialogTitle><DialogDescription>Start fresh, or use an earlier meeting as a template.</DialogDescription></DialogHeader>
+        <button type="button" className="flex w-full items-center gap-3 rounded-2xl border border-border/70 p-4 text-left hover:bg-secondary/40" onClick={() => { setChoosing(false); void create(); }}>
+          <Plus className="size-4 shrink-0 text-muted-foreground"/><span className="min-w-0"><span className="block text-sm font-medium">Standard agenda</span><span className="block text-[12px] text-muted-foreground">The usual AGM items, ready to edit.</span></span>
+        </button>
+        <p className="pt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Use a previous meeting</p>
+        <ul className="space-y-2">
+          {sorted.map(m => <li key={m.id}><button type="button" className="flex w-full items-center gap-3 rounded-2xl border border-border/70 p-4 text-left hover:bg-secondary/40" onClick={() => { setChoosing(false); void create(m); }}>
+            <Copy className="size-4 shrink-0 text-muted-foreground"/>
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{m.title || "Untitled meeting"}</span>
+              <span className="block text-[12px] text-muted-foreground">{m.meeting_date ? niceDate(m.meeting_date) : "No date"} · {m.agenda.length} agenda {m.agenda.length === 1 ? "item" : "items"}</span></span>
+          </button></li>)}
+        </ul>
+        <p className="text-[12px] text-muted-foreground">Copies the agenda, descriptions, links, place and time. Minutes, votes and attendance aren't copied.</p>
+      </DialogContent>
+    </Dialog>
 
     {open
       ? <MeetingNotebook key={open.id} meeting={open} scheme={scheme} lots={lots} myLot={myLot} suggestions={suggestions.filter(s => s.meeting_id === open.id)} ctx={ctx} attachments={attachments}
@@ -542,9 +668,9 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
                 <p className="text-sm text-muted-foreground">No AGMs yet.</p>
                 {isCommittee && <Button className="mt-4 rounded-full" onClick={() => void create()} disabled={!schemeId}><Plus/> Start with the standard agenda</Button>}
               </div>
-            : <ul className="divide-y divide-border/70">
-                {sorted.map(m => { const st = stageOf(m); const pendingCount = suggestions.filter(s => s.meeting_id === m.id && s.status === "Pending").length;
-                  return <li key={m.id} className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-7">
+            : <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}><SortableContext items={sorted.map(m => m.id)} strategy={verticalListSortingStrategy}><ul className="divide-y divide-border/70">
+                {sorted.map((m, idx) => { const st = stageOf(m); const pendingCount = suggestions.filter(s => s.meeting_id === m.id && s.status === "Pending").length;
+                  return <SortableMeetingRow key={m.id} id={m.id} enabled={isCommittee && sorted.length > 1} label={m.title || "meeting"} first={idx === 0} last={idx === sorted.length - 1} onMove={dir => moveMeeting(m.id, dir)}>
                     <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => setOpenId(m.id)}>
                       <FileText className="size-4 shrink-0 text-muted-foreground"/>
                       <span className="min-w-0">
@@ -556,11 +682,11 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
                     <StagePill stage={st}/>
                     <div className="flex items-center gap-1">
                       <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={() => setOpenId(m.id)}>Open</Button>
-                      {isCommittee && <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label={`Duplicate ${m.title || "meeting"}`} onClick={() => void create(m)}><Copy className="size-4"/></Button>}
+                      {isCommittee && <Button type="button" size="icon" variant="ghost" className="rounded-full" aria-label={`Use ${m.title || "meeting"} as a template`} title="Use as a template for a new AGM" onClick={() => void create(m)}><Copy className="size-4"/></Button>}
                       {isCommittee && <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" aria-label={`Delete ${m.title || "meeting"}`} onClick={() => setDeleting(m)}><Trash2 className="size-4"/></Button>}
                     </div>
-                  </li>; })}
-              </ul>}
+                  </SortableMeetingRow>; })}
+              </ul></SortableContext></DndContext>}
         </Card>}
 
     <Dialog open={!!deleting} onOpenChange={o => { if (!o) setDeleting(null); }}>

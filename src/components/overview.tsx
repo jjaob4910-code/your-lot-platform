@@ -402,10 +402,16 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
       .then(({ error }) => {
         if (!error) { onChanged(); return; }
         setSeedFailed(true);
-        toast(isCommittee ? "Couldn't save your own layout yet — changes apply to the shared layout" : "Couldn't save your layout", { description: error.message });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schemeId, userId, widgetsLoading, mine.length]);
+
+  // Shown once per session, committee only: owners can't change the shared layout anyway.
+  useEffect(() => {
+    if (!seedFailed || !isCommittee) return;
+    try { if (sessionStorage.getItem("loty-shared-layout-note") === "1") return; sessionStorage.setItem("loty-shared-layout-note", "1"); } catch { /* storage unavailable */ }
+    toast("Your dashboard is using the shared layout for now", { description: "Changes you make apply to everyone." });
+  }, [seedFailed, isCommittee]);
 
   const visibleNotices = isCommittee ? notices : notices.filter(n => !n.lot_id || n.lot_id === myLot?.id);
   const myLevies = isCommittee ? levies : levies.filter(l => l.lot_id === myLot?.id);
