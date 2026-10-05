@@ -17,7 +17,7 @@ export type SchemeSettings = {
 };
 export type CommitteeRole = { id: string; lot_id: string; role: string };
 
-type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null };
+type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null; next_agm_meeting_id?: string | null };
 type Lot = { id: string; lot_number: number; owner_name: string | null; owner_email: string | null; owner_phone: string | null; entitlement_percent: number };
 
 const ROLE_OPTIONS = ["Chairperson", "Secretary", "Treasurer", "Member"];
@@ -65,7 +65,8 @@ function SchemeDialog({ open, onOpenChange, scheme, onSaved }: {
       address: String(form.get("address") ?? "").trim(),
       total_lots: Number(form.get("total_lots")),
       tier: text("tier"),
-      next_agm_date: text("next_agm_date"),
+      // Left alone while the AGM tab owns the date (the field is disabled and not submitted).
+      ...(scheme.next_agm_meeting_id ? {} : { next_agm_date: text("next_agm_date") }),
     };
     const { error } = await supabase.from("schemes").update(payload).eq("id", scheme.id);
     if (error) { toast("Could not save the building details", { description: error.message }); return; }
@@ -82,7 +83,10 @@ function SchemeDialog({ open, onOpenChange, scheme, onSaved }: {
           <div className="space-y-2"><Label htmlFor="total_lots">Total lots</Label><Input id="total_lots" name="total_lots" type="number" min="1" defaultValue={scheme.total_lots} required/></div>
           <div className="space-y-2"><Label htmlFor="tier">Tier</Label><Input id="tier" name="tier" defaultValue={scheme.tier ?? ""} placeholder="Tier 3"/></div>
         </div>
-        <div className="space-y-2"><Label htmlFor="next_agm_date">Next AGM date</Label><Input id="next_agm_date" name="next_agm_date" type="date" defaultValue={scheme.next_agm_date ?? ""}/></div>
+        {/* Once a meeting is scheduled in the AGM tab, that meeting's date is the one used everywhere. */}
+        <div className="space-y-2"><Label htmlFor="next_agm_date">Next AGM date</Label>
+          <Input id="next_agm_date" name="next_agm_date" type="date" defaultValue={scheme.next_agm_date ?? ""} disabled={!!scheme.next_agm_meeting_id}/>
+          {scheme.next_agm_meeting_id && <p className="text-[12px] text-muted-foreground">Set by the meeting in the AGM tab. Change the date there.</p>}</div>
         <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full">Save changes</Button></div>
       </form>
     </DialogContent>

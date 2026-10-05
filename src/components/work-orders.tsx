@@ -1,3 +1,4 @@
+import { financialYearOf } from "@/lib/fund-balance";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, ChevronDown, Info, MoreHorizontal, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2, Undo2 } from "lucide-react";
@@ -667,7 +668,7 @@ function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBal
 }) {
   const [lineId, setLineId] = useState<string>("");
   // Payment date decides the financial year (1 Jul – 30 Jun); offer that year's lines in the chosen fund.
-  const fyOf = (iso: string) => { const d = new Date(`${iso}T00:00:00`); const y = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; return `${y}/${String(y + 1).slice(2)}`; };
+  const fyOf = (iso: string) => { const y = financialYearOf(iso); return `${y}/${String(y + 1).slice(2)}`; };
   const [fundId, setFundId] = useState<string>("");
   const [date, setDate] = useState(todayIso());
   const [saving, setSaving] = useState(false);

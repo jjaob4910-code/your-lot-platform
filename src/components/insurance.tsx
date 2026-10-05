@@ -193,7 +193,7 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
     try {
       const folderId = await insuranceFolderId();
       for (const file of picked) {
-        const path = `${schemeId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
+        const path = `${schemeId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]/g, "_")}`;
         const { error: upErr } = await supabase.storage.from("documents").upload(path, file);
         if (upErr) throw upErr;
         const { error } = await supabase.from("documents").insert({

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { isRetiredObligation, obligationTab, type ComplianceWidget } from "@/lib/action-publish";
 
-export type CalendarScheme = { id: string; next_agm_date: string | null } | null;
+export type CalendarScheme = { id: string; next_agm_date: string | null; next_agm_meeting_id?: string | null } | null;
 type AgmDateSource = { next_agm_date: string | null } | null;
 export type CalendarTask = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null };
 export type CalendarLevy = { id: string; due_date: string; status: string; amount: number };
@@ -222,6 +222,8 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
     queryClient.invalidateQueries({ queryKey: ["scheme"] });
     queryClient.invalidateQueries({ queryKey: ["work-orders"] });
     queryClient.invalidateQueries({ queryKey: ["repairs"] });
+    queryClient.invalidateQueries({ queryKey: ["agm-meetings"] });
+    queryClient.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("notif-") });
   };
 
   const items = useMemo<Item[]>(() => buildCalendarItems(scheme, tasks, widgets, levies, orders, events.data ?? []),
@@ -233,7 +235,10 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
       const { error } = await supabase.from("calendar_events").update({ event_date: date }).eq("id", item.eventRow.id);
       if (error) { toast("Could not move that", { description: error.message }); return; }
     } else if (item.key === "agm") {
-      const { error } = await supabase.from("schemes").update({ next_agm_date: date }).eq("id", scheme?.id ?? "");
+      // A scheduled meeting in the AGM tab owns the date; otherwise it's the building's fallback date.
+      const { error } = scheme?.next_agm_meeting_id
+        ? await supabase.from("agm_meetings").update({ meeting_date: date }).eq("id", scheme.next_agm_meeting_id)
+        : await supabase.from("schemes").update({ next_agm_date: date }).eq("id", scheme?.id ?? "");
       if (error) { toast("Could not move that", { description: error.message }); return; }
     } else if (item.key.startsWith("task-")) {
       const { error } = await supabase.from("compliance_tasks").update({ due_date: date }).eq("id", item.key.slice(5));

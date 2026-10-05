@@ -23,6 +23,7 @@ import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment,
 import { FinanceSection, ensureDefaultFunds, type RecurringTx, type LevyReversal, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
+import { nextAgm } from "@/lib/agm-date";
 import { recordedFundBalances, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 import { AgmSection, type AgmMeeting, type AgmSuggestion } from "@/components/agm";
 import type { AgmAttachment } from "@/components/agm-extras";
@@ -347,7 +348,11 @@ function DashboardPage() {
     enabled: !!schemeId,
   });
 
-  const refresh = (keys: string[]) => keys.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
+  // The bell keeps its own queries ("notif-…"), so any change refreshes it as well.
+  const refresh = (keys: string[]) => {
+    keys.forEach(key => queryClient.invalidateQueries({ queryKey: [key] }));
+    queryClient.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("notif-") });
+  };
 
   const markLevyPaid = useMutation({
     mutationFn: async ({ id, paidAt }: { id: string; paidAt: string }) => {
@@ -370,6 +375,9 @@ function DashboardPage() {
 
   const isCommittee = roleQuery.data === "Committee";
   const myLot = myLotQuery.data ?? null;
+  // The next AGM comes from the AGM tab's meetings, falling back to the date in Settings.
+  const agmNext = nextAgm(agmMeetings.data ?? [], scheme.data?.next_agm_date ?? null);
+  const schemeWithAgm = scheme.data ? { ...scheme.data, next_agm_date: agmNext.date, next_agm_meeting_id: agmNext.meetingId } : null;
 
   useEffect(() => {
     if (!authChecked || !userId || scheme.isLoading || roleQuery.isLoading) return;
@@ -406,13 +414,13 @@ function DashboardPage() {
 
     <main className="mx-auto max-w-[1500px] px-4 pb-32 pt-10 sm:px-7 sm:pt-14">
       {active === "Dashboard" && <OverviewSection
-        scheme={scheme.data ?? null} levies={levies.data ?? []} funds={budgetFunds.data ?? []} transactions={activeTransactions}
+        scheme={schemeWithAgm} levies={levies.data ?? []} funds={budgetFunds.data ?? []} transactions={activeTransactions}
         balances={recordedBalances} budgets={budgets.data ?? []} meetings={agmMeetings.data ?? []} policies={policies.data ?? []} userId={userId}
         tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
         widgets={dashboardWidgets.data ?? []} widgetsLoading={dashboardWidgets.isLoading} isCommittee={isCommittee} schemeId={schemeId}
         onChanged={()=>refresh(["dashboard-widgets","notices","notice-comments"])} goTo={goTo}/>}
 
-      {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots"])}/>}
+      {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots","levies","my-lot"])}/>}
 
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
         documents={documents.data ?? []} funds={budgetFunds.data ?? []} contractors={contractors.data ?? []} claims={claims.data ?? []}
@@ -434,17 +442,17 @@ function DashboardPage() {
         canManagePaid={canManagePaid.data ?? false} treasurerName={treasurerName}
         recordedBalances={recordedBalances} warnOverdrawn={warnOverdrawn} userId={userId} recurring={recurringTx.data ?? []}
         financialYears={financialYears.data ?? []} levyReversals={levyReversals.data ?? []} onOpenSettings={()=>setActive("Settings")}
-        onChanged={()=>refresh(["finance","recurring","financial-years","levy-reversals","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders"])}/>}
+        onChanged={()=>refresh(["finance","recurring","financial-years","levy-reversals","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders","notices"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}
         schemeId={schemeId} onChanged={()=>refresh(["insurance","insurance-claims","documents","document-folders"])}
         claims={claims.data ?? []} lots={lots.data ?? []} orders={repairs.data ?? []} funds={budgetFunds.data ?? []}
         onClaimsChanged={()=>refresh(["insurance-claims","documents","document-folders","finance"])}/>}
-      {active === "Calendar" && <CalendarSection scheme={scheme.data ?? null} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []} levies={levies.data ?? []}
+      {active === "Calendar" && <CalendarSection scheme={schemeWithAgm} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []} levies={levies.data ?? []}
         orders={repairs.data ?? []} goTo={goTo}/>}
       {active === "Documents" && <DocumentsSection documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["documents"])}/>}
 
-      {active === "Settings" && <SettingsSection scheme={scheme.data ?? null} lots={lots.data ?? []}
+      {active === "Settings" && <SettingsSection scheme={schemeWithAgm} lots={lots.data ?? []}
         committeeRoles={committeeRoles.data ?? []} settings={schemeSettings.data ?? null}
         isCommittee={isCommittee} schemeId={schemeId} userId={userId} notifyFundOverdrawn={warnOverdrawn}
         onChanged={()=>refresh(["scheme","lots","committee-roles","scheme-settings","can-manage-paid","user-preferences"])}/>}

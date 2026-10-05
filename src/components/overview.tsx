@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { RichTextEditor } from "@/components/rich-text";
 import { WorkOrderTable, type WorkOrder } from "@/components/work-orders";
-import { budgetStartYear, currentFinancialYearStart, type Levy, type FundTx } from "@/lib/fund-balance";
+import { budgetStartYear, currentFinancialYearStart, financialYearOf, type Levy, type FundTx } from "@/lib/fund-balance";
 import { currentTaskFor, isRetiredObligation, type ComplianceWidget, type Task } from "@/lib/action-publish";
 
 export type BudgetFund = { id: string; name: string; sort_order: number };
@@ -37,7 +37,7 @@ const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", curr
 const daysUntil = (date: string) => Math.ceil((new Date(date.slice(0, 10) + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 const niceDate = (value: string) => new Date(value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 const fyLabel = (start: number) => `${start}/${String(start + 1).slice(2)}`;
-const inFy = (iso: string, start: number) => { const d = new Date(iso); const s = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; return s === start; };
+const inFy = (iso: string, start: number) => financialYearOf(iso) === start;
 
 // Sizes are columns on a 12-column desktop grid; tablets use two columns and phones one.
 const SIZES: WidgetSize[] = ["S", "M", "L", "XL", "Full"];

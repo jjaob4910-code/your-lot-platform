@@ -181,7 +181,11 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
     const dueSoon = (duelevies.data ?? []).filter(l => daysUntil(l.due_date) <= 14);
     if (isCommittee) {
       if (dueSoon.length > 0) {
-        items.push({ id: "levies-aggregate", category: "Levy due", icon: Coins, text: `${dueSoon.length} levy${dueSoon.length === 1 ? "" : "ies"} coming due`, sub: "Across the scheme", tab: "Finance/Levies" });
+        const overdue = dueSoon.filter(l => daysUntil(l.due_date) < 0).length;
+        const plural = (n: number) => n === 1 ? "levy" : "levies";
+        items.push({ id: "levies-aggregate", category: "Levy due", icon: Coins,
+          text: overdue === dueSoon.length ? `${overdue} ${plural(overdue)} overdue` : overdue > 0 ? `${dueSoon.length} ${plural(dueSoon.length)} due, ${overdue} overdue` : `${dueSoon.length} ${plural(dueSoon.length)} coming due`,
+          sub: "Across the scheme", tab: "Finance/Levies" });
       }
     } else if (myLot) {
       for (const levy of dueSoon.filter(l => l.lot_id === myLot.id)) {
