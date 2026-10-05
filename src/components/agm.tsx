@@ -376,6 +376,11 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
                       ? <input value={a.label} onChange={e => setItem(a.id!, { label: e.target.value })} placeholder="Agenda item" aria-label={`Agenda item ${i + 1}`}
                           className="min-w-0 flex-1 border-0 bg-transparent p-0 font-display text-lg tracking-[-0.01em] outline-none placeholder:text-muted-foreground/50"/>
                       : <p className="min-w-0 flex-1 font-display text-lg tracking-[-0.01em]">{a.label || "Untitled item"}</p>}
+                    {(canEditAgenda || canEditMinutes) && <div className="flex shrink-0 items-center">
+                      <ItemLinks part="menu" links={a.links ?? []} ctx={ctx} editable onChange={links => setItem(a.id!, { links })}/>
+                      <ItemAttachments part="menu" meetingId={meeting.id} itemId={a.id!} attachments={attachments} documents={documents} editable
+                        onUpload={files => schemeId ? uploadAgmFiles(schemeId, files) : Promise.resolve([])} onChanged={onChanged}/>
+                    </div>}
                     {canEditAgenda && <div className="flex shrink-0 items-center gap-0.5 transition sm:opacity-0 sm:group-focus-within/item:opacity-100 sm:group-hover/item:opacity-100">
                       <Button type="button" size="icon" variant="ghost" className="size-7 rounded-full" aria-label="Move up" disabled={i === 0} onClick={() => move(a.id!, -1)}><ArrowUp className="size-3.5"/></Button>
                       <Button type="button" size="icon" variant="ghost" className="size-7 rounded-full" aria-label="Move down" disabled={i === d.agenda.length - 1} onClick={() => move(a.id!, 1)}><ArrowDown className="size-3.5"/></Button>
@@ -386,8 +391,8 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
                   {canEditAgenda
                     ? <div className="-mx-3"><RichTextEditor value={a.notes} onChange={html => setItem(a.id!, { notes: html })} placeholder="Add detail, a list or a checklist…" ariaLabel={`Description for item ${i + 1}`} minHeight={28}/></div>
                     : <RichTextView value={a.notes} className="text-muted-foreground"/>}
-                  <ItemLinks links={a.links ?? []} ctx={ctx} editable={canEditAgenda || canEditMinutes} onChange={links => setItem(a.id!, { links })}/>
-                  <ItemAttachments meetingId={meeting.id} itemId={a.id!} attachments={attachments} documents={documents} editable={canEditAgenda || canEditMinutes}
+                  <ItemLinks part="list" links={a.links ?? []} ctx={ctx} editable={canEditAgenda || canEditMinutes} onChange={links => setItem(a.id!, { links })}/>
+                  <ItemAttachments part="list" meetingId={meeting.id} itemId={a.id!} attachments={attachments} documents={documents} editable={canEditAgenda || canEditMinutes}
                     onUpload={files => schemeId ? uploadAgmFiles(schemeId, files) : Promise.resolve([])} onChanged={onChanged}/>
 
                   {(stage === "Minutes" || stage === "Published") && <div className="mt-3 space-y-2 rounded-2xl bg-secondary/40 p-3 sm:p-4">
