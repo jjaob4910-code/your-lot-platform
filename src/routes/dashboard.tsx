@@ -1,3 +1,4 @@
+import { BuildingChat } from "@/components/chat";
 import { OPEN_TAB_KEY, PORTFOLIO_SEEN_KEY } from "@/lib/portfolio";
 import { WhoRunsCard } from "@/components/who-runs";
 import { WelcomeTour } from "@/components/welcome-tour";
@@ -473,6 +474,8 @@ function DashboardPage() {
             onChange={e => { try { localStorage.setItem(BUILDING_KEY, e.target.value); } catch { /* storage unavailable */ } window.location.reload(); }}>
             {(memberships.data ?? []).map(m => <option key={m.scheme_id} value={m.scheme_id}>{m.schemes?.name ?? "Building"}</option>)}
           </select>}
+          <BuildingChat schemeId={schemeId} userId={userId} buildingName={scheme.data?.name}
+            myName={(myLot?.owner_name || String(session?.user?.user_metadata?.["display_name"] ?? "") || session?.user?.email?.split("@")[0] || "Me").trim()}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings" onClick={()=>setActive("Settings")}><Settings /></Button>
           <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo} overdrawnFunds={warnOverdrawn ? overdrawnFunds : []}
             levies={levies.data ?? []} notices={notices.data ?? []} transactions={activeTransactions} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []}
