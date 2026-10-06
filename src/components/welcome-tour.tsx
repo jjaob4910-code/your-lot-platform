@@ -70,7 +70,7 @@ const managerSteps = (building: string): Step[] => [
   { tab: "AGM", title: "Meetings",
     body: "Build the agenda, send the notice on time, take the minutes and publish them." },
   { tab: "Dashboard", title: "All your buildings",
-    body: "If you manage more than one building, All buildings at the top shows every one of them, with what needs action first.",
+    body: "The Loty dashboard (top of the page) shows every building Loty manages, with what needs action first.",
     expect: "You can replay this tour any time from Settings." },
 ];
 

@@ -1801,6 +1801,8 @@ export type Database = {
           address: string
           created_at: string
           id: string
+          managed_by_loty: boolean
+          managed_since: string | null
           name: string
           next_agm_date: string | null
           tier: string | null
@@ -1810,6 +1812,8 @@ export type Database = {
           address: string
           created_at?: string
           id?: string
+          managed_by_loty?: boolean
+          managed_since?: string | null
           name: string
           next_agm_date?: string | null
           tier?: string | null
@@ -1819,11 +1823,25 @@ export type Database = {
           address?: string
           created_at?: string
           id?: string
+          managed_by_loty?: boolean
+          managed_since?: string | null
           name?: string
           next_agm_date?: string | null
           tier?: string | null
           total_lots?: number
         }
+        Relationships: []
+      }
+      loty_staff: {
+        Row: { created_at: string; user_id: string }
+        Insert: { created_at?: string; user_id: string }
+        Update: { created_at?: string; user_id?: string }
+        Relationships: []
+      }
+      loty_team: {
+        Row: { email: string | null; id: boolean; phone: string | null; updated_at: string }
+        Insert: { email?: string | null; id?: boolean; phone?: string | null; updated_at?: string }
+        Update: { email?: string | null; id?: boolean; phone?: string | null; updated_at?: string }
         Relationships: []
       }
       user_preferences: {
@@ -2078,6 +2096,9 @@ export type Database = {
       accept_invite: { Args: { _token: string }; Returns: string }
       building_finance_summary: { Args: { _scheme: string }; Returns: Json }
       committee_contacts: { Args: { _scheme: string }; Returns: { name: string | null; committee_role: string | null; email: string | null; phone: string | null; company: string | null; member_id: string }[] }
+      is_loty_staff: { Args: Record<PropertyKey, never>; Returns: boolean }
+      loty_all_buildings: { Args: Record<PropertyKey, never>; Returns: { id: string; name: string; address: string | null; total_lots: number; managed_by_loty: boolean; managed_since: string | null; members: number; created_at: string }[] }
+      loty_set_managed: { Args: { _scheme: string; _managed: boolean }; Returns: undefined }
       building_lots: { Args: { _scheme: string }; Returns: { id: string; lot_number: number; owner_name: string | null; entitlement_percent: number; occupancy: string | null; is_mine: boolean }[] }
       portfolio_summary: { Args: Record<PropertyKey, never>; Returns: { scheme_id: string; name: string; address: string | null; role: string; total_lots: number; cash: number; levies_overdue: number; overdue_amount: number; open_work_orders: number; approvals_waiting: number; next_agm: string | null; agm_notice_sent: boolean | null; next_renewal: string | null; renewal_label: string | null }[] }
       create_building: { Args: { _name: string; _address: string; _total_lots: number }; Returns: string }

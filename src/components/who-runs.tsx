@@ -39,19 +39,19 @@ export const firstContact = (contacts: Contact[]) =>
 export function WhoRunsCard({ schemeId, compact = false }: { schemeId?: string | null | undefined; compact?: boolean }) {
   const contacts = useBuildingContacts(schemeId);
   const list = [...(contacts.data ?? [])].sort((a, b) => ORDER.indexOf(roleOf(a)) - ORDER.indexOf(roleOf(b)));
-  const hasManager = list.some(c => roleOf(c) === "Manager");
+  const manager = list.find(c => roleOf(c) === "Manager");
   return <section className="soft-shadow rounded-3xl border border-border/70 bg-card p-5 sm:p-7" data-who-runs>
     <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Who runs this building <Help term="oc"/></p>
     <p className="mt-2 max-w-2xl text-[13px] leading-6 text-muted-foreground">
       Every lot owner, you included, is a member of the owners corporation, which owns and looks after the common property together.
-      The owners elect a committee at the AGM to make decisions for them{hasManager ? ", and the committee has appointed a manager to run things day to day." : ". The committee runs things day to day, led by the Chairperson."}
+      The owners elect a committee at the AGM to make decisions for them{manager?.name === "Loty" ? ", and Loty manages the building day to day for them." : manager ? ", and the committee has appointed a manager to run things day to day." : ". The committee runs things day to day, led by the Chairperson."}
     </p>
     <ul className="mt-4 divide-y divide-border/60">
       {list.map((c, i) => { const r = roleOf(c);
         return <li key={c.member_id ?? i} className="grid gap-1 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4">
           <div className="min-w-0">
             <p className="text-sm"><span className="font-medium">{c.name ?? (r === "Manager" ? "Building manager" : "Committee member")}</span>
-              <span className="text-muted-foreground"> · {r === "Member" ? "Committee member" : r}{c.company ? `, ${c.company}` : ""}</span></p>
+              <span className="text-muted-foreground"> · {r === "Member" ? "Committee member" : r === "Manager" ? "Building manager" : r}{c.company ? `, ${c.company}` : ""}</span></p>
             {!compact && <p className="text-[12px] text-muted-foreground">{ROLE_DUTIES[r]}</p>}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
