@@ -1,3 +1,4 @@
+import { JUST_JOINED_KEY } from "@/components/welcome-tour";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,7 +36,7 @@ function AuthPage() {
     if (invite) {
       const { error } = await supabase.rpc("accept_invite", { _token: invite });
       if (error) toast("We couldn't use that invite link", { description: error.message });
-      else toast("You've joined the building");
+      else { toast("You've joined the building"); try { sessionStorage.setItem(JUST_JOINED_KEY, "1"); } catch { /* storage unavailable */ } }
     }
     navigate({ to: "/dashboard", replace: true });
   };
