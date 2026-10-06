@@ -36,7 +36,7 @@ export function HowItWorks({ page, committee }: { page: HowPage; committee: bool
   const key = `loty-how-${page}`;
   const [open, setOpen] = useState(() => read(key));
   const steps = STEPS[page][committee ? "committee" : "owner"];
-  return <div className="-mt-4 mb-6" data-how={page}>
+  return <div className="mt-4" data-how={page}>
     <button type="button" aria-expanded={open} onClick={() => { setOpen(!open); write(key, !open); }}
       className="inline-flex items-center gap-1 text-[13px] font-medium text-primary hover:underline">
       How this works <ChevronDown className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}/>
