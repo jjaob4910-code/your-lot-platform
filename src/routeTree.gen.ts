@@ -15,6 +15,7 @@ import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
 import { Route as JoinRouteImport } from './routes/join'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as PortfolioRouteImport } from './routes/portfolio'
 import { Route as PricingRouteImport } from './routes/pricing'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 
@@ -48,6 +49,11 @@ const OnboardingRoute = OnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PortfolioRoute = PortfolioRouteImport.update({
+  id: '/portfolio',
+  path: '/portfolio',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PricingRoute = PricingRouteImport.update({
   id: '/pricing',
   path: '/pricing',
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/how-it-works': typeof HowItWorksRoute
   '/join': typeof JoinRoute
   '/onboarding': typeof OnboardingRoute
+  '/portfolio': typeof PortfolioRoute
   '/pricing': typeof PricingRoute
   '/reset-password': typeof ResetPasswordRoute
 }
@@ -76,6 +83,7 @@ export interface FileRoutesByTo {
   '/how-it-works': typeof HowItWorksRoute
   '/join': typeof JoinRoute
   '/onboarding': typeof OnboardingRoute
+  '/portfolio': typeof PortfolioRoute
   '/pricing': typeof PricingRoute
   '/reset-password': typeof ResetPasswordRoute
 }
@@ -87,6 +95,7 @@ export interface FileRoutesById {
   '/how-it-works': typeof HowItWorksRoute
   '/join': typeof JoinRoute
   '/onboarding': typeof OnboardingRoute
+  '/portfolio': typeof PortfolioRoute
   '/pricing': typeof PricingRoute
   '/reset-password': typeof ResetPasswordRoute
 }
@@ -99,6 +108,7 @@ export interface FileRouteTypes {
     | '/how-it-works'
     | '/join'
     | '/onboarding'
+    | '/portfolio'
     | '/pricing'
     | '/reset-password'
   fileRoutesByTo: FileRoutesByTo
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | '/how-it-works'
     | '/join'
     | '/onboarding'
+    | '/portfolio'
     | '/pricing'
     | '/reset-password'
   id:
@@ -119,6 +130,7 @@ export interface FileRouteTypes {
     | '/how-it-works'
     | '/join'
     | '/onboarding'
+    | '/portfolio'
     | '/pricing'
     | '/reset-password'
   fileRoutesById: FileRoutesById
@@ -130,6 +142,7 @@ export interface RootRouteChildren {
   HowItWorksRoute: typeof HowItWorksRoute
   JoinRoute: typeof JoinRoute
   OnboardingRoute: typeof OnboardingRoute
+  PortfolioRoute: typeof PortfolioRoute
   PricingRoute: typeof PricingRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
 }
@@ -178,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/portfolio': {
+      id: '/portfolio'
+      path: '/portfolio'
+      fullPath: '/portfolio'
+      preLoaderRoute: typeof PortfolioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pricing': {
       id: '/pricing'
       path: '/pricing'
@@ -202,6 +222,7 @@ const rootRouteChildren: RootRouteChildren = {
   HowItWorksRoute: HowItWorksRoute,
   JoinRoute: JoinRoute,
   OnboardingRoute: OnboardingRoute,
+  PortfolioRoute: PortfolioRoute,
   PricingRoute: PricingRoute,
   ResetPasswordRoute: ResetPasswordRoute,
 }

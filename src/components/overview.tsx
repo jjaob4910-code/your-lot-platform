@@ -1,3 +1,4 @@
+import { ResponsibilitiesCard, WhoRunsCard } from "./who-runs";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Help } from "@/components/help";
 import { useQuery } from "@tanstack/react-query";
@@ -646,5 +647,10 @@ export function OverviewSection({ firstName, lots = [], hasPayment = false, sche
         </div>
       </SortableContext>
     </DndContext>
+
+    {!isCommittee && <div className="mt-5 grid gap-5 lg:grid-cols-2">
+      <WhoRunsCard schemeId={schemeId} compact/>
+      <ResponsibilitiesCard schemeId={schemeId}/>
+    </div>}
   </>;
 }

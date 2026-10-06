@@ -1,11 +1,12 @@
 import { HowItWorks } from "./how-it-works";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Help } from "@/components/help";
 import type { PaymentDetails } from "@/lib/payment";
 import { supabase } from "@/integrations/supabase/client";
-import { daysUntil, money, niceDate } from "@/lib/format";
+import { daysUntil, money, moneyCents, niceDate } from "@/lib/format";
 import { budgetStartYear, currentFinancialYearStart, type Levy } from "@/lib/fund-balance";
 
 type Summary = {
@@ -17,10 +18,13 @@ type Budget = { id: string; financial_year: string };
 
 const fyLabel = (y: number) => `${y}/${String(y + 1).slice(2)}`;
 
-/** An owner's Finance page: what they owe and have paid, and where the building's money goes.
- *  No other lots and no line-by-line ledger. */
-export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems, payment }: {
+type Tx = { id: string; direction: string; fund_id: string; description: string; supplier: string | null; amount: number; occurred_on: string; status: string; levy_id: string | null; voided_at?: string | null };
+
+/** An owner's Finance page: what they owe and have paid, where the building's money goes, and every
+ *  payment and receipt (read-only). Other owners' levy payments are rolled into one total. */
+export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems, payment, transactions = [], funds = [] }: {
   schemeId?: string | undefined; levies: Levy[]; myLotId: string | null; budgets: Budget[]; lineItems: BudgetLine[];
+  transactions?: Tx[]; funds?: { id: string; name: string }[];
   /** How to pay, with this owner's own reference; null until the committee adds it. */
   payment: PaymentDetails | null;
 }) {
@@ -106,7 +110,33 @@ export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems, pa
           </>}
         </>}
     </section>
+
+    <OwnerLedger transactions={transactions} funds={funds}/>
   </div>;
+}
+
+/** Every payment and receipt the committee has recorded, newest first. Read-only. */
+function OwnerLedger({ transactions, funds }: { transactions: Tx[]; funds: { id: string; name: string }[] }) {
+  const [all, setAll] = useState(false);
+  const rows = transactions.filter(t => !t.voided_at && !(t.direction === "in" && t.levy_id))
+    .sort((a, b) => b.occurred_on.localeCompare(a.occurred_on));
+  const fundName = (id: string) => funds.find(f => f.id === id)?.name;
+  const shown = all ? rows : rows.slice(0, 8);
+  return <section className="soft-shadow mt-6 rounded-3xl border border-border/70 bg-card p-5 sm:p-7" id="owner-ledger">
+    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Payments and receipts</p>
+    <p className="mt-2 text-[13px] text-muted-foreground">Everything the committee has paid or received for the building. Levy payments from owners are counted in the summary above, not listed one by one.</p>
+    {rows.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">Nothing recorded yet.</p>
+      : <ul className="mt-4 divide-y divide-border/60 text-[13px]">
+        {shown.map(t => <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+          <span className="min-w-0">
+            <span className="font-medium">{t.description}</span>
+            <span className="block text-[12px] text-muted-foreground">{niceDate(t.occurred_on)}{t.supplier ? ` · ${t.supplier}` : ""}{fundName(t.fund_id) ? ` · ${fundName(t.fund_id)} fund` : ""}{t.status !== "Paid" ? ` · ${t.status}` : ""}</span>
+          </span>
+          <span className={`tabular-nums ${t.direction === "in" ? "text-emerald-700 dark:text-emerald-400" : ""}`}>{t.direction === "in" ? "+" : "−"}{moneyCents(Number(t.amount))}</span>
+        </li>)}
+      </ul>}
+    {rows.length > 8 && <button type="button" onClick={() => setAll(!all)} className="mt-3 text-[13px] font-medium text-primary hover:underline">{all ? "Show fewer" : `Show all ${rows.length}`}</button>}
+  </section>;
 }
 
 function PayRow({ label, value, copy, hint }: { label: string; value: string; copy?: boolean; hint?: string }) {
