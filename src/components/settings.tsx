@@ -82,7 +82,7 @@ function SchemeDialog({ open, onOpenChange, scheme, onSaved }: {
         <div className="space-y-2"><Label htmlFor="address">Address</Label><Input id="address" name="address" defaultValue={scheme.address} required/></div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="total_lots">Total lots</Label><Input id="total_lots" name="total_lots" type="number" min="1" defaultValue={scheme.total_lots} required/></div>
-          <div className="space-y-2"><Label htmlFor="tier">Tier</Label><Input id="tier" name="tier" defaultValue={scheme.tier ?? ""} placeholder="Tier 3"/>
+          <div className="space-y-2"><Label htmlFor="tier">Loty plan</Label><Input id="tier" name="tier" defaultValue={scheme.tier ?? ""} placeholder="Tier 3"/>
             <p className="text-[12px] text-muted-foreground">Your owners corporation's tier (1–5) under Victorian law, set by lot count and annual fees. It decides some reporting and audit duties.</p></div>
         </div>
         {/* Once a meeting is scheduled in the AGM tab, that meeting's date is the one used everywhere. */}
@@ -126,7 +126,7 @@ function CreateSchemeDialog({ open, onOpenChange, onSaved }: {
         <div className="space-y-2"><Label htmlFor="new_address">Address</Label><Input id="new_address" name="address" placeholder="12 Banksia Street, Brunswick VIC 3056" required/></div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="new_total_lots">Total lots</Label><Input id="new_total_lots" name="total_lots" type="number" min="1" defaultValue={1} required/></div>
-          <div className="space-y-2"><Label htmlFor="new_tier">Tier</Label><Input id="new_tier" name="tier" placeholder="Tier 3"/></div>
+          <div className="space-y-2"><Label htmlFor="new_tier">Loty plan</Label><Input id="new_tier" name="tier" placeholder="Tier 3"/></div>
         </div>
         <div className="space-y-2"><Label htmlFor="new_next_agm_date">Next AGM date</Label><Input id="new_next_agm_date" name="next_agm_date" type="date"/></div>
         <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full">Create building</Button></div>
@@ -167,7 +167,7 @@ function AddRoleDialog({ open, onOpenChange, lots, onSaved }: {
             <SelectContent>{ROLE_OPTIONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full" disabled={!lotId}>Add role</Button></div>
+        <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full" disabled={!lotId}>Give committee role</Button></div>
       </form>
     </DialogContent>
   </Dialog>;
@@ -258,7 +258,7 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
             <Field label="Building name" value={scheme.name}/>
             <Field label="Address" value={scheme.address}/>
             {isCommittee && <Field label="Total lots" value={String(scheme.total_lots)}/>}
-            {isCommittee && <Field label="Tier" value={scheme.tier ?? "—"}/>}
+            {isCommittee && <Field label="Loty plan" value={scheme.tier ?? "—"}/>}
             <Field label="Next AGM" value={scheme.next_agm_date ? new Date(scheme.next_agm_date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "Not scheduled"}/>
           </div>
         : isCommittee
@@ -275,8 +275,8 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
     <Card className="mt-6 overflow-hidden">
       <SectionHeading title="People & roles" blurb="Owners on record and who holds a committee position."
         action={isCommittee ? <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" className="rounded-full" onClick={()=>setInvitingCommittee(true)}>Invite a committee member</Button>
-          {lots.length > 0 && <Button size="sm" className="rounded-full" onClick={()=>setAddingRole(true)}><Plus className="size-3.5"/>Add role</Button>}
+          <Button size="sm" variant="outline" className="rounded-full" onClick={()=>setInvitingCommittee(true)}>Send a committee invite link</Button>
+          {lots.length > 0 && <Button size="sm" className="rounded-full" onClick={()=>setAddingRole(true)}><Plus className="size-3.5"/>Give someone a committee role</Button>}
         </div> : undefined}/>
       <InviteDialog open={invitingCommittee} onOpenChange={setInvitingCommittee} schemeId={schemeId} role="Committee" buildingName={scheme?.name}/>
       <div className="divide-y divide-border/70">{lots.map(lot =>

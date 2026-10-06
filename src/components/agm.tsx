@@ -1,3 +1,4 @@
+import { HowItWorks } from "./how-it-works";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Help } from "@/components/help";
 import type { GlossaryKey } from "@/lib/glossary";
@@ -662,6 +663,7 @@ export function AgmSection({ schemeId, isCommittee, meetings, lots, myLot = null
       blurb={isCommittee ? "Build the agenda, send the notice, then take the minutes on the day. Owners can suggest items while the agenda is being drafted." : "Read the agenda, suggest an item before the notice goes out, and read the minutes afterwards."}
       action={isCommittee && !open ? <Button className="rounded-full" onClick={() => meetings.length ? setChoosing(true) : void create()} disabled={!schemeId}><Plus/> New AGM</Button> : undefined}/>
 
+    <HowItWorks page="agm" committee={isCommittee}/>
     <Dialog open={choosing} onOpenChange={setChoosing}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[520px]">
         <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">New AGM</DialogTitle><DialogDescription>Start fresh, or use an earlier meeting as a template.</DialogDescription></DialogHeader>

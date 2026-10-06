@@ -1,3 +1,4 @@
+import { HowItWorks } from "./how-it-works";
 import { useEffect, useState, type FormEvent } from "react";
 import { Help } from "@/components/help";
 import type { GlossaryKey } from "@/lib/glossary";
@@ -233,6 +234,7 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
     <PageHead eyebrow="Your property" title="Insurance" blurb={isCommittee ? "Every policy on your building in one place: who underwrites it, what it cost, the policy number and when it renews. Attach the policy documents and they file themselves under Insurance in your documents." : "What the building is insured for, when it renews, and any claims in progress."}
       action={isCommittee ? <Button className="rounded-full" onClick={()=>{ setEditing(null); setOpen(true); }}><Plus/> Add a policy</Button> : undefined}/>
 
+    <HowItWorks page="insurance" committee={isCommittee}/>
     <div className="mt-10 grid gap-4 sm:grid-cols-3">
       <Card className="p-6">
         <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Sum insured (building) <Help term="sumInsured"/></p>

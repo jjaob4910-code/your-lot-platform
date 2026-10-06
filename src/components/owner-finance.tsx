@@ -1,3 +1,4 @@
+import { HowItWorks } from "./how-it-works";
 import { useQuery } from "@tanstack/react-query";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -47,6 +48,7 @@ export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems, pa
       <h1 className="mt-4 text-4xl font-medium tracking-[-0.035em] sm:text-5xl">Finance</h1>
       <p className="mt-5 text-[15px] leading-7 text-muted-foreground">Your levies, and where the building's money goes this year.</p>
     </div>
+    <div className="mt-8 -mb-6"><HowItWorks page="finance" committee={false}/></div>
 
     <section className="soft-shadow mt-10 rounded-3xl border border-border/70 bg-card p-5 sm:p-7">
       <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Your levies <Help term="levy"/></p>

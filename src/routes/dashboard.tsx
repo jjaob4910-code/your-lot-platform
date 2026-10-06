@@ -515,7 +515,7 @@ function StatusPill({ status }: { status: string }) {
   const tone = status === "Overdue" ? "bg-destructive/10 text-destructive"
     : status === "Paid" || status === "Complete" ? "bg-primary/10 text-primary"
     : "bg-secondary text-muted-foreground";
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${tone}`}>{status}</span>;
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${tone}`}>{status === "Pending" ? "To pay" : status}</span>;
 }
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {

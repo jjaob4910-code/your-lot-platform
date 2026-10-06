@@ -126,7 +126,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
     const key = widgets.find(w => w.id === task.widget_id)?.standard_key;
     const left = daysUntil(task.due_date);
     if (left > 14 || isRetiredObligation(key)) continue;
-    items.push({ id: `task-${task.id}`, category: "Obligations", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: obligationTab(key) });
+    items.push({ id: `task-${task.id}`, category: "Reminders", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: obligationTab(key) });
   }
 
   if (isCommittee && notifyNewWorkOrder) for (const o of orders) {
@@ -143,14 +143,14 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
   for (const r of renewals) {
     const left = daysUntil(r.date);
     if (left > 60) continue;
-    items.push({ id: `renewal-${r.id}`, category: "Obligations", icon: FileCheck2, text: `${r.label} insurance renews`,
+    items.push({ id: `renewal-${r.id}`, category: "Reminders", icon: FileCheck2, text: `${r.label} insurance renews`,
       sub: left < 0 ? `Lapsed ${Math.abs(left)} days ago` : left === 0 ? "Renews today" : `Renews in ${left} days`, tab: "Insurance" });
   }
 
   // The AGM notice reminder comes from the meeting itself: shown from 21 days before it's due.
   if (isCommittee && agmNotice) {
     const left = daysUntil(agmNotice.due);
-    if (left <= 21) items.push({ id: "agm-notice", category: "Obligations", icon: FileCheck2, text: "Send the AGM notice",
+    if (left <= 21) items.push({ id: "agm-notice", category: "Reminders", icon: FileCheck2, text: "Send the AGM notice",
       sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: "AGM" });
   }
 
@@ -192,7 +192,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
       sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(f.balance)} based on what's recorded in Loty`, tab: "Finance/Cashflow" });
   }
 
-  const categoryOrder = ["Fund overdrawn", "Approval needed", "Unbudgeted spend", "New work order", "Work order update", "Levy due", "Obligations", "Upcoming event", "New document", "Message"];
+  const categoryOrder = ["Fund overdrawn", "Approval needed", "Unbudgeted spend", "New work order", "Work order update", "Levy due", "Reminders", "Upcoming event", "New document", "Message"];
   items.sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 
   const isUnread = (item: NotificationItem) => !!item.timestamp && (!lastReadAt || item.timestamp > lastReadAt);

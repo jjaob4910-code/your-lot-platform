@@ -1,3 +1,4 @@
+import { HowItWorks } from "./how-it-works";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Help } from "@/components/help";
 import type { GlossaryKey } from "@/lib/glossary";
@@ -197,7 +198,7 @@ function StatusPill({ status }: { status: string }) {
   const tone = status === "Overdue" ? "bg-destructive/10 text-destructive"
     : status === "Paid" || status === "Complete" ? "bg-primary/10 text-primary"
     : "bg-secondary text-muted-foreground";
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${tone}`}>{status}</span>;
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${tone}`}>{status === "Pending" ? "To pay" : status}</span>;
 }
 
 async function ensureFinanceFolder(schemeId: string) {
@@ -1293,7 +1294,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
             {isCommittee && <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Attach payment proof">
               <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attachProof(levy, f); e.currentTarget.value = ""; }} /></label>
             </Button>}
-            {isCommittee && status !== "Paid" && <Button size="sm" variant={stale ? "default" : "ghost"} className="rounded-full" onClick={() => setSending([levy])}>{levy.notified_at ? "Re-send" : "Send"}</Button>}
+            {isCommittee && status !== "Paid" && <Button size="sm" variant={stale ? "default" : "ghost"} className="rounded-full" onClick={() => setSending([levy])}>{levy.notified_at ? "Send notice again" : "Send notice"}</Button>}
             {isCommittee && status !== "Paid" && <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setReminder(levy)}>Send a reminder</Button>}
             {isCommittee && status !== "Paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setMarkingPaid(levy)}>Mark paid</Button>}
             {isCommittee && status === "Paid" && <Button size="sm" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" onClick={() => { setReverseReason(""); setReversing(levy); }}><Undo2 className="size-3.5" />Undo payment</Button>}
@@ -1333,7 +1334,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
               [isEqual(invoice) ? "This lot's share" : "Lot entitlement", isEqual(invoice) ? `1 of ${lotsInBudget(invoice)} lots` : `${Number(invoice.lots?.entitlement_percent ?? 0)}%`]]
               .map(([k, v]) => <div key={k} className="flex justify-between border-b border-border/60 pb-2 text-[13px]"><span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span></div>)}
             {funds.map(f => <div key={f.id} className="flex justify-between border-b border-border/60 pb-2 text-[13px]"><span className="text-muted-foreground">{f.name} fund share</span><span className="font-medium">{money(levyShareForFund(invoice, f.id))}</span></div>)}
-            {[["Due date", niceDate(invoice.due_date)], ["Status", effectiveLevyStatus(invoice)]].map(([k, v]) =>
+            {[["Due date", niceDate(invoice.due_date)], ["Status", effectiveLevyStatus(invoice) === "Pending" ? "To pay" : effectiveLevyStatus(invoice)]].map(([k, v]) =>
               <div key={k} className="flex justify-between border-b border-border/60 pb-2 text-[13px]"><span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span></div>)}
             <div className="flex justify-between pt-2"><span className="font-medium">Total payable</span><span className="font-display text-xl">{money(Number(invoice.amount))}</span></div>
           </div>
@@ -1475,7 +1476,7 @@ function CashflowChart({ year, levies, transactions, openingBalance, selected, o
               onClick={(e: { activeLabel?: string | number } | null) => { const hit = data.find(d => d.label === e?.activeLabel); if (hit) onSelect(selected === hit.key ? null : hit.key); }}>
               <CartesianGrid vertical={false} stroke="var(--border)" />
               <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} interval="preserveStartEnd" minTickGap={6} tick={{ fill: "var(--muted-foreground)" }} />
-              <YAxis tickLine={false} axisLine={false} fontSize={11} width={52} tick={{ fill: "var(--muted-foreground)" }} tickFormatter={(v: number) => `$${Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : v}`} />
+              <YAxis tickLine={false} axisLine={false} fontSize={11} width={52} tick={{ fill: "var(--muted-foreground)" }} tickFormatter={(v: number) => `${v < 0 ? "−" : ""}$${Math.abs(v) >= 1000 ? `${Math.round(Math.abs(v) / 100) / 10}k` : Math.abs(v)}`} />
               <ChartTooltip cursor={{ fill: "var(--secondary)" }} formatter={(v: number, name: string) => [money(Number(v)), name === "in" ? "Income" : name === "out" ? "Expenditure" : "Balance"]} />
               <Bar dataKey="in" fill="var(--primary)" radius={[4, 4, 0, 0]} maxBarSize={18}>
                 {data.map(d => <Cell key={d.key} fillOpacity={!selected || selected === d.key ? 1 : 0.3} />)}
@@ -1748,6 +1749,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
           {isCommittee && <SelectItem value="__add">Add another year…</SelectItem>}
         </SelectContent>
       </Select>} />
+    <HowItWorks page="finance" committee={isCommittee}/>
     {isCommittee && year !== currentFy && !addingYear && <div className="-mt-3 flex justify-end">
       <Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[12px] text-muted-foreground hover:text-destructive" onClick={() => void removeYear()}>
         <Trash2 className="size-3.5" />Remove {fyLabel(year)}</Button>
@@ -1818,7 +1820,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
     <FinancePanel id="Cashflow" title="Cashflow" open={isOpen("Cashflow")} onToggle={() => toggle("Cashflow")}
       summary={`Balance ${money(totalBalance)} · ${money(totalIn)} income · ${money(totalOut)} expenditure`}
       actions={<>
-        <Button size="sm" variant="outline" className="rounded-full" onClick={() => setForecastOpen(true)}><Send className="size-3.5" />Send forecast</Button>
+        <Button size="sm" variant="outline" className="rounded-full" onClick={() => setForecastOpen(true)}><Send className="size-3.5" />Email cashflow forecast</Button>
         {isCommittee && <Button size="sm" className="rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Add transaction</Button>}
       </>}>
     <div className="space-y-6">

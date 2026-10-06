@@ -1,3 +1,4 @@
+import { HowItWorks } from "./how-it-works";
 import { useMemo, useState, type DragEvent, type FormEvent } from "react";
 import { niceDate } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -240,6 +241,7 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
         </Button>
       </div> : undefined}/>
 
+    <HowItWorks page="documents" committee={isCommittee}/>
     <div className="mt-10 flex flex-wrap items-center gap-3">
       <div className="flex flex-wrap items-center gap-1 text-[13px]">
         <button
