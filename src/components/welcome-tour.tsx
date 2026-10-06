@@ -95,7 +95,7 @@ export function WelcomeTour({ userId, schemeId, isCommittee, ready, building, lo
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }); // eslint-disable-line react-hooks/exhaustive-deps
+  });
 
   if (step === null || !current) return null;
   const last = step === steps.length - 1;
