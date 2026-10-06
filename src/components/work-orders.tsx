@@ -590,7 +590,7 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
   const completed = orders.filter(isDone);
 
   return <div>
-    <PageHead eyebrow="Your property" title="Work orders" blurb="Works move from scope to quotes, approval and completion, and only reach Finance once they're paid. Tasks follow the steps you set."
+    <PageHead eyebrow="Your property" title="Work orders" blurb="Log a repair, collect quotes, get owners' approval if it's needed, then pay it. Payments are recorded in Finance for you. For anything else the committee needs to see through, log a task with your own steps."
       action={<Button className="rounded-full" onClick={() => setOpen(true)}><Plus/> New work order</Button>}/>
 
     <NewWorkOrderDialog open={open} onOpenChange={setOpen} lots={lots} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
@@ -683,7 +683,8 @@ function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBal
   const [fundId, setFundId] = useState<string>("");
   const [date, setDate] = useState(todayIso());
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (quote) { setFundId(funds[0]?.id ?? ""); setDate(todayIso()); setLineId(""); } }, [quote, funds]);
+  // Repairs usually come out of the maintenance fund, so start there when there is one.
+  useEffect(() => { if (quote) { setFundId((funds.find(f => /maint/i.test(f.name)) ?? funds[0])?.id ?? ""); setDate(todayIso()); setLineId(""); } }, [quote, funds]);
   const lineChoices = budgetLines.filter(l => l.fund_id === fundId && (!l.fy || !date || l.fy.startsWith(fyOf(date).slice(0, 4))));
   // Suggest the line whose name overlaps the work order title.
   useEffect(() => {
@@ -967,6 +968,16 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
     if (error) { toast("Could not set up the steps", { description: error.message }); return; }
     onChanged(); toast("Steps set up");
   };
+
+  // Jobs logged without steps (by an owner, or during setup) get the standard steps the first
+  // time the committee opens them, so nobody has to know to press "Set up steps".
+  const autoSetUp = useRef(false);
+  useEffect(() => {
+    if (!isCommittee || steps.length > 0 || autoSetUp.current || order.status === "Complete" || order.status === "Closed") return;
+    autoSetUp.current = true;
+    void setupSteps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCommittee, steps.length, order.id]);
 
   const addStep = async () => {
     const label = newStep.trim(); if (!label) return;

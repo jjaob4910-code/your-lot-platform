@@ -20,11 +20,13 @@ import { DocumentsSection, type DocFile } from "@/components/documents";
 import { InsuranceSection, type Policy } from "@/components/insurance";
 import type { Claim } from "@/components/insurance-claims";
 import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment, type BudgetFund } from "@/components/overview";
-import { FinanceSection, ensureDefaultFunds, type RecurringTx, type LevyReversal, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
+import { FinanceSection, ensureDefaultFunds, shareAmount, type RecurringTx, type LevyReversal, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
+import { InviteDialog } from "@/components/invite";
+import { OwnerFinance } from "@/components/owner-finance";
 import { agmNoticeDue, nextAgm } from "@/lib/agm-date";
-import { recordedFundBalances, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
+import { budgetStartYear, currentFinancialYearStart, recordedFundBalances, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 import { AgmSection, type AgmMeeting, type AgmSuggestion } from "@/components/agm";
 import type { AgmAttachment } from "@/components/agm-extras";
 import { currentTaskFor, type ComplianceWidget, type Task } from "@/lib/action-publish";
@@ -41,6 +43,13 @@ export const Route = createFileRoute("/dashboard")({
   component: DashboardPage,
 });
 
+type Membership = { scheme_id: string; role: "Committee" | "Owner"; lot_id: string | null; schemes: { id: string; name: string; address: string } | null };
+const BUILDING_KEY = "loty-building";
+function pickMembership(list: Membership[]): Membership | undefined {
+  let saved: string | null = null;
+  try { saved = localStorage.getItem(BUILDING_KEY); } catch { /* storage unavailable */ }
+  return list.find(m => m.scheme_id === saved) ?? list[0];
+}
 export type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null };
 export type Lot = {
   id: string; lot_number: number; owner_name: string | null; owner_email: string | null;
@@ -56,7 +65,8 @@ const sections = [
   ["Documents", Files],
 ] as const;
 
-export { money } from "@/lib/format";
+import { money } from "@/lib/format";
+export { money };
 
 function DashboardPage() {
   const queryClient = useQueryClient();
@@ -86,63 +96,73 @@ function DashboardPage() {
   }, [navigate]);
   const userId = session?.user?.id;
 
-  const scheme = useQuery({
-    queryKey: ["scheme"],
+  // Which buildings this person belongs to, and as what. The building they last opened is
+  // remembered on this device; otherwise the first one.
+  const memberships = useQuery({
+    queryKey: ["memberships", userId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("schemes").select("*").order("created_at").limit(1).maybeSingle();
+      const { data, error } = await supabase.from("scheme_members").select("scheme_id, role, lot_id, schemes(*)").eq("user_id", userId!);
+      if (!error) return (data ?? []) as unknown as Membership[];
+      // Until the membership update has been applied to the database, fall back to the
+      // single building and the old app-wide role.
+      if (!/scheme_members|does not exist|schema cache/i.test(error.message)) throw error;
+      const [{ data: first }, { data: role }] = await Promise.all([
+        supabase.from("schemes").select("*").order("created_at").limit(1).maybeSingle(),
+        supabase.from("user_roles").select("role").eq("user_id", userId!).maybeSingle(),
+      ]);
+      return first ? [{ scheme_id: first.id, role: role?.role === "Committee" ? "Committee" : "Owner", lot_id: null, schemes: first }] as Membership[] : [];
+    },
+    enabled: !!userId,
+  });
+  const membership = pickMembership(memberships.data ?? []);
+  const scheme = useQuery({
+    queryKey: ["scheme", membership?.scheme_id],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("schemes").select("*").eq("id", membership!.scheme_id).maybeSingle();
       if (error) throw error;
       return data as Scheme | null;
     },
+    enabled: !!membership,
   });
-  const schemeId = scheme.data?.id;
+  const schemeId = membership?.scheme_id;
 
-  const roleQuery = useQuery({
-    queryKey: ["user-role", userId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", userId!).maybeSingle();
-      if (error) throw error;
-      return data?.role ?? "Owner";
-    },
-    enabled: !!userId,
-  });
   const myLotQuery = useQuery({
-    queryKey: ["my-lot", userId],
+    queryKey: ["my-lot", userId], enabled: !!userId && !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("lots").select("*").eq("owner_user_id", userId!).maybeSingle();
+      const { data, error } = await supabase.from("lots").select("*").eq("owner_user_id", userId!).eq("scheme_id", schemeId!).maybeSingle();
       if (error) throw error;
       return data as unknown as Lot | null;
     },
-    enabled: !!userId,
   });
 
   const lots = useQuery({
-    queryKey: ["lots"],
+    queryKey: ["lots"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("lots").select("*").order("lot_number");
+      const { data, error } = await supabase.from("lots").select("*").eq("scheme_id", schemeId!).order("lot_number");
       if (error) throw error;
       return (data ?? []) as unknown as Lot[];
     },
   });
   const levies = useQuery({
-    queryKey: ["levies"],
+    queryKey: ["levies"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("levies").select("*, lots(lot_number, owner_name, owner_email, entitlement_percent), budgets(financial_year, allocation_method, total_amount, budget_fund_totals(fund_id, total))").order("due_date");
+      const { data, error } = await supabase.from("levies").select("*, lots!inner(scheme_id, lot_number, owner_name, owner_email, entitlement_percent), budgets(financial_year, allocation_method, total_amount, budget_fund_totals(fund_id, total))").order("due_date").eq("lots.scheme_id", schemeId!);
       if (error) throw error;
       return (data ?? []) as unknown as Levy[];
     },
   });
   const tasks = useQuery({
-    queryKey: ["tasks"],
+    queryKey: ["tasks"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("compliance_tasks").select("*").order("due_date");
+      const { data, error } = await supabase.from("compliance_tasks").select("*").eq("scheme_id", schemeId!).order("due_date");
       if (error) throw error;
       return (data ?? []) as unknown as Task[];
     },
   });
   const complianceWidgets = useQuery({
-    queryKey: ["compliance-widgets"],
+    queryKey: ["compliance-widgets"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("compliance_widgets").select("*").order("sort_order");
+      const { data, error } = await supabase.from("compliance_widgets").select("*").eq("scheme_id", schemeId!).order("sort_order");
       if (error) throw error;
       return (data ?? []) as unknown as ComplianceWidget[];
     },
@@ -156,107 +176,107 @@ function DashboardPage() {
     },
   });
   const contractors = useQuery({
-    queryKey: ["contractors"],
+    queryKey: ["contractors"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("contractors").select("*").order("name");
+      const { data, error } = await supabase.from("contractors").select("*").eq("scheme_id", schemeId!).order("name");
       if (error) throw error;
       return (data ?? []) as Contractor[];
     },
   });
   const documents = useQuery({
-    queryKey: ["documents"],
+    queryKey: ["documents"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("documents").select("*").order("uploaded_at", { ascending: false });
+      const { data, error } = await supabase.from("documents").select("*").eq("scheme_id", schemeId!).order("uploaded_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Doc[];
     },
   });
 
   const claims = useQuery({
-    queryKey: ["insurance-claims"],
+    queryKey: ["insurance-claims"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("insurance_claims").select("*, insurance_claim_updates(*)").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("insurance_claims").select("*, insurance_claim_updates(*)").eq("scheme_id", schemeId!).order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Claim[];
     },
   });
   const policies = useQuery({
-    queryKey: ["insurance"],
+    queryKey: ["insurance"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("insurance_policies").select("*").order("renewal_date", { nullsFirst: false });
+      const { data, error } = await supabase.from("insurance_policies").select("*").eq("scheme_id", schemeId!).order("renewal_date", { nullsFirst: false });
       if (error) throw error;
       return (data ?? []) as unknown as Policy[];
     },
   });
 
   const dashboardWidgets = useQuery({
-    queryKey: ["dashboard-widgets"],
+    queryKey: ["dashboard-widgets"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("dashboard_widgets").select("*").order("sort_order");
+      const { data, error } = await supabase.from("dashboard_widgets").select("*").eq("scheme_id", schemeId!).order("sort_order");
       if (error) throw error;
       return (data ?? []) as unknown as DashboardWidget[];
     },
   });
   const notices = useQuery({
-    queryKey: ["notices"],
+    queryKey: ["notices"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("notices").select("*").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("notices").select("*").eq("scheme_id", schemeId!).order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Notice[];
     },
   });
   const noticeComments = useQuery({
-    queryKey: ["notice-comments"],
+    queryKey: ["notice-comments"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("notice_comments").select("*").order("created_at");
+      const { data, error } = await supabase.from("notice_comments").select("*").eq("scheme_id", schemeId!).order("created_at");
       if (error) throw error;
       return (data ?? []) as unknown as NoticeComment[];
     },
   });
   const budgets = useQuery({
-    queryKey: ["budgets"],
+    queryKey: ["budgets"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("budgets").select("*, budget_fund_totals(fund_id, total)").order("financial_year", { ascending: false });
+      const { data, error } = await supabase.from("budgets").select("*, budget_fund_totals(fund_id, total)").eq("scheme_id", schemeId!).order("financial_year", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as FinanceBudget[];
     },
   });
   const budgetFunds = useQuery({
-    queryKey: ["budget-funds"],
+    queryKey: ["budget-funds"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("budget_funds").select("*").order("sort_order");
+      const { data, error } = await supabase.from("budget_funds").select("*").eq("scheme_id", schemeId!).order("sort_order");
       if (error) throw error;
       return (data ?? []) as unknown as BudgetFund[];
     },
   });
   const budgetLineItems = useQuery({
-    queryKey: ["budget-line-items"],
+    queryKey: ["budget-line-items"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("budget_line_items").select("*").order("created_at");
+      const { data, error } = await supabase.from("budget_line_items").select("*").eq("scheme_id", schemeId!).order("created_at");
       if (error) throw error;
       return (data ?? []) as unknown as BudgetLineItem[];
     },
   });
   const budgetRevisions = useQuery({
-    queryKey: ["budget-revisions"],
+    queryKey: ["budget-revisions"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("budget_revisions").select("*").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("budget_revisions").select("*").eq("scheme_id", schemeId!).order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as BudgetRevision[];
     },
   });
   const finance = useQuery({
-    queryKey: ["finance"],
+    queryKey: ["finance"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("finance_transactions").select("*").order("occurred_on", { ascending: false });
+      const { data, error } = await supabase.from("finance_transactions").select("*").eq("scheme_id", schemeId!).order("occurred_on", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as FinanceTx[];
     },
   });
   const financialYears = useQuery({
-    queryKey: ["financial-years"],
+    queryKey: ["financial-years"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("financial_years").select("id, start_year").order("start_year");
+      const { data, error } = await supabase.from("financial_years").select("id, start_year").eq("scheme_id", schemeId!).order("start_year");
       if (error) throw error;
       return (data ?? []) as { id: string; start_year: number }[];
     },
@@ -270,9 +290,9 @@ function DashboardPage() {
     },
   });
   const recurringTx = useQuery({
-    queryKey: ["recurring"],
+    queryKey: ["recurring"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("recurring_transactions").select("*").order("created_at");
+      const { data, error } = await supabase.from("recurring_transactions").select("*").eq("scheme_id", schemeId!).order("created_at");
       if (error) throw error;
       return (data ?? []) as unknown as RecurringTx[];
     },
@@ -310,9 +330,9 @@ function DashboardPage() {
     },
   });
   const agmMeetings = useQuery({
-    queryKey: ["agm-meetings"],
+    queryKey: ["agm-meetings"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("agm_meetings").select("*").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("agm_meetings").select("*").eq("scheme_id", schemeId!).order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as AgmMeeting[];
     },
@@ -373,17 +393,19 @@ function DashboardPage() {
     onError: (e: Error) => { refresh(["levies"]); toast("Marked as paid, but could not record the transaction", { description: e.message }); },
   });
 
-  const isCommittee = roleQuery.data === "Committee";
+  const isCommittee = membership?.role === "Committee";
   const myLot = myLotQuery.data ?? null;
   // The next AGM comes from the AGM tab's meetings, falling back to the date in Settings.
   const agmNext = nextAgm(agmMeetings.data ?? [], scheme.data?.next_agm_date ?? null);
   const noticeDue = agmNoticeDue(agmMeetings.data ?? []);
-  const schemeWithAgm = scheme.data ? { ...scheme.data, next_agm_date: agmNext.date, next_agm_meeting_id: agmNext.meetingId, agm_notice_due: noticeDue?.due ?? null } : null;
+  const schemeWithAgm = scheme.data ? { ...scheme.data, next_agm_date: agmNext.date, next_agm_meeting_id: agmNext.meetingId, agm_notice_due: noticeDue?.due ?? null,
+    renewals: (policies.data ?? []).filter(p => p.renewal_date).map(p => ({ id: p.id, label: p.policy_type, date: p.renewal_date!.slice(0, 10) })) } : null;
 
+  // Someone who doesn't belong to any building yet sets one up (or follows an invite link).
   useEffect(() => {
-    if (!authChecked || !userId || scheme.isLoading || roleQuery.isLoading) return;
-    if (scheme.data === null && isCommittee) navigate({ to: "/onboarding", replace: true });
-  }, [authChecked, userId, scheme.isLoading, scheme.data, roleQuery.isLoading, isCommittee, navigate]);
+    if (!authChecked || !userId || memberships.isLoading || memberships.isError) return;
+    if ((memberships.data ?? []).length === 0) navigate({ to: "/onboarding", replace: true });
+  }, [authChecked, userId, memberships.isLoading, memberships.isError, memberships.data, navigate]);
 
   const fundsBootstrapped = useRef(false);
   useEffect(() => {
@@ -403,10 +425,15 @@ function DashboardPage() {
         <Link to="/" className="mr-2 flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0,1,2,3].map(i=><span key={i} className="rounded-[2px] bg-primary"/>)}</span><span className="hidden sm:inline">Loty</span></Link>
         <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Dashboard sections">{sections.map(([label])=><Button key={label} size="sm" variant={active===label?"default":"ghost"} className="rounded-full px-3.5 text-xs font-medium transition-all duration-300" onClick={()=>setActive(label)}>{label}</Button>)}</nav>
         <div className="ml-auto flex items-center gap-1">
+          {(memberships.data?.length ?? 0) > 1 && <select aria-label="Building" value={schemeId ?? ""} className="mr-1 max-w-[160px] truncate rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs"
+            onChange={e => { try { localStorage.setItem(BUILDING_KEY, e.target.value); } catch { /* storage unavailable */ } window.location.reload(); }}>
+            {(memberships.data ?? []).map(m => <option key={m.scheme_id} value={m.scheme_id}>{m.schemes?.name ?? "Building"}</option>)}
+          </select>}
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings" onClick={()=>setActive("Settings")}><Settings /></Button>
           <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo} overdrawnFunds={warnOverdrawn ? overdrawnFunds : []}
             levies={levies.data ?? []} notices={notices.data ?? []} transactions={activeTransactions} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []}
-            notifyLevyDue={schemeSettings.data?.notify_levy_due ?? true} agmNotice={noticeDue}/>
+            notifyLevyDue={schemeSettings.data?.notify_levy_due ?? true} agmNotice={noticeDue}
+            renewals={(policies.data ?? []).filter(p => p.renewal_date).map(p => ({ id: p.id, label: p.policy_type, date: p.renewal_date!.slice(0, 10) }))}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={()=>{ void supabase.auth.signOut().then(()=>navigate({ to: "/", replace: true })); }}><LogOut /></Button>
           <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav><div className="mt-4 border-t border-border/70 pt-4"><Button variant={active==="Settings"?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive("Settings")}><Settings/>Settings</Button></div></SheetContent></Sheet>
         </div>
@@ -414,14 +441,16 @@ function DashboardPage() {
     </header>
 
     <main className="mx-auto max-w-[1500px] px-4 pb-32 pt-10 sm:px-7 sm:pt-14">
-      {active === "Dashboard" && <OverviewSection
+      {active === "Dashboard" && <OverviewSection lots={lots.data ?? []} firstName={(myLot?.owner_name || String(session?.user?.user_metadata?.["display_name"] ?? "")).trim().split(/\s+/)[0] || undefined}
         scheme={schemeWithAgm} levies={levies.data ?? []} funds={budgetFunds.data ?? []} transactions={activeTransactions}
         balances={recordedBalances} budgets={budgets.data ?? []} meetings={agmMeetings.data ?? []} policies={policies.data ?? []} userId={userId}
         tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
         widgets={dashboardWidgets.data ?? []} widgetsLoading={dashboardWidgets.isLoading} isCommittee={isCommittee} schemeId={schemeId}
         onChanged={()=>refresh(["dashboard-widgets","notices","notice-comments"])} goTo={goTo}/>}
 
-      {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["lots","levies","my-lot"])}/>}
+      {active === "Lots" && <LotsSection lots={lots.data ?? []} isCommittee={isCommittee} schemeId={schemeId} myLot={myLot} buildingName={scheme.data?.name}
+        budget={(budgets.data ?? []).find(b => budgetStartYear(b.financial_year) === currentFinancialYearStart())}
+        onChanged={()=>refresh(["lots","levies","my-lot"])}/>}
 
       {active === "Work orders" && <WorkOrdersSection orders={repairs.data ?? []} lots={lots.data ?? []} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
         documents={documents.data ?? []} funds={budgetFunds.data ?? []} contractors={contractors.data ?? []} claims={claims.data ?? []}
@@ -437,7 +466,9 @@ function DashboardPage() {
           levies: levies.data ?? [], funds: budgetFunds.data ?? [], fundBalances: recordedBalances, goTo }}
         onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets","agm-meetings","agm-suggestions","agm-attachments","notices"])}/>}
 
-      {active === "Finance" && <FinanceSection view={financeView} onViewChange={setFinanceView} transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
+      {active === "Finance" && !isCommittee && <OwnerFinance schemeId={schemeId} levies={levies.data ?? []} myLotId={myLot?.id ?? null}
+        budgets={budgets.data ?? []} lineItems={budgetLineItems.data ?? []}/>}
+      {active === "Finance" && isCommittee && <FinanceSection view={financeView} onViewChange={setFinanceView} transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
         canManagePaid={canManagePaid.data ?? false} treasurerName={treasurerName}
@@ -450,7 +481,7 @@ function DashboardPage() {
         claims={claims.data ?? []} lots={lots.data ?? []} orders={repairs.data ?? []} funds={budgetFunds.data ?? []}
         onClaimsChanged={()=>refresh(["insurance-claims","documents","document-folders","finance"])}/>}
       {active === "Calendar" && <CalendarSection scheme={schemeWithAgm} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []} levies={levies.data ?? []}
-        orders={repairs.data ?? []} goTo={goTo}/>}
+        orders={repairs.data ?? []} goTo={goTo} canEdit={isCommittee}/>}
       {active === "Documents" && <DocumentsSection documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["documents"])}/>}
 
       {active === "Settings" && <SettingsSection scheme={schemeWithAgm} lots={lots.data ?? []}
@@ -487,8 +518,10 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 
 
 
-function LotDialog({ open, onOpenChange, schemeId, lot, onSaved }: {
+function LotDialog({ open, onOpenChange, schemeId, lot, onSaved, budget, lotCount }: {
   open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; lot: Lot | null; onSaved: () => void;
+  /** This year's locked budget, if any: a lot added after it gets offered its levy. */
+  budget?: FinanceBudget | undefined; lotCount: number;
 }) {
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -503,18 +536,30 @@ function LotDialog({ open, onOpenChange, schemeId, lot, onSaved }: {
       street_address: String(form.get("street_address") ?? ""),
       occupied_status: String(form.get("occupied_status") ?? "Owner occupied"),
     };
-    const { error } = lot
-      ? await supabase.from("lots").update(base).eq("id", lot.id)
-      : await supabase.from("lots").insert({ ...base, scheme_id: schemeId });
+    const { data: saved, error } = lot
+      ? await supabase.from("lots").update(base).eq("id", lot.id).select("id").single()
+      : await supabase.from("lots").insert({ ...base, scheme_id: schemeId }).select("id").single();
     if (error) { toast(lot ? "Could not update the lot" : "Could not add the lot", { description: error.message }); return; }
-    onOpenChange(false); onSaved(); toast(lot ? "Lot updated" : "Lot added");
+    onOpenChange(false); onSaved();
+    if (lot || !budget || !saved) { toast(lot ? "Lot updated" : "Lot added"); return; }
+    // The year's levies were issued before this lot existed, so offer its share now.
+    const amount = shareAmount(budget.allocation_method ?? "Entitlement", base.entitlement_percent, lotCount + 1, Number(budget.total_amount));
+    toast("Lot added", {
+      description: `This year's levies went out before Lot ${base.lot_number} existed. Its share is ${money(amount)}.`,
+      duration: 15000,
+      action: { label: "Issue its levy", onClick: () => {
+        void supabase.from("levies").insert({ lot_id: saved.id, budget_id: budget.id, amount, due_date: budget.levy_due_date, status: "Pending" })
+          .then(({ error: e }) => { if (e) toast("Could not issue the levy", { description: e.message }); else { onSaved(); toast(`Levy of ${money(amount)} issued to Lot ${base.lot_number}`); } });
+      } },
+    });
   };
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">{lot ? `Edit lot ${lot.lot_number}` : "Add a lot"}</DialogTitle><DialogDescription>{lot ? "Update the lot number and who owns it." : "Add the lot number and who owns it."}</DialogDescription></DialogHeader>
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input id="lot_number" name="lot_number" type="number" min="1" defaultValue={lot?.lot_number ?? ""} required/></div>
-        <div className="space-y-2"><Label htmlFor="entitlement_percent">Ownership allotment (%)</Label><Input id="entitlement_percent" name="entitlement_percent" type="number" min="0" step="0.001" placeholder="e.g. 12.5" defaultValue={lot?.entitlement_percent ?? ""}/></div>
+        <div className="space-y-2"><Label htmlFor="entitlement_percent">Lot entitlement (%)</Label><Input id="entitlement_percent" name="entitlement_percent" type="number" min="0" step="0.001" placeholder="e.g. 12.5" defaultValue={lot?.entitlement_percent ?? ""}/>
+          <p className="text-[12px] text-muted-foreground">From your plan of subdivision. It sets this lot's share of levies and its weight in votes. All lots should add up to 100%.</p></div>
         <div className="space-y-2"><Label htmlFor="owner_name">Owner name</Label><Input id="owner_name" name="owner_name" defaultValue={lot?.owner_name ?? ""}/></div>
         <div className="space-y-2"><Label htmlFor="owner_email">Owner email</Label><Input id="owner_email" name="owner_email" type="email" defaultValue={lot?.owner_email ?? ""}/></div>
         <div className="space-y-2"><Label htmlFor="owner_phone">Owner phone</Label><Input id="owner_phone" name="owner_phone" type="tel" placeholder="04xx xxx xxx" defaultValue={lot?.owner_phone ?? ""}/></div>
@@ -551,23 +596,63 @@ function DeleteLotButton({ lot, onDeleted }: { lot: Lot; onDeleted: () => void }
         aria-label={`Remove lot ${lot.lot_number}`} onClick={()=>{ void handleClick(); }}><Trash2 className="h-4 w-4"/></Button>;
 }
 
-function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void }) {
+function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, buildingName }: {
+  lots: Lot[]; isCommittee: boolean; schemeId?: string | undefined; onChanged: () => void;
+  budget?: FinanceBudget | undefined; myLot: Lot | null; buildingName?: string | undefined;
+}) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Lot | null>(null);
   const [viewing, setViewing] = useState<Lot | null>(null);
+  const [inviting, setInviting] = useState<Lot | null>(null);
+  // Owners see only their own lot, plus how to reach the committee.
+  const contacts = useQuery({
+    queryKey: ["committee-contacts", schemeId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("committee_contacts", { _scheme: schemeId! });
+      if (error) throw error;
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!schemeId && !isCommittee,
+  });
+  const total = lots.reduce((sum, l) => sum + Number(l.entitlement_percent || 0), 0);
+  const totalOk = Math.abs(total - 100) < 0.01;
+  const visible = isCommittee ? lots : lots.filter(l => l.id === myLot?.id);
+
   return <div>
-    <PageHead eyebrow="Your property" title="Lots" blurb="Who owns what and who lives there. Open a lot to see that owner's details."
+    <PageHead eyebrow="Your property" title={isCommittee ? "Lots" : "Your lot"}
+      blurb={isCommittee ? "Who owns what and who lives there. Invite each owner so they can see their levies and the building's notices." : "Your lot's details on file, and how to reach your committee."}
       action={isCommittee ? <Button className="rounded-full" onClick={()=>{ setEditing(null); setOpen(true); }}><Plus/> Add a lot</Button> : undefined}/>
-    <Card className="mt-10 overflow-hidden">
-      <div className="divide-y divide-border/70">{lots.map(lot =>
-        <button type="button" key={lot.id} onClick={()=>setViewing(lot)}
-          className="flex w-full flex-wrap items-center justify-between gap-4 px-7 py-5 text-left transition-colors hover:bg-muted/40">
-          <div><p className="text-sm font-medium">Lot {lot.lot_number}{lot.owner_name ? ` · ${lot.owner_name}` : ""}</p><p className="mt-1 text-[12px] text-muted-foreground">{lot.owner_email ?? "No email on file"}</p></div>
-          <div className="flex items-center gap-4 text-[12px] text-muted-foreground"><span>{lot.entitlement_percent}% entitlement</span><span>{lot.occupied_status}</span><span className="text-foreground">View details</span></div>
-        </button>)}
-        {lots.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">No lots visible to you yet.</p>}
+    {isCommittee && lots.length > 0 && <p role="status" className={`mt-6 rounded-2xl px-4 py-3 text-[13px] ${totalOk ? "bg-secondary/50 text-muted-foreground" : "bg-amber-500/10 text-amber-800 dark:text-amber-300"}`}>
+      {totalOk ? "Lot entitlements add up to 100%." : `Lot entitlements add up to ${Number(total.toFixed(3))}%. They should total 100% so levies and votes are shared correctly. Check them against your plan of subdivision.`}
+    </p>}
+    <Card className="mt-6 overflow-hidden">
+      <div className="divide-y divide-border/70">{visible.map(lot =>
+        <div key={lot.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-muted/40 sm:px-7">
+          <button type="button" onClick={()=>setViewing(lot)} className="min-w-0 flex-1 text-left">
+            <p className="text-sm font-medium">Lot {lot.lot_number}{lot.owner_name ? ` · ${lot.owner_name}` : ""}</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">{lot.entitlement_percent}% entitlement · {lot.occupied_status}{lot.owner_email ? ` · ${lot.owner_email}` : " · No email on file"}</p>
+          </button>
+          <div className="flex items-center gap-2">
+            {isCommittee && (lot.owner_user_id
+              ? <span className="rounded-full bg-emerald-600/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Joined</span>
+              : <><span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">Not joined yet</span>
+                  <Button type="button" size="sm" variant="outline" className="h-8 rounded-full" onClick={() => setInviting(lot)}>Invite</Button></>)}
+            <Button type="button" size="sm" variant="ghost" className="h-8 rounded-full" onClick={()=>setViewing(lot)}>Details</Button>
+          </div>
+        </div>)}
+        {visible.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">{isCommittee ? "No lots yet. Add your first lot to start billing levies." : "Your lot isn't linked to your account yet. Ask your committee to invite you, or to put your email on your lot."}</p>}
       </div>
     </Card>
+    {!isCommittee && <Card className="mt-6 p-5 sm:p-7">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Your committee</p>
+      <ul className="mt-3 divide-y divide-border/70">
+        {(contacts.data ?? []).map((c, i) => <li key={i} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
+          <span><span className="font-medium">{c.name ?? "Committee member"}</span>{c.committee_role ? <span className="text-muted-foreground"> · {c.committee_role}</span> : null}</span>
+          <span className="text-[13px] text-muted-foreground">{[c.email, c.phone].filter(Boolean).join(" · ")}</span>
+        </li>)}
+        {contacts.isSuccess && contacts.data.length === 0 && <li className="py-2.5 text-sm text-muted-foreground">No committee contacts on file yet.</li>}
+      </ul>
+    </Card>}
     <Dialog open={!!viewing} onOpenChange={(o)=>{ if (!o) setViewing(null); }}>
       <DialogContent>
         <DialogHeader>
@@ -577,10 +662,11 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
         <div className="divide-y divide-border/70 text-sm">
           {[["Owner", viewing?.owner_name || "—"],
             ["Entitlement", `${viewing?.entitlement_percent ?? 0}%`],
-            ["Email", viewing?.owner_email || "No email on file"],
-            ["Phone", viewing?.owner_phone || "No phone on file"],
-            ["Address", viewing?.street_address || "No address on file"],
-            ["Occupancy", viewing?.occupied_status || "—"]].map(([label, value]) =>
+            ["Email", viewing?.owner_email || "—"],
+            ["Phone", viewing?.owner_phone || "—"],
+            ["Address", viewing?.street_address || "—"],
+            ["Occupancy", viewing?.occupied_status || "—"],
+            ...(isCommittee ? [["On Loty", viewing?.owner_user_id ? "Joined" : "Not joined yet"]] : [])].map(([label, value]) =>
             <div key={label} className="flex items-center justify-between gap-6 py-3">
               <span className="text-[12px] uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
               <span className="text-right font-medium">{value}</span>
@@ -596,7 +682,8 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
         </div>
       </DialogContent>
     </Dialog>
-    {open && <LotDialog open={open} onOpenChange={setOpen} schemeId={schemeId} lot={editing} onSaved={onChanged} key={editing?.id ?? "new"}/>}
+    {open && <LotDialog open={open} onOpenChange={setOpen} schemeId={schemeId} lot={editing} onSaved={onChanged} budget={budget} lotCount={lots.length} key={editing?.id ?? "new"}/>}
+    <InviteDialog open={!!inviting} onOpenChange={o => { if (!o) setInviting(null); }} schemeId={schemeId} role="Owner" lot={inviting} buildingName={buildingName}/>
   </div>;
 }
 

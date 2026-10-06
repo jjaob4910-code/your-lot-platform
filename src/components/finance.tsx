@@ -843,9 +843,11 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
       <Label>Preview — what each lot will be billed</Label>
       <InvoicePreview lots={lots} method={method} total={totals.total} />
     </div>}
+    {/* Levies go to each lot when the budget is locked in, so there must be lots to bill. */}
+    {lots.length === 0 && <p className="rounded-2xl bg-amber-500/10 px-4 py-3 text-[13px] text-amber-800 dark:text-amber-300">Add your lots first. Levies are issued to each lot when you lock in the budget, so with no lots nobody would be billed.</p>}
     <div className="flex justify-end gap-2 pt-2">
       {onCancel && <Button type="button" variant="ghost" className="rounded-full" onClick={onCancel}>Cancel</Button>}
-      <Button type="submit" className="rounded-full" disabled={submitting}>{submitting ? "Locking in…" : (submitLabel ?? "Lock in budget and issue levies")}</Button>
+      <Button type="submit" className="rounded-full" disabled={submitting || lots.length === 0}>{submitting ? "Locking in…" : (submitLabel ?? "Lock in budget and issue levies")}</Button>
     </div>
   </form>;
 }
@@ -1136,7 +1138,8 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
       {levyMode === "separate" && increase <= 0 && <p className="text-[12px] text-muted-foreground">The budget hasn't gone up, so there's nothing extra to levy.</p>}
     </div>}
     <div className="flex justify-end gap-2 pt-2">
-      <Button type="submit" className="rounded-full" disabled={submitting}>{submitting ? "Saving…" : (isEdit ? "Save changes" : "Lock in budget and issue levies")}</Button>
+      {!isEdit && lots.length === 0 && <p className="mr-auto self-center text-[13px] text-amber-700 dark:text-amber-300">Add your lots first so the levies have someone to go to.</p>}
+      <Button type="submit" className="rounded-full" disabled={submitting || (!isEdit && lots.length === 0)}>{submitting ? "Saving…" : (isEdit ? "Save changes" : "Lock in budget and issue levies")}</Button>
     </div>
   </form>;
 }

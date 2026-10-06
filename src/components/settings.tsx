@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { InviteDialog } from "@/components/invite";
 
 export type SchemeSettings = {
   id: string; scheme_id: string;
@@ -81,7 +82,8 @@ function SchemeDialog({ open, onOpenChange, scheme, onSaved }: {
         <div className="space-y-2"><Label htmlFor="address">Address</Label><Input id="address" name="address" defaultValue={scheme.address} required/></div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="total_lots">Total lots</Label><Input id="total_lots" name="total_lots" type="number" min="1" defaultValue={scheme.total_lots} required/></div>
-          <div className="space-y-2"><Label htmlFor="tier">Tier</Label><Input id="tier" name="tier" defaultValue={scheme.tier ?? ""} placeholder="Tier 3"/></div>
+          <div className="space-y-2"><Label htmlFor="tier">Tier</Label><Input id="tier" name="tier" defaultValue={scheme.tier ?? ""} placeholder="Tier 3"/>
+            <p className="text-[12px] text-muted-foreground">Your owners corporation's tier (1–5) under Victorian law, set by lot count and annual fees. It decides some reporting and audit duties.</p></div>
         </div>
         {/* Once a meeting is scheduled in the AGM tab, that meeting's date is the one used everywhere. */}
         <div className="space-y-2"><Label htmlFor="next_agm_date">Next AGM date</Label>
@@ -107,9 +109,13 @@ function CreateSchemeDialog({ open, onOpenChange, onSaved }: {
       tier: text("tier"),
       next_agm_date: text("next_agm_date"),
     };
-    const { error } = await supabase.from("schemes").insert(payload);
-    if (error) { toast("Could not create your building", { description: error.message }); return; }
+    // Creating a building makes you its committee; the extra details are saved straight after.
+    const { data: id, error } = await supabase.rpc("create_building", { _name: payload.name, _address: payload.address, _total_lots: payload.total_lots });
+    if (error || !id) { toast("Could not create your building", { description: error?.message }); return; }
+    await supabase.from("schemes").update({ tier: payload.tier, next_agm_date: payload.next_agm_date }).eq("id", id);
+    try { localStorage.setItem("loty-building", String(id)); } catch { /* storage unavailable */ }
     onOpenChange(false); onSaved(); toast("Building created");
+    window.location.reload();
   };
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
@@ -171,6 +177,7 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
   scheme: Scheme | null; lots: Lot[]; committeeRoles: CommitteeRole[]; settings: SchemeSettings | null;
   isCommittee: boolean; schemeId?: string | undefined; userId?: string | undefined; notifyFundOverdrawn?: boolean; onChanged: () => void;
 }) {
+  const [invitingCommittee, setInvitingCommittee] = useState(false);
   // Personal, not scheme-wide: each owner or committee member decides for themselves.
   const setMyPreference = async (patch: { notify_fund_overdrawn: boolean }) => {
     if (!userId) return;
@@ -225,7 +232,11 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
 
     <Card className="mt-6 overflow-hidden">
       <SectionHeading title="People & roles" blurb="Owners on record and who holds a committee position."
-        action={isCommittee && lots.length > 0 ? <Button size="sm" className="rounded-full" onClick={()=>setAddingRole(true)}><Plus className="size-3.5"/>Add role</Button> : undefined}/>
+        action={isCommittee ? <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" className="rounded-full" onClick={()=>setInvitingCommittee(true)}>Invite a committee member</Button>
+          {lots.length > 0 && <Button size="sm" className="rounded-full" onClick={()=>setAddingRole(true)}><Plus className="size-3.5"/>Add role</Button>}
+        </div> : undefined}/>
+      <InviteDialog open={invitingCommittee} onOpenChange={setInvitingCommittee} schemeId={schemeId} role="Committee" buildingName={scheme?.name}/>
       <div className="divide-y divide-border/70">{lots.map(lot =>
         <div key={lot.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-4">
           <div><p className="text-sm font-medium">Lot {lot.lot_number}{lot.owner_name ? ` · ${lot.owner_name}` : ""}</p><p className="mt-1 text-[12px] text-muted-foreground">{lot.owner_email ?? "No email on file"}{lot.owner_phone ? ` · ${lot.owner_phone}` : ""}</p></div>
