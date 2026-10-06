@@ -48,7 +48,7 @@ export const Route = createFileRoute("/dashboard")({
   component: DashboardPage,
 });
 
-type Membership = { scheme_id: string; role: "Committee" | "Owner" | "Manager"; lot_id: string | null; schemes: { id: string; name: string; address: string } | null };
+type Membership = { scheme_id: string; role: "Committee" | "Owner" | "Manager" | "Loty"; lot_id: string | null; schemes: { id: string; name: string; address: string } | null };
 const BUILDING_KEY = "loty-building";
 function pickMembership(list: Membership[]): Membership | undefined {
   let saved: string | null = null;
@@ -107,7 +107,17 @@ function DashboardPage() {
     queryKey: ["memberships", userId],
     queryFn: async () => {
       const { data, error } = await supabase.from("scheme_members").select("scheme_id, role, lot_id, schemes(*)").eq("user_id", userId!);
-      if (!error) return (data ?? []) as unknown as Membership[];
+      if (!error) {
+        const own = (data ?? []) as unknown as Membership[];
+        // Loty staff also open every building Loty manages, as its manager.
+        const staff = await supabase.rpc("is_loty_staff");
+        if (staff.error || !staff.data) return own;
+        const managed = await supabase.from("schemes").select("*").eq("managed_by_loty", true).order("name");
+        const extra = ((managed.data ?? []) as unknown as NonNullable<Membership["schemes"]>[])
+          .filter(sc => !own.some(m => m.scheme_id === sc.id))
+          .map(sc => ({ scheme_id: sc.id, role: "Loty" as const, lot_id: null, schemes: sc }));
+        return [...own, ...extra];
+      }
       // Until the membership update has been applied to the database, fall back to the
       // single building and the old app-wide role.
       if (!/scheme_members|does not exist|schema cache/i.test(error.message)) throw error;
@@ -399,7 +409,7 @@ function DashboardPage() {
   });
 
   // A manager can do everything the committee can.
-  const isManager = membership?.role === "Manager";
+  const isManager = membership?.role === "Manager" || membership?.role === "Loty";
   const isCommittee = membership?.role === "Committee" || isManager;
   const myLot = myLotQuery.data ?? null;
   // The next AGM comes from the AGM tab's meetings, falling back to the date in Settings.
@@ -412,11 +422,14 @@ function DashboardPage() {
   // Someone who doesn't belong to any building yet sets one up (or follows an invite link).
   useEffect(() => {
     if (!authChecked || !userId || memberships.isLoading || memberships.isError) return;
-    if ((memberships.data ?? []).length === 0) navigate({ to: "/onboarding", replace: true });
+    if ((memberships.data ?? []).length === 0) {
+      // Loty staff with nothing managed yet go to the Loty dashboard, not building setup.
+      void supabase.rpc("is_loty_staff").then(({ data }) => navigate({ to: data === true ? "/portfolio" : "/onboarding", replace: true }));
+    }
   }, [authChecked, userId, memberships.isLoading, memberships.isError, memberships.data, navigate]);
 
   // Managers and people in several buildings start on "My buildings", once per session.
-  const multi = (memberships.data ?? []).length > 1 || (memberships.data ?? []).some(m => m.role === "Manager");
+  const multi = (memberships.data ?? []).length > 1 || (memberships.data ?? []).some(m => m.role === "Manager" || m.role === "Loty");
   useEffect(() => {
     if (!multi) return;
     let seen = true;
@@ -455,7 +468,7 @@ function DashboardPage() {
         <Link to="/" className="mr-2 flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0,1,2,3].map(i=><span key={i} className="rounded-[2px] bg-primary"/>)}</span><span className="hidden sm:inline">Loty</span></Link>
         <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Dashboard sections">{sections.map(([label])=><Button key={label} size="sm" variant={active===label?"default":"ghost"} className="rounded-full px-3.5 text-xs font-medium transition-all duration-300" onClick={()=>setActive(label)}>{label}</Button>)}</nav>
         <div className="ml-auto flex items-center gap-1">
-          {multi && <Button asChild size="sm" variant="ghost" className="hidden rounded-full sm:inline-flex"><Link to="/portfolio">All buildings</Link></Button>}
+          {multi && <Button asChild size="sm" variant="ghost" className="hidden rounded-full sm:inline-flex"><Link to="/portfolio">{(memberships.data ?? []).some(m => m.role === "Loty") ? "Loty dashboard" : "All buildings"}</Link></Button>}
           {(memberships.data?.length ?? 0) > 1 && <select aria-label="Building" value={schemeId ?? ""} className="mr-1 max-w-[160px] truncate rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs"
             onChange={e => { try { localStorage.setItem(BUILDING_KEY, e.target.value); } catch { /* storage unavailable */ } window.location.reload(); }}>
             {(memberships.data ?? []).map(m => <option key={m.scheme_id} value={m.scheme_id}>{m.schemes?.name ?? "Building"}</option>)}

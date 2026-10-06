@@ -11,8 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { InviteDialog } from "@/components/invite";
-import { useQueryClient } from "@tanstack/react-query";
-import { useBuildingContacts, type Contact } from "./who-runs";
+import { useBuildingContacts } from "./who-runs";
 import { paymentDetails } from "@/lib/payment";
 
 export type SchemeSettings = {
@@ -23,7 +22,7 @@ export type SchemeSettings = {
 };
 export type CommitteeRole = { id: string; lot_id: string; role: string };
 
-type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null; next_agm_meeting_id?: string | null };
+type Scheme = { id: string; name: string; address: string; total_lots: number; tier: string | null; next_agm_date: string | null; next_agm_meeting_id?: string | null; managed_by_loty?: boolean };
 type Lot = { id: string; lot_number: number; owner_name: string | null; owner_email: string | null; owner_phone: string | null; entitlement_percent: number };
 
 const ROLE_OPTIONS = ["Chairperson", "Secretary", "Treasurer", "Member"];
@@ -215,56 +214,19 @@ function PaymentDetailsCard({ settings, onSave }: { settings: SchemeSettings | n
   </Card>;
 }
 
-// The building manager: someone the committee appoints to run things day to day. They get the
-// committee's access, need not own a lot, and owners see their contact details.
-function ManagerCard({ schemeId, buildingName }: { schemeId?: string | undefined; buildingName?: string | undefined }) {
+// Who manages the building. Loty switches this on for buildings it manages; committees can't.
+function ManagementCard({ schemeId, managed }: { schemeId?: string | undefined; managed: boolean }) {
   const contacts = useBuildingContacts(schemeId);
-  const queryClient = useQueryClient();
-  const managers = (contacts.data ?? []).filter(c => c.committee_role === "Manager");
-  const [inviting, setInviting] = useState(false);
-  const [editing, setEditing] = useState<Contact | null>(null);
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["committee-contacts", schemeId] });
-  const save = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!editing?.member_id) return;
-    const f = new FormData(e.currentTarget);
-    const { error } = await supabase.from("scheme_members").update({ company: String(f.get("company") || "").trim() || null, phone: String(f.get("phone") || "").trim() || null }).eq("id", editing.member_id);
-    if (error) { toast("Could not save", { description: error.message }); return; }
-    setEditing(null); refresh(); toast("Manager details saved");
-  };
-  const remove = async (c: Contact) => {
-    if (!c.member_id || !window.confirm(`Remove ${c.name ?? "this manager"} as building manager? They'll lose access to this building.`)) return;
-    const { error } = await supabase.from("scheme_members").delete().eq("id", c.member_id);
-    if (error) { toast("Could not remove", { description: error.message }); return; }
-    refresh(); toast("Manager removed");
-  };
-  return <Card className="mt-6 overflow-hidden">
-    <SectionHeading title="Building manager" blurb="Optional. Someone the committee appoints to run the building day to day, like a professional owners corporation manager. They can do everything the committee can, and owners see how to contact them."
-      action={<Button size="sm" variant="outline" className="rounded-full" onClick={() => setInviting(true)}>Invite a manager</Button>}/>
-    <div className="divide-y divide-border/70 border-t border-border/70">
-      {managers.map(c => <div key={c.member_id} className="flex flex-wrap items-center justify-between gap-3 px-7 py-4">
-        <div><p className="text-sm font-medium">{c.name ?? "Manager"}{c.company ? <span className="font-normal text-muted-foreground"> · {c.company}</span> : null}</p>
-          <p className="mt-1 text-[12px] text-muted-foreground">{[c.email, c.phone].filter(Boolean).join(" · ") || "No contact details yet"}</p></div>
-        <div className="flex gap-1">
-          <Button variant="ghost" size="icon" className="rounded-full" aria-label={`Edit ${c.name ?? "manager"}`} onClick={() => setEditing(c)}><Pencil className="size-4"/></Button>
-          <Button variant="ghost" size="icon" className="rounded-full text-muted-foreground hover:text-destructive" aria-label={`Remove ${c.name ?? "manager"}`} onClick={() => void remove(c)}><Trash2 className="size-4"/></Button>
-        </div>
-      </div>)}
-      {contacts.isSuccess && managers.length === 0 && <p className="px-7 py-6 text-[13px] text-muted-foreground">No manager. The committee runs the building itself, led by the Chairperson.</p>}
-    </div>
-    <InviteDialog open={inviting} onOpenChange={setInviting} schemeId={schemeId} role="Manager" buildingName={buildingName}/>
-    <Dialog open={!!editing} onOpenChange={o => { if (!o) setEditing(null); }}>
-      <DialogContent>
-        <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Manager details</DialogTitle>
-          <DialogDescription>Shown to every owner under “Who runs this building”.</DialogDescription></DialogHeader>
-        <form onSubmit={e => void save(e)} className="space-y-4">
-          <div className="space-y-2"><Label htmlFor="mgr_company">Company</Label><Input id="mgr_company" name="company" defaultValue={editing?.company ?? ""} placeholder="Acme Strata Management"/></div>
-          <div className="space-y-2"><Label htmlFor="mgr_phone">Phone</Label><Input id="mgr_phone" name="phone" defaultValue={editing?.phone ?? ""} placeholder="03 9000 0000"/></div>
-          <div className="flex justify-end gap-2"><Button type="button" variant="ghost" className="rounded-full" onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" className="rounded-full">Save</Button></div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  </Card>;
+  const loty = (contacts.data ?? []).find(c => c.name === "Loty" && c.committee_role === "Manager");
+  return <div data-management><Card className="mt-6 overflow-hidden">
+    <SectionHeading title="Building management" blurb={managed
+      ? "Loty manages this building for the committee: levies, repairs, insurance, meetings and records. Owners see Loty as their building manager."
+      : "Your committee runs this building itself, led by the Chairperson. Loty can manage it for you; get in touch if you'd like that."}/>
+    {managed && <div className="border-t border-border/70 px-7 py-4 text-[13px]">
+      <p className="font-medium">Managed by Loty</p>
+      <p className="mt-1 text-muted-foreground">{[loty?.email, loty?.phone].filter(Boolean).join(" · ") || "Contact details coming soon"}</p>
+    </div>}
+  </Card></div>;
 }
 
 export function SettingsSection({ scheme, lots, committeeRoles, settings, isCommittee, schemeId, userId, notifyFundOverdrawn = true, onChanged }: {
@@ -328,7 +290,7 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
     </Card>
 
     {isCommittee && scheme && <PaymentDetailsCard settings={settings} onSave={setPreference}/>}
-    {isCommittee && scheme && <ManagerCard schemeId={schemeId} buildingName={scheme.name}/>}
+    {isCommittee && scheme && <ManagementCard schemeId={schemeId} managed={!!scheme.managed_by_loty}/>}
 
     {isCommittee && <>
     <Card className="mt-6 overflow-hidden">
