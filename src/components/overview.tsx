@@ -299,7 +299,7 @@ function yearGlance({ budgets, levies, meetings, policies, scheme }: { budgets: 
 type SetupLot = { id: string; entitlement_percent: number; owner_user_id: string | null };
 
 // A short checklist for a new committee. It ticks itself off from what's been recorded and
-// disappears once everything is done (or when dismissed on this device).
+// disappears once everything is done. Hiding it folds it to a small button that brings it back.
 function GettingStarted({ lots, policies, budgets, scheme, goTo, hasPayment }: { lots: SetupLot[]; policies: OvPolicy[]; budgets: OvBudget[]; scheme: OvScheme | null; goTo: (s: string) => void; hasPayment: boolean }) {
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("loty-setup-dismissed") === "1"; } catch { return false; } });
   const fy = currentFinancialYearStart();
@@ -314,13 +314,18 @@ function GettingStarted({ lots, policies, budgets, scheme, goTo, hasPayment }: {
     { label: "Schedule the AGM", done: !!scheme?.next_agm_date, tab: "AGM" },
   ];
   const doneCount = steps.filter(x => x.done).length;
-  if (hidden || doneCount === steps.length) return null;
+  if (doneCount === steps.length) return null;
+  const setHide = (v: boolean) => { try { localStorage.setItem("loty-setup-dismissed", v ? "1" : "0"); } catch { /* storage unavailable */ } setHidden(v); };
+  if (hidden) return <button type="button" onClick={() => setHide(false)} data-setup-collapsed
+    className="mt-6 inline-flex items-center gap-2 rounded-full border border-primary/25 bg-card px-4 py-2 text-[13px] font-medium text-primary hover:bg-secondary/50">
+    Getting started · {doneCount} of {steps.length} <span className="text-muted-foreground">Show checklist</span>
+  </button>;
   const next = steps.find(x => !x.done);
   return <section className="soft-shadow mt-6 rounded-3xl border border-primary/25 bg-card p-5 sm:p-6" aria-label="Getting started">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Getting started · {doneCount} of {steps.length}</p>
         <p className="mt-1 text-[15px] font-medium">{next ? `Next: ${next.label.toLowerCase()}` : ""}</p></div>
-      <button type="button" className="text-[12px] text-muted-foreground underline-offset-4 hover:underline" onClick={() => { try { localStorage.setItem("loty-setup-dismissed", "1"); } catch { /* storage unavailable */ } setHidden(true); }}>Hide this</button>
+      <button type="button" className="text-[12px] text-muted-foreground underline-offset-4 hover:underline" onClick={() => setHide(true)}>Hide this</button>
     </div>
     <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }}/></div>
     <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -420,7 +425,6 @@ export function OverviewSection({ firstName, lots = [], hasPayment = false, sche
   const [addOpen, setAddOpen] = useState(false);
   const [customising, setCustomising] = useState(false);
   const [local, setLocal] = useState<Slot[] | null>(null);
-  const snapshot = useRef<Slot[] | null>(null);
   const seeded = useRef(false);
   const [seedFailed, setSeedFailed] = useState(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -542,25 +546,14 @@ export function OverviewSection({ firstName, lots = [], hasPayment = false, sche
     apply(arrayMove(slots, from, to), "Moved");
   };
 
-  const startCustomising = () => { snapshot.current = slots; setCustomising(true); };
-  const done = () => { snapshot.current = null; setCustomising(false); };
-  const cancel = async () => {
-    const snap = snapshot.current; setCustomising(false); snapshot.current = null;
-    if (!snap) return;
-    const now = new Set(slots.map(s => s.id));
-    const was = new Set(snap.map(s => s.id));
-    setLocal(snap.filter(s => now.has(s.id)));
-    await Promise.all([
-      ...slots.filter(s => !was.has(s.id)).map(s => supabase.from("dashboard_widgets").delete().eq("id", s.id)),
-      ...snap.map((s, i) => now.has(s.id) ? supabase.from("dashboard_widgets").update({ sort_order: i, size: s.size }).eq("id", s.id) : reinsert(s, i)),
-    ]);
-    onChanged();
-  };
+  // Every change saves as it's made (with Undo on each), so Done just closes editing.
+  const startCustomising = () => setCustomising(true);
+  const done = () => setCustomising(false);
   const resetToDefault = async () => {
     if (!personalUser) return;
     const { error } = await supabase.from("dashboard_widgets").delete().eq("user_id", personalUser);
     if (error) { toast("Could not reset", { description: error.message }); return; }
-    seeded.current = false; snapshot.current = null; setCustomising(false); setLocal(null); onChanged();
+    seeded.current = false; setCustomising(false); setLocal(null); onChanged();
     toast("Your dashboard is back to the default layout");
   };
 
@@ -618,7 +611,6 @@ export function OverviewSection({ firstName, lots = [], hasPayment = false, sche
         ? <Button variant="outline" size="sm" className="rounded-full" onClick={startCustomising}><Settings2 className="size-3.5" />Customise</Button>
         : <>
           <Button size="sm" className="rounded-full" onClick={done}>Done</Button>
-          <Button variant="ghost" size="sm" className="rounded-full" onClick={() => void cancel()}>Cancel</Button>
           <Dialog open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild><Button variant="outline" size="sm" className="rounded-full"><Plus className="size-3.5" />Add a widget</Button></DialogTrigger>
             <DialogContent>
@@ -635,7 +627,7 @@ export function OverviewSection({ firstName, lots = [], hasPayment = false, sche
             </DialogContent>
           </Dialog>
           {personalUser && <Button variant="ghost" size="sm" className="rounded-full text-muted-foreground" onClick={() => void resetToDefault()}><RotateCcw className="size-3.5" />Reset to default</Button>}
-          <p className="w-full text-[11px] text-muted-foreground sm:w-auto">Drag <GripVertical className="inline size-3" /> to move{" "}<span className="hidden lg:inline">· drag a corner to resize</span><span className="lg:hidden">· hold, then drag on a phone</span></p>
+          <p className="w-full text-[11px] text-muted-foreground sm:w-auto">Drag <GripVertical className="inline size-3" /> to move{" "}<span className="hidden lg:inline">· drag a corner to resize</span><span className="lg:hidden">· hold, then drag on a phone</span> · Changes save automatically</p>
         </>}
     </div>}
 

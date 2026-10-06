@@ -1832,6 +1832,12 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_messages: {
+        Row: { author_label: string | null; author_name: string; body: string; created_at: string; deleted_at: string | null; edited_at: string | null; id: string; scheme_id: string; user_id: string }
+        Insert: { author_label?: string | null; author_name: string; body: string; created_at?: string; deleted_at?: string | null; edited_at?: string | null; id?: string; scheme_id: string; user_id?: string }
+        Update: { author_label?: string | null; author_name?: string; body?: string; created_at?: string; deleted_at?: string | null; edited_at?: string | null; id?: string; scheme_id?: string; user_id?: string }
+        Relationships: []
+      }
       loty_staff: {
         Row: { created_at: string; user_id: string }
         Insert: { created_at?: string; user_id: string }
