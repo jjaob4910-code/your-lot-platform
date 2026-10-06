@@ -1,3 +1,4 @@
+import { WelcomeTour } from "@/components/welcome-tour";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -424,6 +425,10 @@ function DashboardPage() {
 
   return <div className="relative isolate min-h-screen bg-background">
     <Toaster />
+    <WelcomeTour userId={userId} schemeId={schemeId} isCommittee={isCommittee} goTo={goTo}
+      ready={!!scheme.data && !memberships.isLoading && !myLotQuery.isLoading}
+      building={scheme.data?.name ?? "your building"} lot={myLot ? `Lot ${myLot.lot_number}` : null}
+      hasPayment={!!paymentDetails(schemeSettings.data, 1)}/>
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-[68px] max-w-[1500px] items-center gap-4 px-4 sm:px-7">
         <Link to="/" className="mr-2 flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0,1,2,3].map(i=><span key={i} className="rounded-[2px] bg-primary"/>)}</span><span className="hidden sm:inline">Loty</span></Link>

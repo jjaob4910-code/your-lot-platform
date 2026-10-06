@@ -1,3 +1,4 @@
+import { startTour } from "./welcome-tour";
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Compass, Pencil, Plus, Trash2 } from "lucide-react";
@@ -249,9 +250,12 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
 
     <Card className="mt-10 overflow-hidden">
       <SectionHeading title={isCommittee ? "Building details" : "Your building"} blurb={isCommittee ? "The basics your owners and levies are built around." : "Run by your owners corporation committee."}
-        action={isCommittee && scheme ? <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="rounded-full" onClick={()=>navigate({ to: "/onboarding" })}><Compass className="size-3.5"/>Run setup guide</Button>
-          <Button variant="outline" size="sm" className="rounded-full" onClick={()=>setEditingScheme(true)}><Pencil className="size-3.5"/>Edit</Button>
+        action={scheme ? <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="rounded-full" onClick={startTour}>Take the tour</Button>
+          {isCommittee && <>
+            <Button variant="ghost" size="sm" className="rounded-full" onClick={()=>navigate({ to: "/onboarding" })}><Compass className="size-3.5"/>Run setup guide</Button>
+            <Button variant="outline" size="sm" className="rounded-full" onClick={()=>setEditingScheme(true)}><Pencil className="size-3.5"/>Edit</Button>
+          </>}
         </div> : undefined}/>
       {scheme
         ? <div className="grid gap-5 p-7 sm:grid-cols-2 lg:grid-cols-4">
