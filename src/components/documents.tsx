@@ -229,7 +229,7 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
   const dropRing = (key: string) => (dropTarget === key ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "");
 
   return <div>
-    <PageHead eyebrow="Your property" title="Documents" blurb="Minutes, certificates, invoices and plans, filed in folders you name yourself, ready to share with owners or download any time."
+    <PageHead eyebrow="Your property" title="Documents" blurb={isCommittee ? "Minutes, certificates, invoices and plans, filed in folders you name yourself, ready to share with owners or download any time." : "Minutes, certificates and plans your committee has shared with owners."}
       action={isCommittee ? <div className="flex flex-wrap gap-2">
         <Button variant="outline" className="rounded-full" onClick={() => setFolderDialog({ open: true, editing: null })}><FolderPlus/> New folder</Button>
         <Button asChild className="rounded-full">
@@ -316,7 +316,7 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
             </p>
           </button>
           <div className="flex items-center gap-2">
-            {doc.shared_with_owners && <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">Shared with owners</span>}
+            {isCommittee && doc.shared_with_owners && <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">Shared with owners</span>}
             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => { void download(doc); }} aria-label={`Download ${doc.name}`}><Download className="h-4 w-4"/></Button>
             {isCommittee && <DropdownMenu>
               <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 rounded-full"><MoreHorizontal className="h-4 w-4"/></Button></DropdownMenuTrigger>

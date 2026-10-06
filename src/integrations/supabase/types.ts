@@ -1732,6 +1732,11 @@ export type Database = {
           notify_levy_due: boolean
           notify_new_document: boolean
           notify_new_work_order: boolean
+          pay_account_name: string | null
+          pay_account_number: string | null
+          pay_bsb: string | null
+          pay_other: string | null
+          pay_reference: string
           scheme_id: string
           updated_at: string
         }
@@ -1743,6 +1748,11 @@ export type Database = {
           notify_levy_due?: boolean
           notify_new_document?: boolean
           notify_new_work_order?: boolean
+          pay_account_name?: string | null
+          pay_account_number?: string | null
+          pay_bsb?: string | null
+          pay_other?: string | null
+          pay_reference?: string
           scheme_id: string
           updated_at?: string
         }
@@ -1754,6 +1764,11 @@ export type Database = {
           notify_levy_due?: boolean
           notify_new_document?: boolean
           notify_new_work_order?: boolean
+          pay_account_name?: string | null
+          pay_account_number?: string | null
+          pay_bsb?: string | null
+          pay_other?: string | null
+          pay_reference?: string
           scheme_id?: string
           updated_at?: string
         }

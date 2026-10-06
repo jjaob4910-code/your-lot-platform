@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Help } from "@/components/help";
 import { useQuery } from "@tanstack/react-query";
 import { money, niceDate, daysUntil } from "@/lib/format";
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -97,11 +98,11 @@ function WidgetCard({ title, icon: Icon, tone = "default", action, grip, menu, r
   </div>;
 }
 
-function CashWidgetBody({ funds, balances, goTo }: { funds: BudgetFund[]; balances: Record<string, number>; goTo: (s: string) => void }) {
+function CashWidgetBody({ funds, balances, owner = false }: { funds: BudgetFund[]; balances: Record<string, number>; owner?: boolean }) {
   const total = funds.reduce((s, f) => s + (balances[f.id] ?? 0), 0);
   return <div>
     <p className={`font-display text-4xl font-medium tracking-[-0.03em] ${total < 0 ? "text-destructive" : ""}`}>{money(total)}</p>
-    <p className="mt-1 text-[12px] text-muted-foreground">Across your funds today, as recorded in Finance</p>
+    <p className="mt-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">{owner ? "Held in the building's funds today" : "Across the building's funds today, as recorded in Finance"} <Help term="funds"/></p>
     <div className="mt-5 space-y-2 text-[13px]">
       {funds.map(f => { const b = balances[f.id] ?? 0; return <div key={f.id} className="flex justify-between gap-3 border-t border-border/60 pt-2 first:border-0 first:pt-0">
         <span className="truncate text-muted-foreground">{f.name}</span><span className={`font-medium tabular-nums ${b < 0 ? "text-destructive" : ""}`}>{money(b)}{b < 0 ? " overdrawn" : ""}</span>
@@ -209,7 +210,7 @@ function LeviesWidgetBody({ levies, mine, goTo }: { levies: Levy[]; mine: boolea
     <p className="text-[13px] text-muted-foreground">{mine ? `No levies issued to your lot for ${fyLabel(fy)} yet.` : `No levies issued for ${fyLabel(fy)} yet.`}</p>
   </div>;
   return <div>
-    <p className="text-[12px] text-muted-foreground">{mine ? "Your levies" : "Levies"} for {fyLabel(fy)}</p>
+    <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground">{mine ? "Your levies" : "Levies"} for {fyLabel(fy)} <Help term="levy"/></p>
     <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
       <p className="font-display text-3xl font-medium tracking-[-0.03em]">{money(paid)}</p>
       <p className="text-[13px] text-muted-foreground">paid of {money(issued)}</p>
@@ -298,7 +299,7 @@ type SetupLot = { id: string; entitlement_percent: number; owner_user_id: string
 
 // A short checklist for a new committee. It ticks itself off from what's been recorded and
 // disappears once everything is done (or when dismissed on this device).
-function GettingStarted({ lots, policies, budgets, scheme, goTo }: { lots: SetupLot[]; policies: OvPolicy[]; budgets: OvBudget[]; scheme: OvScheme | null; goTo: (s: string) => void }) {
+function GettingStarted({ lots, policies, budgets, scheme, goTo, hasPayment }: { lots: SetupLot[]; policies: OvPolicy[]; budgets: OvBudget[]; scheme: OvScheme | null; goTo: (s: string) => void; hasPayment: boolean }) {
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("loty-setup-dismissed") === "1"; } catch { return false; } });
   const fy = currentFinancialYearStart();
   const total = lots.reduce((t, l) => t + Number(l.entitlement_percent || 0), 0);
@@ -308,6 +309,7 @@ function GettingStarted({ lots, policies, budgets, scheme, goTo }: { lots: Setup
     { label: "Invite your owners", done: lots.some(l => l.owner_user_id), tab: "Lots" },
     { label: "Add the building insurance policy", done: policies.length > 0, tab: "Insurance" },
     { label: `Set the ${fyLabel(fy)} budget`, done: budgets.some(b => budgetStartYear(b.financial_year) === fy), tab: "Finance/Budget" },
+    { label: "Add how owners pay their levies", done: hasPayment, tab: "Settings" },
     { label: "Schedule the AGM", done: !!scheme?.next_agm_date, tab: "AGM" },
   ];
   const doneCount = steps.filter(x => x.done).length;
@@ -408,8 +410,8 @@ function ResizeHandle({ size, min, gridRef, onPreview, onCommit, onCancel }: {
 
 type Slot = { id: string; type: string; size: WidgetSize; config: Json; row: DashboardWidget };
 
-export function OverviewSection({ firstName, lots = [], scheme, levies, funds, transactions, balances, budgets, meetings, policies, tasks, complianceWidgets, repairs, myLot, notices, noticeComments, widgets, widgetsLoading, isCommittee, schemeId, userId, onChanged, goTo }: {
-  firstName?: string | undefined; lots?: SetupLot[]; scheme: OvScheme | null; levies: Levy[]; funds: BudgetFund[]; transactions: OvTx[]; balances: Record<string, number>; budgets: OvBudget[]; meetings: OvMeeting[]; policies: OvPolicy[];
+export function OverviewSection({ firstName, lots = [], hasPayment = false, scheme, levies, funds, transactions, balances, budgets, meetings, policies, tasks, complianceWidgets, repairs, myLot, notices, noticeComments, widgets, widgetsLoading, isCommittee, schemeId, userId, onChanged, goTo }: {
+  firstName?: string | undefined; lots?: SetupLot[]; hasPayment?: boolean; scheme: OvScheme | null; levies: Levy[]; funds: BudgetFund[]; transactions: OvTx[]; balances: Record<string, number>; budgets: OvBudget[]; meetings: OvMeeting[]; policies: OvPolicy[];
   tasks: Task[]; complianceWidgets: ComplianceWidget[]; repairs: WorkOrder[];
   myLot: OvLot | null; notices: Notice[]; noticeComments: NoticeComment[]; widgets: DashboardWidget[]; widgetsLoading: boolean;
   isCommittee: boolean; schemeId?: string | undefined; userId?: string | undefined; onChanged: () => void; goTo: (s: string) => void;
@@ -590,8 +592,8 @@ export function OverviewSection({ firstName, lots = [], scheme, levies, funds, t
       onCancel={() => setLocal(null)} /> : null;
     const shell = { grip, menu, resize, customising, tone };
     switch (s.type) {
-      case "cash": return <WidgetCard {...shell} title="Current cash" icon={Coins} action={linkBtn("Cashflow", "Finance/Cashflow")}><CashWidgetBody funds={funds} balances={isCommittee ? balances : ownerBalances} goTo={goTo} /></WidgetCard>;
-      case "levies": return <WidgetCard {...shell} title={isCommittee ? "Levies" : "Your levies"} icon={Landmark} action={linkBtn("Levies", "Finance/Levies")}><LeviesWidgetBody levies={myLevies} mine={!isCommittee} goTo={goTo} /></WidgetCard>;
+      case "cash": return <WidgetCard {...shell} title={isCommittee ? "Current cash" : "Building's money"} icon={Coins} action={linkBtn(isCommittee ? "Cashflow" : "Finance", isCommittee ? "Finance/Cashflow" : "Finance")}><CashWidgetBody funds={funds} balances={isCommittee ? balances : ownerBalances} owner={!isCommittee} /></WidgetCard>;
+      case "levies": return <WidgetCard {...shell} title={isCommittee ? "Levies" : "Your levies"} icon={Landmark} action={linkBtn(isCommittee ? "Levies" : "How to pay", "Finance/Levies")}><LeviesWidgetBody levies={myLevies} mine={!isCommittee} goTo={goTo} /></WidgetCard>;
       case "budget": return <WidgetCard {...shell} title="Budget" icon={PiggyBank} action={linkBtn("Budget", "Finance/Budget")}><BudgetWidgetBody budgets={budgets} funds={funds} transactions={transactions} goTo={goTo} spentOverride={isCommittee ? undefined : ownerSpent} /></WidgetCard>;
       case "year_glance": return <WidgetCard {...shell} title={isCommittee ? "Year at a glance" : "Your year"} icon={FileCheck2} action={<span className="font-display text-lg text-primary-foreground">{glance.filter(g => g.done).length}/{glance.length}</span>}><YearGlanceWidgetBody items={glance} goTo={goTo} /></WidgetCard>;
       case "upcoming": return <WidgetCard {...shell} title="Upcoming" icon={CalendarDays} action={linkBtn("Calendar", "Calendar")}><UpcomingWidgetBody scheme={scheme} tasks={tasks} widgets={complianceWidgets} levies={levies} orders={repairs} goTo={goTo} /></WidgetCard>;
@@ -608,7 +610,7 @@ export function OverviewSection({ firstName, lots = [], scheme, levies, funds, t
       <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">{firstName ? `Hi ${firstName}, here's` : "Here's"} what's happening.</h1>
     </div>
 
-    {isCommittee && <GettingStarted lots={lots} policies={policies} budgets={budgets} scheme={scheme} goTo={goTo}/>}
+    {isCommittee && <GettingStarted lots={lots} policies={policies} budgets={budgets} scheme={scheme} goTo={goTo} hasPayment={hasPayment}/>}
 
     {canCustomise && <div className="mt-6 flex flex-wrap items-center gap-2">
       {!customising

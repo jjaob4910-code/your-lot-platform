@@ -1,4 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import { Copy } from "lucide-react";
+import { toast } from "sonner";
+import { Help } from "@/components/help";
+import type { PaymentDetails } from "@/lib/payment";
 import { supabase } from "@/integrations/supabase/client";
 import { daysUntil, money, niceDate } from "@/lib/format";
 import { budgetStartYear, currentFinancialYearStart, type Levy } from "@/lib/fund-balance";
@@ -14,8 +18,10 @@ const fyLabel = (y: number) => `${y}/${String(y + 1).slice(2)}`;
 
 /** An owner's Finance page: what they owe and have paid, and where the building's money goes.
  *  No other lots and no line-by-line ledger. */
-export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems }: {
+export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems, payment }: {
   schemeId?: string | undefined; levies: Levy[]; myLotId: string | null; budgets: Budget[]; lineItems: BudgetLine[];
+  /** How to pay, with this owner's own reference; null until the committee adds it. */
+  payment: PaymentDetails | null;
 }) {
   const summary = useQuery({
     queryKey: ["finance-summary", schemeId],
@@ -43,7 +49,7 @@ export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems }: 
     </div>
 
     <section className="soft-shadow mt-10 rounded-3xl border border-border/70 bg-card p-5 sm:p-7">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Your levies</p>
+      <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Your levies <Help term="levy"/></p>
       <p className="mt-3 font-display text-3xl font-medium tracking-[-0.03em]">{owing.length ? money(owingTotal) : "All paid"}</p>
       <p className="mt-1 text-[13px] text-muted-foreground">{owing.length ? `to pay across ${owing.length} ${owing.length === 1 ? "levy" : "levies"}` : mine.length ? "Nothing owing right now." : "No levies issued to your lot yet."}</p>
       {mine.length > 0 && <ul className="mt-5 divide-y divide-border/60 text-[13px]">
@@ -57,16 +63,29 @@ export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems }: 
             </span>
           </li>; })}
       </ul>}
+      <div id="how-to-pay" className="mt-6 rounded-2xl border border-border/70 bg-secondary/30 p-4">
+        <p className="text-sm font-medium">How to pay</p>
+        {payment
+          ? <dl className="mt-3 grid gap-x-6 gap-y-2 text-[13px] sm:grid-cols-2">
+              {payment.accountName && <PayRow label="Account name" value={payment.accountName}/>}
+              {payment.bsb && <PayRow label="BSB" value={payment.bsb} copy/>}
+              {payment.accountNumber && <PayRow label="Account number" value={payment.accountNumber} copy/>}
+              {payment.bsb && <PayRow label="Your reference" value={payment.reference} copy hint="Use this so the treasurer knows the payment is yours."/>}
+              {payment.other && <div className="sm:col-span-2"><dt className="text-muted-foreground">Other ways to pay</dt><dd>{payment.other}</dd></div>}
+            </dl>
+          : <p className="mt-1 text-[13px] text-muted-foreground">Your committee hasn't added payment details yet. Contact them to arrange payment.</p>}
+        <p className="mt-3 text-[12px] text-muted-foreground">Your payment shows here as paid once the treasurer records it.</p>
+      </div>
     </section>
 
     <section className="soft-shadow mt-6 rounded-3xl border border-border/70 bg-card p-5 sm:p-7">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Building summary · {fyLabel(fy)}</p>
+      <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Building summary · {fyLabel(fy)} <Help term="funds"/></p>
       {summary.isLoading ? <p className="mt-3 text-sm text-muted-foreground">Loading…</p>
         : !s || !budget ? <p className="mt-3 text-sm text-muted-foreground">The committee hasn't set this year's budget yet.</p>
         : <>
           <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <p className="font-display text-3xl font-medium tracking-[-0.03em]">{money(Number(s.budget_total))}</p>
-            <p className="text-[13px] text-muted-foreground">budgeted this year{paidPct !== null ? ` · ${paidPct}% of levies collected` : ""}</p>
+            <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground"><Help term="budget"/>budgeted this year{paidPct !== null ? ` · ${paidPct}% of levies collected` : ""}</p>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {s.funds.map(f => { const pct = Number(f.budget) > 0 ? Math.min(100, Math.round((Number(f.spent) / Number(f.budget)) * 100)) : 0;
@@ -85,5 +104,20 @@ export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems }: 
           </>}
         </>}
     </section>
+  </div>;
+}
+
+function PayRow({ label, value, copy, hint }: { label: string; value: string; copy?: boolean; hint?: string }) {
+  const doCopy = async () => {
+    try { await navigator.clipboard.writeText(value); toast(`${label} copied`); }
+    catch { toast("Select it and copy", { description: "Your browser didn't allow copying." }); }
+  };
+  return <div className="min-w-0">
+    <dt className="text-muted-foreground">{label}</dt>
+    <dd className="flex items-center gap-2 font-medium tabular-nums">
+      <span className="select-all">{value}</span>
+      {copy && <button type="button" onClick={() => void doCopy()} aria-label={`Copy ${label.toLowerCase()}`} className="grid size-6 place-items-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"><Copy className="size-3.5"/></button>}
+    </dd>
+    {hint && <dd className="text-[11px] text-muted-foreground">{hint}</dd>}
   </div>;
 }

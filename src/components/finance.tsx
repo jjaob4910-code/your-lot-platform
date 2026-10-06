@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Help } from "@/components/help";
+import type { GlossaryKey } from "@/lib/glossary";
+import { currentPayment, paymentText } from "@/lib/payment";
 import { money, niceDate, daysUntil } from "@/lib/format";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -184,9 +187,9 @@ function PageHead({ eyebrow, title, blurb, action }: { eyebrow: string; title: s
     {action}
   </div>;
 }
-function Row({ label, value, tone = "" }: { label: string; value: string; tone?: string }) {
+function Row({ label, value, tone = "", help }: { label: string; value: string; tone?: string; help?: GlossaryKey }) {
   return <div className="flex items-baseline justify-between gap-4 border-t border-border/60 py-2 first:border-0 first:pt-0">
-    <span className="text-[12px] text-muted-foreground">{label}</span>
+    <span className="flex items-center gap-1 text-[12px] text-muted-foreground">{label}{help && <Help term={help}/>}</span>
     <span className={`text-[13px] font-medium tabular-nums ${tone}`}>{value}</span>
   </div>;
 }
@@ -238,27 +241,30 @@ export async function ensureDefaultFunds(schemeId: string, existingFundCount: nu
 
 function reminderText(levy: Levy, status: string) {
   const who = levy.lots?.owner_name ?? "there";
+  const pay = paymentText(currentPayment(levy.lots?.lot_number));
+  const howToPay = pay ? `\n\n${pay}` : "";
   const year = `${levy.label ? ` (${levy.label})` : ""}${levy.budgets?.financial_year ? ` for ${levy.budgets.financial_year}` : ""}`;
   return status === "Overdue"
-    ? `Hi ${who},\n\nA quick friendly note: the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} was due on ${niceDate(levy.due_date)} and is still showing as unpaid on our records.\n\nIf you have already paid, please ignore this and let us know so we can update the books. Otherwise, whenever you get a chance is fine.\n\nThanks,\nYour owners corporation committee`
-    : `Hi ${who},\n\nJust a friendly reminder that the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} is due on ${niceDate(levy.due_date)}.\n\nNo action needed if it is already on its way.\n\nThanks,\nYour owners corporation committee`;
+    ? `Hi ${who},\n\nA quick friendly note: the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} was due on ${niceDate(levy.due_date)} and is still showing as unpaid on our records.${howToPay}\n\nIf you have already paid, please ignore this and let us know so we can update the books. Otherwise, whenever you get a chance is fine.\n\nThanks,\nYour owners corporation committee`
+    : `Hi ${who},\n\nJust a friendly reminder that the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} is due on ${niceDate(levy.due_date)}.${howToPay}\n\nNo action needed if it is already on its way.\n\nThanks,\nYour owners corporation committee`;
 }
 
 // A levy is "sent" purely from the Levies tab (never automatically from a budget save):
 // posting an in-app Notice for the owner's lot, plus a mailto for the committee to also
 // send a real email, and snapshotting the amount at send time so a later budget-driven
 // recalculation can be flagged as "amount changed since sent" (see isLevyStale).
+const payBlock = (levy: Levy) => { const t = paymentText(currentPayment(levy.lots?.lot_number)); return t ? `\n\n${t}` : ""; };
 export function levySendText(levy: Levy, funds: BudgetFund[]): { title: string; message: string } {
   const year = levy.budgets?.financial_year ? ` for ${levy.budgets.financial_year}` : "";
   const lot = levy.lots?.lot_number ?? "";
   if (levy.label) return {
     title: `${levy.label}${year} — Lot ${lot}`,
-    message: `${levy.label}${year}: Lot ${lot} owes ${money(Number(levy.amount))}, due ${niceDate(levy.due_date)}. This is separate from your regular levy.`,
+    message: `${levy.label}${year}: Lot ${lot} owes ${money(Number(levy.amount))}, due ${niceDate(levy.due_date)}. This is separate from your regular levy.${payBlock(levy)}`,
   };
   const breakdown = funds.map(f => `${f.name}: ${money(levyShareForFund(levy, f.id))}`).join(" · ");
   return {
     title: `Levy issued${year} — Lot ${lot}`,
-    message: `Your levy${year} for Lot ${lot} is ${money(Number(levy.amount))}, due ${niceDate(levy.due_date)}.${breakdown ? `\n\n${breakdown}` : ""}`,
+    message: `Your levy${year} for Lot ${lot} is ${money(Number(levy.amount))}, due ${niceDate(levy.due_date)}.${breakdown ? `\n\n${breakdown}` : ""}${payBlock(levy)}`,
   };
 }
 export function isLevyStale(levy: Levy): boolean {
@@ -276,7 +282,9 @@ export function levyMailto(levies: Levy[]): string {
   const emails = levies.map(l => l.lots?.owner_email).filter((e): e is string => !!e);
   const year = levies[0]?.budgets?.financial_year ? ` for ${levies[0].budgets.financial_year}` : "";
   const subject = `Levies issued${year}`;
-  const body = `Your levy${year} is now available to view.\n\nCheck your dashboard for your exact amount and due date.\n\nThanks,\nYour owners corporation committee`;
+  const pay = currentPayment(null);
+  const payLines = pay ? `\n\n${paymentText(pay).replace(`Reference: ${pay.reference}`, `Reference: your lot's own reference, e.g. ${pay.reference.replace(/\{lot\}/gi, "7")} for Lot 7`)}` : "";
+  const body = `Your levy${year} is now available to view.\n\nCheck your dashboard for your exact amount and due date.${payLines}\n\nThanks,\nYour owners corporation committee`;
   return emails.length ? `mailto:?bcc=${encodeURIComponent(emails.join(","))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` : "";
 }
 export async function sendLevies(levies: Levy[], funds: BudgetFund[], schemeId: string): Promise<{ failures: string[] }> {
@@ -1223,7 +1231,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
 
   return <div>
     <div className="flex flex-wrap items-end justify-between gap-4">
-      <p className="max-w-2xl text-[13px] leading-6 text-muted-foreground">Who still owes and how close they are to their due date. Setting the budget above is what raises these.</p>
+      <p className="max-w-2xl text-[13px] leading-6 text-muted-foreground">Who still owes and how close they are to their due date. Setting the budget above is what raises these levies <Help term="levy"/>.</p>
     </div>
 
     <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -1330,6 +1338,9 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
             <div className="flex justify-between pt-2"><span className="font-medium">Total payable</span><span className="font-display text-xl">{money(Number(invoice.amount))}</span></div>
           </div>
           <p className="text-[11px] leading-5 text-muted-foreground">{isEqual(invoice) ? "Each fund is divided evenly between every lot." : "Each lot pays its entitlement share of each fund for the year."}</p>
+          {(() => { const pay = currentPayment(invoice.lots?.lot_number); return pay
+            ? <div className="rounded-2xl bg-secondary/40 p-4 text-[13px]"><p className="font-medium">Pay to</p><pre className="mt-1 whitespace-pre-wrap font-sans text-muted-foreground">{paymentText(pay).replace(/^How to pay:\n/, "").replace(/^ {2}/gm, "")}</pre></div>
+            : <p className="text-[12px] text-amber-700 dark:text-amber-300">Add the building's bank details in Settings › How owners pay so invoices tell owners how to pay.</p>; })()}
         </div>}
       </DialogContent>
     </Dialog>
@@ -1759,12 +1770,12 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
           ? <p className="py-6 text-center text-[13px] text-muted-foreground">The committee hasn't set a budget for {fyLabel(year)} yet.</p>
           : <div className="space-y-6">
               <div className="grid gap-5 sm:grid-cols-3">
-                <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Budget {activeBudget.financial_year}</p>
+                <div><p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Budget {activeBudget.financial_year} <Help term="budget"/></p>
                   <p className="mt-2 text-3xl font-medium tracking-[-0.03em] tabular-nums">{money(totalBudget)}</p>
                   <p className="mt-1 text-[12px] text-muted-foreground">{activeLineItems.length} line {activeLineItems.length === 1 ? "item" : "items"}{activeBudget.allocation_method ? ` · split ${activeBudget.allocation_method === "Equal" ? "equally" : "by entitlement"}` : ""}</p></div>
                 <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Spent</p>
                   <p className="mt-2 text-3xl font-medium tracking-[-0.03em] tabular-nums">{money(totalOut)}</p>
-                  <p className="mt-1 text-[12px] text-muted-foreground">{money(totalCommitted)} more committed</p></div>
+                  <p className="mt-1 flex items-center gap-1 text-[12px] text-muted-foreground">{money(totalCommitted)} more committed <Help term="committed"/></p></div>
                 <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Left to spend</p>
                   <p className={`mt-2 text-3xl font-medium tracking-[-0.03em] tabular-nums ${totalBudget - totalOut - totalCommitted < 0 ? "text-destructive" : ""}`}>{money(totalBudget - totalOut - totalCommitted)}</p>
                   <p className="mt-1 text-[12px] text-muted-foreground">Levies due {niceDate(activeBudget.levy_due_date)}</p></div>
@@ -1818,7 +1829,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
         const used = stat.spent + stat.committed; const pct = stat.budget > 0 ? Math.min(100, used / stat.budget * 100) : 0;
         return <Card key={f.id} className="p-4 sm:p-6">
         <div className="flex items-center justify-between gap-2">
-          <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{f.name}</p>
+          <p className="flex min-w-0 items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"><span className="truncate">{f.name}</span>{/admin/i.test(f.name) ? <Help term="adminFund"/> : /maint|sinking|capital/i.test(f.name) ? <Help term="maintenanceFund"/> : null}</p>
           <Coins className="size-4 shrink-0 text-muted-foreground" />
         </div>
         {(recordedBalances[f.id] ?? 0) < 0 && <p className="mt-2 inline-flex rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive" title="Based on what's recorded in Loty">Overdrawn {money(recordedBalances[f.id] ?? 0)}</p>}
@@ -1828,7 +1839,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
           <Row label="Spent" value={money(stat.spent)} />
           <Row label="Remaining" value={money(stat.remaining)} tone={stat.remaining < 0 ? "text-destructive" : ""} />
           <div title={`Projection: the expected surplus (+) or shortfall (−) at 30 June if spending carries on at this pace. Budget ${money(stat.budget)} − (spent ${money(stat.spent)} ÷ ${monthsElapsed} months × 12 + committed ${money(stat.committed)}).`}>
-            <Row label="Projection ⓘ" value={`${fp.position < 0 ? "−" : "+"}${money(Math.abs(fp.position))}`} tone={fp.position < 0 ? "text-destructive" : "text-primary"} />
+            <Row label="Projection" help="projection" value={`${fp.position < 0 ? "−" : "+"}${money(Math.abs(fp.position))}`} tone={fp.position < 0 ? "text-destructive" : "text-primary"} />
           </div>
         </div>
         <details className="mt-3 text-[12px]">
@@ -1852,10 +1863,10 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
             <h2 className="font-display text-xl tracking-[-0.02em]">Transactions</h2>
             <span className="text-[12px] text-muted-foreground">({visible.length})</span>
           </button>
-          <p className="mt-1 text-[13px] text-muted-foreground">Every expense and receipt, with the paperwork attached. Paid entries are locked; every change is kept in their history.</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">Every expense and receipt, with the paperwork attached. Paid entries are locked; a mistake is voided <Help term="void"/> rather than deleted, and every change is kept in its history.</p>
           <p className="mt-1.5 text-[12px]">{treasurerName
             ? <span className="text-muted-foreground">Treasurer: <span className="font-medium text-foreground">{treasurerName}</span></span>
-            : <span className="text-muted-foreground">No Treasurer set, so any committee member can change paid entries.{isCommittee && onOpenSettings && <> <button type="button" className="font-medium text-primary hover:underline" onClick={onOpenSettings}>Set one in Settings</button></>}</span>}</p>
+            : <span className="text-muted-foreground">No Treasurer <Help term="treasurer"/> set, so any committee member can change paid entries.{isCommittee && onOpenSettings && <> <button type="button" className="font-medium text-primary hover:underline" onClick={onOpenSettings}>Set one in Settings</button></>}</span>}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={filter} onValueChange={setFilter}>

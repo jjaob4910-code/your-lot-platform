@@ -1,4 +1,6 @@
 import { financialYearOf } from "@/lib/fund-balance";
+import { Help } from "@/components/help";
+import type { GlossaryKey } from "@/lib/glossary";
 import { niceDate, moneyCents as money } from "@/lib/format";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -451,7 +453,7 @@ function NewWorkOrderDialog({ open, onOpenChange, lots, isCommittee, myLot, sche
               {lots.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted-foreground">No lots set up yet.</p>}
             </div>}
           </div>
-          <div className="space-y-2"><Label>Approval requirement</Label>
+          <div className="space-y-2"><Label className="flex items-center gap-1">Approval requirement <Help term="approval"/></Label>
             <Select value={approval} onValueChange={v => setApproval(v as "no" | "yes")}><SelectTrigger><SelectValue/></SelectTrigger>
               <SelectContent>
                 <SelectItem value="no">Committee can proceed</SelectItem>
@@ -590,7 +592,7 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
   const completed = orders.filter(isDone);
 
   return <div>
-    <PageHead eyebrow="Your property" title="Work orders" blurb="Log a repair, collect quotes, get owners' approval if it's needed, then pay it. Payments are recorded in Finance for you. For anything else the committee needs to see through, log a task with your own steps."
+    <PageHead eyebrow="Your property" title="Work orders" blurb={isCommittee ? "Log a repair, collect quotes, get owners' approval if it's needed, then pay it. Payments are recorded in Finance for you. For anything else the committee needs to see through, log a task with your own steps." : "Report a problem in your lot or the common areas, and follow repairs the committee is handling."}
       action={<Button className="rounded-full" onClick={() => setOpen(true)}><Plus/> New work order</Button>}/>
 
     <NewWorkOrderDialog open={open} onOpenChange={setOpen} lots={lots} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
@@ -611,7 +613,7 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
       {showCompleted && <div className="border-t border-border/70"><WorkOrderTable orders={completed} lots={lots} onOpen={o => setViewing(o.id)}/></div>}
     </Card>
 
-    <ContractorsList contractors={contractors} orders={orders} isCommittee={isCommittee} schemeId={schemeId} onChanged={onChanged}/>
+    {isCommittee && <ContractorsList contractors={contractors} orders={orders} isCommittee={isCommittee} schemeId={schemeId} onChanged={onChanged}/>}
 
     <Dialog open={!!current} onOpenChange={o => { if (!o) setViewing(null); }}>
       <DialogContent className="h-[100dvh] max-h-[100dvh] w-screen max-w-none overflow-y-auto overflow-x-hidden rounded-none p-4 pb-0 sm:h-auto sm:max-h-[90vh] sm:w-[calc(100vw-2rem)] sm:max-w-3xl sm:rounded-lg sm:p-6">
@@ -1108,7 +1110,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
 
       {order.kind === "Repair" && <div id="wo-sec-quotes" className="scroll-mt-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <SectionLabel>Quotes</SectionLabel>
+          <div className="flex items-center gap-1"><SectionLabel>Quotes</SectionLabel><Help term="quote"/></div>
           {isCommittee && !addingQuote && !accepted && <Button size="sm" variant="outline" className="h-8 rounded-full" onClick={() => setAddingQuote(true)}><Plus/> Add quote</Button>}
         </div>
         {addingQuote && <div className="mt-3"><AddQuoteForm order={order} contractors={contractors} schemeId={schemeId} pendingContractorId={newContractorId}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { daysUntil } from "@/lib/format";
-import { AlertTriangle, Bell, Calendar, Coins, FileCheck2, MessageSquare, Vote, Wrench } from "lucide-react";
+import { AlertTriangle, Bell, Calendar, Coins, FileCheck2, FileText, MessageSquare, Vote, Wrench } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -30,13 +30,16 @@ type BellWidget = { id: string; standard_key: string | null };
 
 // Levies, notices, spending, obligations and calendar events come from the dashboard's own
 // queries (passed in or shared by cache key), so the bell never fetches a second copy.
-export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, overdrawnFunds = [], renewals = [], levies = [], notices = [], transactions = [], tasks = [], widgets = [], notifyLevyDue = true, agmNotice = null }: {
+export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, overdrawnFunds = [], renewals = [], orders = [], documents = [], notifyNewWorkOrder = true, notifyNewDocument = true, levies = [], notices = [], transactions = [], tasks = [], widgets = [], notifyLevyDue = true, agmNotice = null }: {
   schemeId?: string | undefined; userId?: string | undefined; isCommittee: boolean; myLot: Lot | null; goTo: (tab: string) => void;
   /** Already filtered by the viewer's own "Fund overdrawn alerts" preference. */
   overdrawnFunds?: { id: string; name: string; balance: number }[];
   levies?: BellLevy[]; notices?: BellNotice[]; transactions?: BellTx[]; tasks?: BellTask[]; widgets?: BellWidget[];
   notifyLevyDue?: boolean; agmNotice?: { due: string; meetingDate: string } | null;
   renewals?: { id: string; label: string; date: string }[];
+  /** New work orders and documents, each shown for a week when the building's switch is on. */
+  orders?: { id: string; title: string; created_at: string }[]; documents?: { id: string; name: string; uploaded_at: string; shared_with_owners?: boolean | null }[];
+  notifyNewWorkOrder?: boolean; notifyNewDocument?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [optimisticReadAt, setOptimisticReadAt] = useState<string | null>(null);
@@ -126,6 +129,15 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
     items.push({ id: `task-${task.id}`, category: "Obligations", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: obligationTab(key) });
   }
 
+  if (isCommittee && notifyNewWorkOrder) for (const o of orders) {
+    if (o.created_at < weekAgo) continue;
+    items.push({ id: `new-order-${o.id}`, category: "New work order", icon: Wrench, text: o.title, sub: `Logged ${relativeDay(o.created_at)}`, tab: "Work orders", timestamp: o.created_at });
+  }
+  if (notifyNewDocument) for (const d of documents) {
+    if (d.uploaded_at < weekAgo || (!isCommittee && !d.shared_with_owners)) continue;
+    items.push({ id: `new-doc-${d.id}`, category: "New document", icon: FileText, text: d.name, sub: `Added ${relativeDay(d.uploaded_at)}`, tab: "Documents", timestamp: d.uploaded_at });
+  }
+
   // Insurance renewals: shown from 60 days out so there's time to get quotes; everyone sees them,
   // since a lapsed policy affects every owner.
   for (const r of renewals) {
@@ -180,7 +192,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
       sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(f.balance)} based on what's recorded in Loty`, tab: "Finance/Cashflow" });
   }
 
-  const categoryOrder = ["Fund overdrawn", "Approval needed", "Unbudgeted spend", "Work order update", "Levy due", "Obligations", "Upcoming event", "Message"];
+  const categoryOrder = ["Fund overdrawn", "Approval needed", "Unbudgeted spend", "New work order", "Work order update", "Levy due", "Obligations", "Upcoming event", "New document", "Message"];
   items.sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 
   const isUnread = (item: NotificationItem) => !!item.timestamp && (!lastReadAt || item.timestamp > lastReadAt);

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
+import { Help } from "@/components/help";
+import type { GlossaryKey } from "@/lib/glossary";
 import { niceDate, daysUntil } from "@/lib/format";
 import { ArrowDown, ArrowLeft, ArrowUp, CalendarDays, Check, ChevronDown, Clock, Copy, Download, FileText, GripVertical, Lightbulb, MapPin, Pencil, Plus, Send, Trash2, Users, Video } from "lucide-react";
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -187,7 +189,7 @@ function AttendancePanel({ lots, attendance, editable, confirmedAt, onChange, on
   return <div className="border-t border-border/70 bg-secondary/30 px-5 py-6 sm:px-10">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <SectionLabel>Attendance</SectionLabel>
+        <div className="flex items-center gap-1"><SectionLabel>Attendance</SectionLabel><Help term="proxy"/></div>
         <p className="mt-1 text-[13px] text-muted-foreground">{editable ? "Record who's here before you start. Present and proxy lots can vote." : summary}</p>
       </div>
       {collapsed
@@ -429,7 +431,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
         confirmedAt={confirmedAt} onChange={attendance => change({ attendance })} onConfirm={confirmAttendance}/>}
 
       <div className="border-t border-border/70 px-5 py-6 sm:px-10">
-        <SectionLabel>{stage === "Minutes" || stage === "Published" ? "Minutes" : "Agenda"}</SectionLabel>
+        <div className="flex items-center gap-1"><SectionLabel>{stage === "Minutes" || stage === "Published" ? "Minutes" : "Agenda"}</SectionLabel><Help term={stage === "Minutes" || stage === "Published" ? "minutes" : "notice"}/></div>
         <p className="mt-1 text-[13px] text-muted-foreground">{stage === "Draft" ? "What the meeting will cover. Owners see this once the notice goes out. Use the toolbar for lists, checklists, bold and highlights." : stage === "Notice sent" ? "The agenda as sent to owners." : "What was discussed and decided under each item."}</p>
         <ol className="mt-4 divide-y divide-border/60">
           {d.agenda.map((a, i) => {
@@ -657,7 +659,7 @@ export function AgmSection({ schemeId, isCommittee, meetings, lots, myLot = null
 
   return <div>
     <PageHead eyebrow="Your property" title="Annual General Meeting"
-      blurb="Build the agenda, send the notice, then take the minutes on the day. Owners can suggest items while the agenda is being drafted."
+      blurb={isCommittee ? "Build the agenda, send the notice, then take the minutes on the day. Owners can suggest items while the agenda is being drafted." : "Read the agenda, suggest an item before the notice goes out, and read the minutes afterwards."}
       action={isCommittee && !open ? <Button className="rounded-full" onClick={() => meetings.length ? setChoosing(true) : void create()} disabled={!schemeId}><Plus/> New AGM</Button> : undefined}/>
 
     <Dialog open={choosing} onOpenChange={setChoosing}>
