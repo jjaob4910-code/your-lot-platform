@@ -30,12 +30,13 @@ type BellWidget = { id: string; standard_key: string | null };
 
 // Levies, notices, spending, obligations and calendar events come from the dashboard's own
 // queries (passed in or shared by cache key), so the bell never fetches a second copy.
-export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, overdrawnFunds = [], levies = [], notices = [], transactions = [], tasks = [], widgets = [], notifyLevyDue = true, agmNotice = null }: {
+export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, overdrawnFunds = [], renewals = [], levies = [], notices = [], transactions = [], tasks = [], widgets = [], notifyLevyDue = true, agmNotice = null }: {
   schemeId?: string | undefined; userId?: string | undefined; isCommittee: boolean; myLot: Lot | null; goTo: (tab: string) => void;
   /** Already filtered by the viewer's own "Fund overdrawn alerts" preference. */
   overdrawnFunds?: { id: string; name: string; balance: number }[];
   levies?: BellLevy[]; notices?: BellNotice[]; transactions?: BellTx[]; tasks?: BellTask[]; widgets?: BellWidget[];
   notifyLevyDue?: boolean; agmNotice?: { due: string; meetingDate: string } | null;
+  renewals?: { id: string; label: string; date: string }[];
 }) {
   const queryClient = useQueryClient();
   const [optimisticReadAt, setOptimisticReadAt] = useState<string | null>(null);
@@ -125,6 +126,15 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
     items.push({ id: `task-${task.id}`, category: "Obligations", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: obligationTab(key) });
   }
 
+  // Insurance renewals: shown from 60 days out so there's time to get quotes; everyone sees them,
+  // since a lapsed policy affects every owner.
+  for (const r of renewals) {
+    const left = daysUntil(r.date);
+    if (left > 60) continue;
+    items.push({ id: `renewal-${r.id}`, category: "Obligations", icon: FileCheck2, text: `${r.label} insurance renews`,
+      sub: left < 0 ? `Lapsed ${Math.abs(left)} days ago` : left === 0 ? "Renews today" : `Renews in ${left} days`, tab: "Insurance" });
+  }
+
   // The AGM notice reminder comes from the meeting itself: shown from 21 days before it's due.
   if (isCommittee && agmNotice) {
     const left = daysUntil(agmNotice.due);
@@ -184,7 +194,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
       </Button>
     </PopoverTrigger>
     <PopoverContent align="end" sideOffset={8} collisionPadding={12} className="w-[calc(100vw-24px)] sm:w-80 max-h-[70vh] overflow-y-auto p-0">
-      <div className="border-b border-border/70 px-4 py-3"><p className="text-sm font-medium">Notifications</p></div>
+      <div className="border-b border-border/70 px-4 py-3"><p className="text-sm font-medium">Notifications</p><p className="text-[11px] text-muted-foreground">Things that need you now</p></div>
       {items.length === 0
         ? <p className="px-4 py-8 text-center text-[13px] text-muted-foreground">You're all caught up.</p>
         : <div className="divide-y divide-border/70">

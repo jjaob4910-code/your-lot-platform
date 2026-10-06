@@ -135,15 +135,24 @@ async function openDoc(doc: DocFile | undefined) {
   window.open(data.signedUrl, "_blank");
 }
 
+// The email works on its own: it carries the meeting details and the agenda, so attaching the
+// PDF is optional. The full notice is always in Documents for owners.
 function noticeEmail(m: AgmMeeting, lots: AgmLot[]) {
   const emails = lots.map(l => l.owner_email).filter((e): e is string => !!e && e.trim() !== "");
   const subject = `Notice of AGM — ${m.title || "Annual General Meeting"}`;
+  const when = m.meeting_date ? `${niceDate(m.meeting_date)}${m.meeting_time ? ` at ${m.meeting_time}` : ""}` : "date to be confirmed";
+  const agenda = m.agenda.filter(a => a.label.trim()).map((a, i) => `  ${i + 1}. ${a.label.trim()}`);
   const body = [
     "Dear owners,", "",
-    `Please find attached the notice and agenda for ${m.title || "our annual general meeting"}${m.meeting_date ? `, to be held on ${niceDate(m.meeting_date)}${m.meeting_time ? ` at ${m.meeting_time}` : ""}` : ""}${m.location ? ` at ${m.location}` : ""}.`,
-    m.video_link ? `You can also join online: ${m.video_link}` : "", "",
-    "The notice is also in Documents in Loty.", "", "Kind regards,", "Your owners corporation committee",
-  ].filter((l, i, arr) => !(l === "" && arr[i - 1] === "")).join("\n");
+    `Notice is given that ${m.title || "our annual general meeting"} will be held as follows.`, "",
+    `When: ${when}`,
+    m.location ? `Where: ${m.location}` : "",
+    m.video_link ? `Join online: ${m.video_link}` : "", "",
+    agenda.length ? "Agenda:" : "", ...agenda, "",
+    "The full notice, with the detail for each item, is in Loty under Documents › AGM.",
+    "If you can't attend, please send your apologies or appoint a proxy through the committee.", "",
+    "Kind regards,", "Your owners corporation committee",
+  ].filter((l, i, arr) => l !== "" || (i > 0 && arr[i - 1] !== "")).join("\n");
   return { count: emails.length, href: emails.length ? `mailto:?bcc=${encodeURIComponent(emails.join(","))}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}` : "" };
 }
 
@@ -305,7 +314,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
       downloadBlob(blob, name);
       const mail = noticeEmail({ ...meeting, ...d }, lots);
       setConfirmNotice(false); onChanged();
-      if (mail.href) { toast("Notice filed and posted", { description: `Your email app is opening with ${mail.count} owner${mail.count === 1 ? "" : "s"}. Attach the downloaded PDF.` }); window.location.href = mail.href; }
+      if (mail.href) { toast("Notice filed and posted", { description: `Your email app is opening with ${mail.count} owner${mail.count === 1 ? "" : "s"}. The email includes the details and agenda; attaching the downloaded PDF is optional.` }); window.location.href = mail.href; }
       else toast("Notice filed and posted", { description: "No owner emails on file, so no email was opened." });
     } catch (err) {
       toast("Could not send the notice", { description: (err as Error).message });
@@ -514,7 +523,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
     <Dialog open={confirmNotice} onOpenChange={setConfirmNotice}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Send the notice?</DialogTitle>
-          <DialogDescription>This makes the notice PDF, files it in Documents for every owner, pins it on the dashboard, downloads a copy for you and opens your email app addressed to all owners. Attach the downloaded PDF before sending.</DialogDescription></DialogHeader>
+          <DialogDescription>This makes the notice PDF, files it in Documents for every owner, pins it on the dashboard, downloads a copy for you and opens your email app addressed to all owners, with the meeting details and agenda already written in.</DialogDescription></DialogHeader>
         {shortNotice && <p className="rounded-2xl bg-amber-500/10 px-4 py-3 text-[12px] leading-5 text-amber-800 dark:text-amber-300">
           {d.meeting_date ? `The meeting is ${Math.max(0, daysUntil(d.meeting_date))} days away.` : "No meeting date is set yet."} Owners usually need at least 14 days' notice. You can still send it.</p>}
         <p className="text-[12px] text-muted-foreground">After this, the agenda is locked. Owner suggestions close too.</p>
@@ -617,7 +626,11 @@ export function AgmSection({ schemeId, isCommittee, meetings, lots, myLot = null
     // and attendance stay with the original. Years in the title and date move on by one.
     const agenda = (from ? from.agenda.map(a => ({ label: a.label, notes: a.notes, ...(a.links?.length ? { links: a.links } : {}) })) : STANDARD_AGM_AGENDA).map(a => ({ ...a, id: crypto.randomUUID() }));
     const nextYear = (t: string) => t.replace(/\b(20\d{2})\b/g, y => String(Number(y) + 1));
-    const title = from ? (/\b20\d{2}\b/.test(from.title) ? nextYear(from.title) : `${from.title || "Annual General Meeting"} (copy)`) : `Annual General Meeting ${new Date().getFullYear()}`;
+    const proposed = from ? (/\b20\d{2}\b/.test(from.title) ? nextYear(from.title) : `${from.title || "Annual General Meeting"} (copy)`) : `Annual General Meeting ${new Date().getFullYear()}`;
+    // Never give two meetings the same name.
+    const taken = new Set(meetings.map(m => m.title.trim().toLowerCase()));
+    let title = proposed;
+    for (let n = 2; taken.has(title.trim().toLowerCase()); n++) title = `${proposed} (copy${n > 2 ? ` ${n - 1}` : ""})`;
     const meeting_date = from?.meeting_date ? `${Number(from.meeting_date.slice(0, 4)) + 1}${from.meeting_date.slice(4, 10)}` : null;
     const { data, error } = await supabase.from("agm_meetings").insert({
       scheme_id: schemeId, status: "Draft", stage: "Draft", agenda, notes: "", title, meeting_date,

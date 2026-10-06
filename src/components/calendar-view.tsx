@@ -12,8 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { isRetiredObligation, obligationTab, type ComplianceWidget } from "@/lib/action-publish";
 
-export type CalendarScheme = { id: string; next_agm_date: string | null; next_agm_meeting_id?: string | null; agm_notice_due?: string | null } | null;
-type AgmDateSource = { next_agm_date: string | null; agm_notice_due?: string | null } | null;
+type Renewal = { id: string; label: string; date: string };
+export type CalendarScheme = { id: string; next_agm_date: string | null; next_agm_meeting_id?: string | null; agm_notice_due?: string | null; renewals?: Renewal[] } | null;
+type AgmDateSource = { next_agm_date: string | null; agm_notice_due?: string | null; renewals?: Renewal[] } | null;
 export type CalendarTask = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null };
 export type CalendarLevy = { id: string; due_date: string; status: string; amount: number };
 export type CalendarOrder = { id: string; title: string; status: string; target_date: string | null };
@@ -56,6 +57,12 @@ export function buildCalendarItems(scheme: AgmDateSource, tasks: CalendarTask[],
   if (scheme?.next_agm_date) list.push({
     key: `agm`, date: scheme.next_agm_date, title: "Annual general meeting", detail: "Your yearly owners meeting.",
     tone: "meeting", movable: true, goTo: "AGM", source: "Meeting",
+  });
+  // Insurance renewals: the policy's renewal date, opening the Insurance tab.
+  for (const r of scheme?.renewals ?? []) list.push({
+    key: `renewal-${r.id}`, date: r.date, title: `${r.label} insurance renews`,
+    detail: "Confirm the renewal with your insurer or broker before this date so the building stays covered.",
+    tone: "compliance", movable: false, goTo: "Insurance", source: "Insurance",
   });
   if (scheme?.agm_notice_due) list.push({
     key: "agm-notice", date: scheme.agm_notice_due, title: "AGM notice due",
@@ -110,9 +117,16 @@ export function UpcomingWidgetBody({ scheme, tasks, widgets, levies, orders, goT
 }) {
   const events = useCalendarEvents();
   const items = buildCalendarItems(scheme, tasks, widgets, levies, orders, events.data ?? [])
-    .filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 14; }).slice(0, 6);
-  if (items.length === 0) return <p className="py-4 text-[13px] text-muted-foreground">Nothing in the next two weeks.</p>;
-  return <ul className="divide-y divide-border/60">
+    .filter(i => i.key !== "agm" && (() => { const d = daysUntil(i.date); return d >= 0 && d <= 14; })()).slice(0, 6);
+  // The AGM countdown always leads, however far off; then dates in the next two weeks.
+  const agmDays = scheme?.next_agm_date ? daysUntil(scheme.next_agm_date) : null;
+  const agm = <button type="button" onClick={() => goTo("AGM")} className="mb-2 flex w-full items-center justify-between gap-3 rounded-2xl bg-secondary/50 px-3 py-2.5 text-left hover:bg-secondary">
+    <span className="min-w-0"><span className="block text-[11px] text-muted-foreground">Next AGM</span>
+      <span className="block truncate text-[13px] font-medium">{scheme?.next_agm_date ? niceDate(scheme.next_agm_date) : "Not scheduled yet"}</span></span>
+    {agmDays !== null && agmDays >= 0 && <span className="shrink-0 font-display text-xl">{agmDays}<span className="ml-1 text-[11px] text-muted-foreground">{agmDays === 1 ? "day" : "days"}</span></span>}
+  </button>;
+  if (items.length === 0) return <div>{agm}<p className="py-3 text-[13px] text-muted-foreground">Nothing else in the next two weeks.</p></div>;
+  return <div>{agm}<ul className="divide-y divide-border/60">
     {items.map(i => <li key={i.key}>
       <button type="button" onClick={() => goTo(i.goTo ?? "Calendar")} className="flex w-full items-center gap-3 py-2.5 text-left hover:opacity-80">
         <span className="w-12 shrink-0 text-center">
@@ -126,7 +140,7 @@ export function UpcomingWidgetBody({ scheme, tasks, widgets, levies, orders, goT
         <span className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium sm:inline ${toneClass[i.tone]}`}>{i.source}</span>
       </button>
     </li>)}
-  </ul>;
+  </ul></div>;
 }
 
 function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -205,9 +219,11 @@ function PhoneCalendar({ className, cursor, setCursor, days, items, todayISO, on
   </div>;
 }
 
-export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }: {
+export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo, canEdit = true }: {
   scheme: CalendarScheme; tasks: CalendarTask[]; widgets: ComplianceWidget[]; levies: CalendarLevy[]; orders: CalendarOrder[];
   goTo: (section: string) => void;
+  /** Only the committee can add or move things; owners get a read-only calendar. */
+  canEdit?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [view, setView] = useState<"calendar" | "list">("calendar");
@@ -283,14 +299,14 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
       <div className="max-w-2xl">
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Your property</p>
         <h1 className="mt-4 text-4xl font-medium tracking-[-0.035em] sm:text-5xl">Calendar</h1>
-        <p className="mt-5 text-[15px] leading-7 text-muted-foreground">Meetings, renewals, levies and repairs in one place. Drag anything to a new day, open it for the detail, and add your own events and reminders.</p>
+        <p className="mt-5 text-[15px] leading-7 text-muted-foreground">{canEdit ? "Meetings, renewals, levies and repairs in one place. Drag anything to a new day, open it for the detail, and add your own events and reminders." : "Meetings, insurance renewals, levy due dates and repairs for your building. Open anything for the detail."}</p>
       </div>
       <div className="flex items-center gap-2">
         <div className="hidden rounded-full border border-border/70 p-1 sm:flex">
           <Button size="sm" variant={view === "calendar" ? "default" : "ghost"} className="h-8 rounded-full px-3 text-[12px]" onClick={()=>setView("calendar")}><CalendarDays/> Calendar</Button>
           <Button size="sm" variant={view === "list" ? "default" : "ghost"} className="h-8 rounded-full px-3 text-[12px]" onClick={()=>setView("list")}><List/> List</Button>
         </div>
-        <Button className="rounded-full" onClick={()=>setAdding(todayISO)}><Plus/> Add</Button>
+        {canEdit && <Button className="rounded-full" onClick={()=>setAdding(todayISO)}><Plus/> Add</Button>}
       </div>
     </div>
 
@@ -320,14 +336,14 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
             onDragOver={e=>{ e.preventDefault(); setOverDay(iso); }}
             onDragLeave={()=>setOverDay(prev => prev === iso ? null : prev)}
             onDrop={onDrop(iso)}
-            onDoubleClick={()=>setAdding(iso)}
+            onDoubleClick={canEdit ? ()=>setAdding(iso) : undefined}
             className={`min-h-[104px] border-b border-r border-border/60 p-1.5 transition-colors ${inMonth ? "" : "bg-secondary/30"} ${overDay === iso ? "bg-primary/10" : ""}`}>
             <div className="flex items-center justify-between px-1">
               <span className={`text-[11px] ${iso === todayISO ? "flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground" : inMonth ? "text-foreground" : "text-muted-foreground/60"}`}>{day.getDate()}</span>
             </div>
             <div className="mt-1 space-y-1">
               {dayItems.slice(0, 3).map(item =>
-                <button key={item.key} type="button" draggable={item.movable}
+                <button key={item.key} type="button" draggable={canEdit && item.movable}
                   onDragStart={e=>{ e.dataTransfer.setData("text/plain", item.key); setDragKey(item.key); }}
                   onDragEnd={()=>setDragKey(null)}
                   onClick={()=>setViewing(item)}
@@ -339,7 +355,7 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
           </div>;
         })}
       </div>
-      <p className="px-6 py-3 text-[11px] text-muted-foreground">Tip: double click a day to add something, or drag an entry to a new day.</p>
+      {canEdit && <p className="px-6 py-3 text-[11px] text-muted-foreground">Tip: double click a day to add something, or drag an entry to a new day.</p>}
     </Card>
     : <Card className="mt-10 overflow-hidden">
       <div className="divide-y divide-border/70">
@@ -371,8 +387,8 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo }
           </DialogHeader>
           <p className="text-[13px] leading-6 text-muted-foreground">{viewing.detail}</p>
           <div className="mt-4 flex flex-wrap justify-end gap-2">
-            {viewing.eventRow && <Button variant="ghost" className="rounded-full text-destructive hover:text-destructive" onClick={()=>removeEvent(viewing.eventRow!)}><Trash2/> Remove</Button>}
-            {viewing.eventRow && <Button variant="outline" className="rounded-full" onClick={()=>{ setEditing(viewing.eventRow!); setViewing(null); }}>Edit</Button>}
+            {canEdit && viewing.eventRow && <Button variant="ghost" className="rounded-full text-destructive hover:text-destructive" onClick={()=>removeEvent(viewing.eventRow!)}><Trash2/> Remove</Button>}
+            {canEdit && viewing.eventRow && <Button variant="outline" className="rounded-full" onClick={()=>{ setEditing(viewing.eventRow!); setViewing(null); }}>Edit</Button>}
             {viewing.goTo && <Button className="rounded-full" onClick={()=>{ const to = viewing.goTo!; setViewing(null); goTo(to); }}>Take me there <ChevronRight/></Button>}
           </div>
         </>}

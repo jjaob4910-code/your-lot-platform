@@ -7,7 +7,6 @@ const links = [
   { label: "Platform", to: "/" as const },
   { label: "Pricing", to: "/pricing" as const },
   { label: "How it works", to: "/how-it-works" as const },
-  { label: "Resources", to: "/" as const },
 ];
 
 export function SiteHeader() {

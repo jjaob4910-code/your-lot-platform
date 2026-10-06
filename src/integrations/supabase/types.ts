@@ -1767,6 +1767,20 @@ export type Database = {
           },
         ]
       }
+      scheme_invites: {
+        Row: { created_at: string; created_by: string | null; expires_at: string; id: string; lot_id: string | null; role: string; scheme_id: string; token: string; used_at: string | null; used_by: string | null }
+        Insert: { created_at?: string; created_by?: string | null; expires_at?: string; id?: string; lot_id?: string | null; role: string; scheme_id: string; token: string; used_at?: string | null; used_by?: string | null }
+        Update: { created_at?: string; created_by?: string | null; expires_at?: string; id?: string; lot_id?: string | null; role?: string; scheme_id?: string; token?: string; used_at?: string | null; used_by?: string | null }
+        Relationships: []
+      }
+      scheme_members: {
+        Row: { created_at: string; id: string; lot_id: string | null; role: string; scheme_id: string; user_id: string }
+        Insert: { created_at?: string; id?: string; lot_id?: string | null; role: string; scheme_id: string; user_id: string }
+        Update: { created_at?: string; id?: string; lot_id?: string | null; role?: string; scheme_id?: string; user_id?: string }
+        Relationships: [
+          { foreignKeyName: "scheme_members_scheme_id_fkey"; columns: ["scheme_id"]; isOneToOne: false; referencedRelation: "schemes"; referencedColumns: ["id"] },
+        ]
+      }
       schemes: {
         Row: {
           address: string
@@ -2046,6 +2060,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_invite: { Args: { _token: string }; Returns: string }
+      building_finance_summary: { Args: { _scheme: string }; Returns: Json }
+      committee_contacts: { Args: { _scheme: string }; Returns: { name: string | null; committee_role: string | null; email: string | null; phone: string | null }[] }
+      create_building: { Args: { _name: string; _address: string; _total_lots: number }; Returns: string }
+      create_invite: { Args: { _scheme: string; _role: string; _lot?: string | null }; Returns: string }
       can_manage_paid_finance: {
         Args: { _scheme: string; _user: string }
         Returns: boolean

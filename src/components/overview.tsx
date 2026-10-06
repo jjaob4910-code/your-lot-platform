@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { money, niceDate, daysUntil } from "@/lib/format";
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from "@dnd-kit/sortable";
@@ -48,7 +49,8 @@ const SIZE_CLASS: Record<WidgetSize, string> = {
 const asSize = (s: string | undefined): WidgetSize => (SIZES as string[]).includes(s ?? "") ? s as WidgetSize : "M";
 
 // Older layouts used these names; they map onto the widgets that replaced them.
-const LEGACY_TYPES: Record<string, string> = { levies_chart: "levies", obligations: "year_glance" };
+// next_meeting merged into Upcoming, which now leads with the AGM countdown.
+const LEGACY_TYPES: Record<string, string> = { levies_chart: "levies", obligations: "year_glance", next_meeting: "upcoming" };
 const typeOf = (w: DashboardWidget) => LEGACY_TYPES[w.widget_type] ?? w.widget_type;
 
 const WIDGET_CATALOG: Record<string, { label: string; description: string; size: WidgetSize; min: WidgetSize; multiple?: boolean }> = {
@@ -56,13 +58,12 @@ const WIDGET_CATALOG: Record<string, { label: string; description: string; size:
   levies: { label: "Levies", description: "This financial year's levies: paid, owing and overdue.", size: "L", min: "S" },
   budget: { label: "Budget", description: "This year's budget, what's been spent and what's left.", size: "L", min: "S" },
   year_glance: { label: "Year at a glance", description: "Budget, levies, AGM and insurance, worked out from your records.", size: "M", min: "S" },
-  next_meeting: { label: "Next meeting", description: "A countdown to your next AGM.", size: "M", min: "S" },
-  upcoming: { label: "Upcoming", description: "What's on the calendar in the next two weeks.", size: "M", min: "S" },
+  upcoming: { label: "Upcoming", description: "The next AGM, then dates in the next two weeks.", size: "M", min: "S" },
   notices: { label: "Notice board", description: "Post updates for owners and take replies.", size: "M", min: "M" },
   work_orders: { label: "Work orders", description: "The latest repair and maintenance requests.", size: "Full", min: "L" },
   notes: { label: "Notes", description: "A private note only you can see. Add as many as you like.", size: "M", min: "S", multiple: true },
 };
-const STARTER: string[] = ["cash", "levies", "year_glance", "next_meeting", "notices"];
+const STARTER: string[] = ["cash", "levies", "year_glance", "upcoming", "notices"];
 
 function SortableWidget({ widget, size, customising, isOverlay, children }: { widget: DashboardWidget; size: WidgetSize; customising: boolean; isOverlay?: boolean; children: (grip: ReactNode) => ReactNode }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: widget.id, disabled: !customising });
@@ -109,13 +110,6 @@ function CashWidgetBody({ funds, balances, goTo }: { funds: BudgetFund[]; balanc
   </div>;
 }
 
-function NextMeetingWidgetBody({ scheme, goTo }: { scheme: OvScheme | null; goTo: (s: string) => void }) {
-  const days = scheme?.next_agm_date ? daysUntil(scheme.next_agm_date) : null;
-  return <div>
-    <p className="font-display text-4xl font-medium tracking-[-0.03em]">{days === null ? "—" : days < 0 ? `${Math.abs(days)}d overdue` : `${days} days`}</p>
-    <p className="mt-1 text-[12px] text-muted-foreground">{scheme?.next_agm_date ? `Next AGM · ${niceDate(scheme.next_agm_date)}` : "No AGM date set yet"}</p>
-  </div>;
-}
 
 function NoticesWidgetBody({ notices, noticeComments, schemeId, isCommittee, onChanged }: {
   notices: Notice[]; noticeComments: NoticeComment[]; schemeId?: string | undefined; isCommittee: boolean; onChanged: () => void;
@@ -238,7 +232,7 @@ function LeviesWidgetBody({ levies, mine, goTo }: { levies: Levy[]; mine: boolea
   </div>;
 }
 
-function BudgetWidgetBody({ budgets, funds, transactions, goTo }: { budgets: OvBudget[]; funds: BudgetFund[]; transactions: OvTx[]; goTo: (s: string) => void }) {
+function BudgetWidgetBody({ budgets, funds, transactions, goTo, spentOverride }: { budgets: OvBudget[]; funds: BudgetFund[]; transactions: OvTx[]; goTo: (s: string) => void; spentOverride?: Record<string, number> | undefined }) {
   const fy = currentFinancialYearStart();
   const budget = budgets.find(b => budgetStartYear(b.financial_year) === fy);
   if (!budget) return <div>
@@ -246,7 +240,8 @@ function BudgetWidgetBody({ budgets, funds, transactions, goTo }: { budgets: OvB
     <Button size="sm" variant="outline" className="mt-3 rounded-full" onClick={() => goTo("Finance/Budget")}>Set the budget <ChevronRight className="size-3.5" /></Button>
   </div>;
   const spentBy: Record<string, number> = {};
-  for (const t of transactions) if (t.direction === "out" && t.status === "Paid" && inFy(t.occurred_on, fy)) spentBy[t.fund_id] = (spentBy[t.fund_id] ?? 0) + Number(t.amount);
+  if (spentOverride) Object.assign(spentBy, spentOverride);
+  else for (const t of transactions) if (t.direction === "out" && t.status === "Paid" && inFy(t.occurred_on, fy)) spentBy[t.fund_id] = (spentBy[t.fund_id] ?? 0) + Number(t.amount);
   const spent = Object.values(spentBy).reduce((a, b) => a + b, 0);
   const total = Number(budget.total_amount);
   const left = total - spent;
@@ -299,8 +294,60 @@ function yearGlance({ budgets, levies, meetings, policies, scheme }: { budgets: 
   ];
 }
 
+type SetupLot = { id: string; entitlement_percent: number; owner_user_id: string | null };
+
+// A short checklist for a new committee. It ticks itself off from what's been recorded and
+// disappears once everything is done (or when dismissed on this device).
+function GettingStarted({ lots, policies, budgets, scheme, goTo }: { lots: SetupLot[]; policies: OvPolicy[]; budgets: OvBudget[]; scheme: OvScheme | null; goTo: (s: string) => void }) {
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("loty-setup-dismissed") === "1"; } catch { return false; } });
+  const fy = currentFinancialYearStart();
+  const total = lots.reduce((t, l) => t + Number(l.entitlement_percent || 0), 0);
+  const steps = [
+    { label: "Add your lots", done: lots.length > 0, tab: "Lots" },
+    { label: "Check entitlements add up to 100%", done: lots.length > 0 && Math.abs(total - 100) < 0.01, tab: "Lots" },
+    { label: "Invite your owners", done: lots.some(l => l.owner_user_id), tab: "Lots" },
+    { label: "Add the building insurance policy", done: policies.length > 0, tab: "Insurance" },
+    { label: `Set the ${fyLabel(fy)} budget`, done: budgets.some(b => budgetStartYear(b.financial_year) === fy), tab: "Finance/Budget" },
+    { label: "Schedule the AGM", done: !!scheme?.next_agm_date, tab: "AGM" },
+  ];
+  const doneCount = steps.filter(x => x.done).length;
+  if (hidden || doneCount === steps.length) return null;
+  const next = steps.find(x => !x.done);
+  return <section className="soft-shadow mt-6 rounded-3xl border border-primary/25 bg-card p-5 sm:p-6" aria-label="Getting started">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">Getting started · {doneCount} of {steps.length}</p>
+        <p className="mt-1 text-[15px] font-medium">{next ? `Next: ${next.label.toLowerCase()}` : ""}</p></div>
+      <button type="button" className="text-[12px] text-muted-foreground underline-offset-4 hover:underline" onClick={() => { try { localStorage.setItem("loty-setup-dismissed", "1"); } catch { /* storage unavailable */ } setHidden(true); }}>Hide this</button>
+    </div>
+    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }}/></div>
+    <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {steps.map(x => <li key={x.label}><button type="button" onClick={() => goTo(x.tab)} className={`flex w-full items-center gap-2.5 rounded-2xl border px-3 py-2.5 text-left text-[13px] transition hover:bg-secondary/50 ${x.done ? "border-border/50 text-muted-foreground" : "border-border"}`}>
+        <span className={`grid size-5 shrink-0 place-items-center rounded-full border ${x.done ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>{x.done && <Check className="size-3"/>}</span>
+        <span className={x.done ? "line-through" : ""}>{x.label}</span>
+      </button></li>)}
+    </ul>
+  </section>;
+}
+
+// The owner's version: what matters to someone who owns a lot, not the committee's jobs.
+function ownerGlance({ myLevies, meetings, policies, scheme }: { myLevies: Levy[]; meetings: OvMeeting[]; policies: OvPolicy[]; scheme: OvScheme | null }): GlanceItem[] {
+  const fy = currentFinancialYearStart();
+  const mine = fyLevies(myLevies, fy);
+  const owing = mine.filter(l => l.status !== "Paid");
+  const overdue = owing.filter(l => daysUntil(l.due_date) < 0);
+  const today = new Date().toISOString().slice(0, 10);
+  const insured = policies.some(p => p.renewal_date && p.renewal_date >= today);
+  const lastMeeting = meetings.filter(m => m.stage === "Published").sort((a, b) => (b.published_at ?? b.created_at).localeCompare(a.published_at ?? a.created_at))[0];
+  return [
+    { label: "Your levies paid", done: mine.length > 0 && owing.length === 0, note: mine.length === 0 ? "None issued yet this year" : owing.length === 0 ? "All paid for " + fyLabel(fy) : `${money(owing.reduce((t, l) => t + Number(l.amount), 0))} still to pay${overdue.length ? " · overdue" : ""}`, urgent: overdue.length > 0, tab: "Finance/Levies" },
+    { label: "Next AGM", done: !!scheme?.next_agm_date, note: scheme?.next_agm_date ? niceDate(scheme.next_agm_date) : "Not scheduled yet", urgent: false, tab: "AGM" },
+    { label: "Building insured", done: insured, note: insured ? "Policy current" : policies.length ? "Renewal due" : "No policy on file", urgent: false, tab: "Insurance" },
+    { label: "Latest minutes", done: !!lastMeeting, note: lastMeeting ? `Published ${niceDate(lastMeeting.published_at ?? lastMeeting.created_at)}` : "None published yet", urgent: false, tab: lastMeeting ? "Documents" : "AGM" },
+  ];
+}
+
 function YearGlanceWidgetBody({ items, goTo }: { items: GlanceItem[]; goTo: (s: string) => void }) {
-  return <div>{items.map(it => <button type="button" key={it.label} onClick={() => goTo(it.tab)}
+  return <div><p className="-mt-2 mb-2 text-[11px] text-primary-foreground/60">Your yearly checklist</p>{items.map(it => <button type="button" key={it.label} onClick={() => goTo(it.tab)}
     className="flex w-full items-start gap-3 border-t border-primary-foreground/15 py-3 text-left first:border-0 first:pt-0 hover:opacity-80">
     <span className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border ${it.done ? "border-primary-foreground bg-primary-foreground text-primary" : "border-primary-foreground/40"}`}>{it.done && <Check className="size-2.5" />}</span>
     <span className="min-w-0 flex-1">
@@ -361,8 +408,8 @@ function ResizeHandle({ size, min, gridRef, onPreview, onCommit, onCancel }: {
 
 type Slot = { id: string; type: string; size: WidgetSize; config: Json; row: DashboardWidget };
 
-export function OverviewSection({ scheme, levies, funds, transactions, balances, budgets, meetings, policies, tasks, complianceWidgets, repairs, myLot, notices, noticeComments, widgets, widgetsLoading, isCommittee, schemeId, userId, onChanged, goTo }: {
-  scheme: OvScheme | null; levies: Levy[]; funds: BudgetFund[]; transactions: OvTx[]; balances: Record<string, number>; budgets: OvBudget[]; meetings: OvMeeting[]; policies: OvPolicy[];
+export function OverviewSection({ firstName, lots = [], scheme, levies, funds, transactions, balances, budgets, meetings, policies, tasks, complianceWidgets, repairs, myLot, notices, noticeComments, widgets, widgetsLoading, isCommittee, schemeId, userId, onChanged, goTo }: {
+  firstName?: string | undefined; lots?: SetupLot[]; scheme: OvScheme | null; levies: Levy[]; funds: BudgetFund[]; transactions: OvTx[]; balances: Record<string, number>; budgets: OvBudget[]; meetings: OvMeeting[]; policies: OvPolicy[];
   tasks: Task[]; complianceWidgets: ComplianceWidget[]; repairs: WorkOrder[];
   myLot: OvLot | null; notices: Notice[]; noticeComments: NoticeComment[]; widgets: DashboardWidget[]; widgetsLoading: boolean;
   isCommittee: boolean; schemeId?: string | undefined; userId?: string | undefined; onChanged: () => void; goTo: (s: string) => void;
@@ -384,6 +431,8 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
   const mine = userId && !seedFailed ? widgets.filter(w => w.user_id === userId) : defaults;
   const fromRows: Slot[] = useMemo(() => mine.slice().sort((a, b) => a.sort_order - b.sort_order)
     .filter(w => WIDGET_CATALOG[typeOf(w)])
+    // An old Next meeting widget now maps to Upcoming; show one of each unless the type allows several.
+    .filter((w, i, all) => WIDGET_CATALOG[typeOf(w)]!.multiple || all.findIndex(x => typeOf(x) === typeOf(w)) === i)
     .map(w => ({ id: w.id, type: typeOf(w), size: asSize(w.size), config: w.config ?? {}, row: w })),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   [JSON.stringify(mine.map(w => [w.id, w.sort_order, w.size, w.widget_type]))]);
@@ -414,7 +463,19 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
 
   const visibleNotices = isCommittee ? notices : notices.filter(n => !n.lot_id || n.lot_id === myLot?.id);
   const myLevies = isCommittee ? levies : levies.filter(l => l.lot_id === myLot?.id);
-  const glance = yearGlance({ budgets, levies, meetings, policies, scheme });
+  // Owners can't read the ledger, so their cash and budget figures come from the building summary.
+  const summary = useQuery({
+    queryKey: ["finance-summary", schemeId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("building_finance_summary", { _scheme: schemeId! });
+      if (error) throw error;
+      return data as unknown as { funds: { id: string; balance: number; spent: number }[] } | null;
+    },
+    enabled: !!schemeId && !isCommittee,
+  });
+  const ownerBalances = Object.fromEntries((Array.isArray(summary.data?.funds) ? summary.data.funds : []).map(f => [f.id, Number(f.balance)]));
+  const ownerSpent = Array.isArray(summary.data?.funds) ? Object.fromEntries(summary.data.funds.map(f => [f.id, Number(f.spent)])) : undefined;
+  const glance = isCommittee ? yearGlance({ budgets, levies, meetings, policies, scheme }) : ownerGlance({ myLevies, meetings, policies, scheme });
 
   const present = new Set(slots.map(s => s.type));
   const available = Object.keys(WIDGET_CATALOG).filter(k => WIDGET_CATALOG[k]!.multiple || !present.has(k))
@@ -529,11 +590,10 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
       onCancel={() => setLocal(null)} /> : null;
     const shell = { grip, menu, resize, customising, tone };
     switch (s.type) {
-      case "cash": return <WidgetCard {...shell} title="Current cash" icon={Coins} action={linkBtn("Cashflow", "Finance/Cashflow")}><CashWidgetBody funds={funds} balances={balances} goTo={goTo} /></WidgetCard>;
+      case "cash": return <WidgetCard {...shell} title="Current cash" icon={Coins} action={linkBtn("Cashflow", "Finance/Cashflow")}><CashWidgetBody funds={funds} balances={isCommittee ? balances : ownerBalances} goTo={goTo} /></WidgetCard>;
       case "levies": return <WidgetCard {...shell} title={isCommittee ? "Levies" : "Your levies"} icon={Landmark} action={linkBtn("Levies", "Finance/Levies")}><LeviesWidgetBody levies={myLevies} mine={!isCommittee} goTo={goTo} /></WidgetCard>;
-      case "budget": return <WidgetCard {...shell} title="Budget" icon={PiggyBank} action={linkBtn("Budget", "Finance/Budget")}><BudgetWidgetBody budgets={budgets} funds={funds} transactions={transactions} goTo={goTo} /></WidgetCard>;
-      case "year_glance": return <WidgetCard {...shell} title="Year at a glance" icon={FileCheck2} action={<span className="font-display text-lg text-primary-foreground">{glance.filter(g => g.done).length}/{glance.length}</span>}><YearGlanceWidgetBody items={glance} goTo={goTo} /></WidgetCard>;
-      case "next_meeting": return <WidgetCard {...shell} title="Next meeting" icon={CalendarClock} action={linkBtn("Calendar", "Calendar")}><NextMeetingWidgetBody scheme={scheme} goTo={goTo} /></WidgetCard>;
+      case "budget": return <WidgetCard {...shell} title="Budget" icon={PiggyBank} action={linkBtn("Budget", "Finance/Budget")}><BudgetWidgetBody budgets={budgets} funds={funds} transactions={transactions} goTo={goTo} spentOverride={isCommittee ? undefined : ownerSpent} /></WidgetCard>;
+      case "year_glance": return <WidgetCard {...shell} title={isCommittee ? "Year at a glance" : "Your year"} icon={FileCheck2} action={<span className="font-display text-lg text-primary-foreground">{glance.filter(g => g.done).length}/{glance.length}</span>}><YearGlanceWidgetBody items={glance} goTo={goTo} /></WidgetCard>;
       case "upcoming": return <WidgetCard {...shell} title="Upcoming" icon={CalendarDays} action={linkBtn("Calendar", "Calendar")}><UpcomingWidgetBody scheme={scheme} tasks={tasks} widgets={complianceWidgets} levies={levies} orders={repairs} goTo={goTo} /></WidgetCard>;
       case "notices": return <WidgetCard {...shell} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={visibleNotices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetCard>;
       case "work_orders": return <WidgetCard {...shell} title="Work orders" icon={Wrench} action={linkBtn("Open", "Work orders")}><WorkOrdersWidgetBody repairs={repairs} goTo={goTo} /></WidgetCard>;
@@ -545,8 +605,10 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
   return <>
     <div className="max-w-2xl">
       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{scheme ? scheme.address : "Your building"}</p>
-      <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">Hi there, Here's what's happening.</h1>
+      <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">{firstName ? `Hi ${firstName}, here's` : "Here's"} what's happening.</h1>
     </div>
+
+    {isCommittee && <GettingStarted lots={lots} policies={policies} budgets={budgets} scheme={scheme} goTo={goTo}/>}
 
     {canCustomise && <div className="mt-6 flex flex-wrap items-center gap-2">
       {!customising

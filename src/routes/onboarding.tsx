@@ -33,7 +33,7 @@ const STEPS = [
   { key: "maintenance", label: "Maintenance", icon: Wrench },
   { key: "finance", label: "Finance", icon: WalletCards },
   { key: "levies", label: "Levies", icon: WalletCards },
-  { key: "compliance", label: "Compliance", icon: FileCheck2 },
+  { key: "done", label: "All set", icon: FileCheck2 },
 ] as const;
 
 function StepShell({ index, title, blurb, children, footer }: {
@@ -66,9 +66,17 @@ function BuildingStep({ onCreated }: { onCreated: (scheme: Scheme) => void }) {
       total_lots: Number(form.get("total_lots")),
     };
     setSubmitting(true);
-    const { data, error } = await supabase.from("schemes").insert(payload).select().single();
+    // Creating a building makes you its committee.
+    let { data: id, error: createErr } = await supabase.rpc("create_building", { _name: payload.name, _address: payload.address, _total_lots: payload.total_lots });
+    // Before the membership update reaches the database, create the building the old way.
+    if (createErr && /create_building|schema cache|does not exist/i.test(createErr.message)) {
+      const made = await supabase.from("schemes").insert(payload).select("id").single();
+      id = made.data?.id ?? null; createErr = made.error;
+    }
+    const { data, error } = createErr || !id ? { data: null, error: createErr } : await supabase.from("schemes").select("*").eq("id", id).single();
     setSubmitting(false);
     if (error || !data) { toast("Could not create your building", { description: error?.message }); return; }
+    try { localStorage.setItem("loty-building", String(id)); } catch { /* storage unavailable */ }
     toast("Building created");
     onCreated(data as Scheme);
   };
@@ -110,7 +118,7 @@ function LotsStep({ schemeId, lots, onAdded }: { schemeId: string; lots: Lot[]; 
     <form onSubmit={submit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input id="lot_number" name="lot_number" type="number" min="1" required/></div>
-        <div className="space-y-2"><Label htmlFor="entitlement_percent">Ownership allotment (%)</Label><Input id="entitlement_percent" name="entitlement_percent" type="number" min="0" step="0.001" placeholder="e.g. 12.5"/></div>
+        <div className="space-y-2"><Label htmlFor="entitlement_percent">Lot entitlement (%)</Label><Input id="entitlement_percent" name="entitlement_percent" type="number" min="0" step="0.001" placeholder="e.g. 12.5"/></div>
         <div className="space-y-2"><Label htmlFor="owner_name">Owner name</Label><Input id="owner_name" name="owner_name"/></div>
         <div className="space-y-2"><Label htmlFor="owner_email">Owner email</Label><Input id="owner_email" name="owner_email" type="email" placeholder="Needed for them to sign up and link to this lot"/></div>
         <div className="space-y-2"><Label htmlFor="owner_phone">Owner phone</Label><Input id="owner_phone" name="owner_phone" type="tel"/></div>
@@ -224,9 +232,18 @@ function OnboardingPage() {
   const schemeQuery = useQuery({
     queryKey: ["onboarding-scheme"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("schemes").select("*").order("created_at").limit(1).maybeSingle();
-      if (error) throw error;
-      return data as Scheme | null;
+      // The building this person runs (the one they last opened, if they run several).
+      const { data, error } = await supabase.from("scheme_members").select("scheme_id, schemes(*)").eq("user_id", session!.user.id).eq("role", "Committee");
+      if (error) {
+        // Before the membership update reaches the database: the one existing building.
+        const { data: first, error: e2 } = await supabase.from("schemes").select("*").order("created_at").limit(1).maybeSingle();
+        if (e2) throw e2;
+        return first as Scheme | null;
+      }
+      const rows = (data ?? []) as unknown as { scheme_id: string; schemes: Scheme | null }[];
+      let saved: string | null = null;
+      try { saved = localStorage.getItem("loty-building"); } catch { /* storage unavailable */ }
+      return (rows.find(r => r.scheme_id === saved) ?? rows[0])?.schemes ?? null;
     },
     enabled: !!session,
   });
@@ -321,7 +338,7 @@ function OnboardingPage() {
       <LotsStep schemeId={schemeId} lots={lots.data ?? []} onAdded={()=>queryClient.invalidateQueries({ queryKey: ["onboarding-lots", schemeId] })}/>
     </StepShell>}
 
-    {step === 2 && schemeId && <StepShell index={2} title="What's insured?" blurb="Building insurance is usually compulsory for an owners corporation. Add what you have on file — the renewal date will show up as a compliance reminder automatically, and the premium will be carried into your budget."
+    {step === 2 && schemeId && <StepShell index={2} title="What's insured?" blurb="Building insurance is usually compulsory for an owners corporation. Add what you have on file — the renewal date goes into your calendar with a reminder 60 days out, and the premium is carried into your budget."
       footer={<><BackButton index={2}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={next}>Continue</Button></div></>}>
       <InsuranceStep schemeId={schemeId} policies={policies.data ?? []} onAdded={()=>queryClient.invalidateQueries({ queryKey: ["onboarding-insurance", schemeId] })}/>
     </StepShell>}
@@ -342,7 +359,7 @@ function OnboardingPage() {
         {insuranceLines.length > 0 && !budgetCreated && <p className="text-sm text-muted-foreground">The {insuranceLines.length === 1 ? "insurance policy" : `${insuranceLines.length} insurance policies`} you added earlier will be pre-filled as a line item — adjust the amount if needed.</p>}
         {budgetCreated
           ? <p className="text-sm text-muted-foreground">Budget created — levies have been issued to every lot. You can review them on the next step.</p>
-          : <p className="text-sm text-muted-foreground">This uses the same budget tool as the Levies tab: line items for what you expect to spend, split by lot entitlement or equally.</p>}
+          : <p className="text-sm text-muted-foreground">This uses the same budget tool as the Finance tab: line items for what you expect to spend, split by lot entitlement or equally.</p>}
         <Button type="button" className="rounded-full" onClick={()=>setBudgetOpen(true)}>{budgetCreated ? "Create another budget" : "Create a budget"}</Button>
       </div>
     </StepShell>}
@@ -356,14 +373,21 @@ function OnboardingPage() {
               <span className="font-medium tabular-nums">{money(Number(l.amount))}</span>
             </div>)}
           </div>
-        : <p className="text-sm text-muted-foreground">No levies yet — once you create a budget (on the previous step, or later from the Levies tab), each lot's share is issued automatically based on its entitlement.</p>}
+        : <p className="text-sm text-muted-foreground">No levies yet — once you create a budget (on the previous step, or later from the Finance tab), each lot's share is issued automatically based on its entitlement.</p>}
     </StepShell>}
 
-    {step === 6 && <StepShell index={6} title="Your yearly obligations, tracked." blurb="Loty keeps an eye on the obligations every owners corporation has. Your AGM has its own tab for the agenda, notes and notice to owners. Policy renewal dates show on the Insurance tab."
-      footer={<><BackButton index={6}/><Button className="rounded-full" onClick={finish}><Check className="size-3.5"/>Finish setup</Button></>}>
+    {step === 6 && <StepShell index={6} title="Here's what Loty does for you." blurb="You're set up. From here, Loty keeps track of the yearly work so your committee doesn't have to remember it."
+      footer={<><BackButton index={6}/><Button className="rounded-full" onClick={finish}><Check className="size-3.5"/>Go to my dashboard</Button></>}>
       <div className="space-y-2 text-sm">
-        {["AGM Notice"].map(w =>
-          <div key={w} className="flex items-center gap-2 rounded-2xl border border-border/70 px-4 py-2.5"><Check className="size-3.5 text-primary"/><span>{w}</span></div>)}
+        {[
+          ["Levies", "Issued to every lot from your budget, with reminders when they fall due."],
+          ["Owners", "Invite each owner from the Lots tab so they can see their levies, notices and documents."],
+          ["Insurance", "Renewal dates go into the calendar, with a reminder 60 days out."],
+          ["AGM", "Build the agenda, send the notice, take the minutes and record votes in the AGM tab."],
+          ["Documents", "Everything filed in one place, shared with owners when you choose."],
+        ].map(([title, text]) =>
+          <div key={title} className="flex items-start gap-3 rounded-2xl border border-border/70 px-4 py-3"><Check className="mt-0.5 size-3.5 shrink-0 text-primary"/><span><span className="font-medium">{title}.</span> <span className="text-muted-foreground">{text}</span></span></div>)}
+        <p className="pt-2 text-[13px] text-muted-foreground">Your dashboard shows a short "Getting started" list until the basics are done.</p>
       </div>
     </StepShell>}
 
