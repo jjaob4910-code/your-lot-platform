@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { moneyCents as money, niceDate } from "@/lib/format";
 import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -31,8 +32,6 @@ const INSURANCE_FOLDER = "Insurance";
 const NONE = "__none";
 const OTHER = "__other";
 
-const money = (n: number | null | undefined) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 2 }));
-const niceDate = (value: string | null) => (value ? new Date(value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "—");
 const today = () => new Date().toISOString().slice(0, 10);
 const num = (v: string) => (v.trim() === "" ? null : Number(v));
 

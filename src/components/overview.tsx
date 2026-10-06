@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { money, niceDate, daysUntil } from "@/lib/format";
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -16,7 +17,7 @@ import { toast } from "sonner";
 import { RichTextEditor } from "@/components/rich-text";
 import { WorkOrderTable, type WorkOrder } from "@/components/work-orders";
 import { budgetStartYear, currentFinancialYearStart, financialYearOf, type Levy, type FundTx } from "@/lib/fund-balance";
-import { currentTaskFor, isRetiredObligation, type ComplianceWidget, type Task } from "@/lib/action-publish";
+import type { ComplianceWidget, Task } from "@/lib/action-publish";
 
 export type BudgetFund = { id: string; name: string; sort_order: number };
 
@@ -29,13 +30,10 @@ export type OvMeeting = { id: string; meeting_date: string | null; stage?: strin
 export type OvPolicy = { id: string; policy_type: string; insurer: string | null; renewal_date: string | null };
 export type OvTx = FundTx & { budget_line_item_id?: string | null };
 
-type OvScheme = { address: string; next_agm_date: string | null };
+type OvScheme = { address: string; next_agm_date: string | null; agm_notice_due?: string | null };
 type OvLot = { id: string; lot_number: number; owner_name: string | null; entitlement_percent: number };
 type NoteConfig = { html?: string; color?: string };
 
-const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
-const daysUntil = (date: string) => Math.ceil((new Date(date.slice(0, 10) + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
-const niceDate = (value: string) => new Date(value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 const fyLabel = (start: number) => `${start}/${String(start + 1).slice(2)}`;
 const inFy = (iso: string, start: number) => financialYearOf(iso) === start;
 
@@ -276,7 +274,7 @@ function BudgetWidgetBody({ budgets, funds, transactions, goTo }: { budgets: OvB
 
 type GlanceItem = { label: string; done: boolean; note: string; urgent: boolean; tab: string };
 
-function yearGlance({ budgets, levies, meetings, policies, scheme, agmTask }: { budgets: OvBudget[]; levies: Levy[]; meetings: OvMeeting[]; policies: OvPolicy[]; scheme: OvScheme | null; agmTask: Task | undefined }): GlanceItem[] {
+function yearGlance({ budgets, levies, meetings, policies, scheme }: { budgets: OvBudget[]; levies: Levy[]; meetings: OvMeeting[]; policies: OvPolicy[]; scheme: OvScheme | null }): GlanceItem[] {
   const fy = currentFinancialYearStart();
   const budget = budgets.find(b => budgetStartYear(b.financial_year) === fy);
   const list = fyLevies(levies, fy);
@@ -284,8 +282,9 @@ function yearGlance({ budgets, levies, meetings, policies, scheme, agmTask }: { 
   const sent = list.filter(l => l.notified_at || l.status === "Paid").length;
   const meeting = meetings.find(m => inFy(m.meeting_date ?? m.created_at, fy));
   const stage = meeting?.stage ?? "Draft";
-  const agmDue = meeting?.meeting_date ?? scheme?.next_agm_date ?? agmTask?.due_date ?? null;
-  const agmLeft = agmDue ? daysUntil(agmDue) : null;
+  // The notice countdown runs to the notice deadline (14 days before the meeting).
+  const noticeDue = scheme?.agm_notice_due ?? null;
+  const agmLeft = noticeDue ? daysUntil(noticeDue) : null;
   const dueNote = (left: number | null, fallback: string) => left === null ? fallback : left < 0 ? `${-left} days overdue` : `${left} days left`;
   const today = new Date().toISOString().slice(0, 10);
   const current = policies.filter(p => p.renewal_date && p.renewal_date >= today).sort((a, b) => (a.renewal_date ?? "").localeCompare(b.renewal_date ?? ""));
@@ -294,7 +293,7 @@ function yearGlance({ budgets, levies, meetings, policies, scheme, agmTask }: { 
   return [
     { label: `Budget set for ${fyLabel(fy)}`, done: !!budget, note: budget ? `${money(Number(budget.total_amount))}` : "Not set yet", urgent: !budget, tab: "Finance/Budget" },
     { label: "Levies issued", done: list.length > 0 && sent === list.length, note: list.length === 0 ? "None issued yet" : `${sent} of ${list.length} lots`, urgent: false, tab: "Finance/Levies" },
-    { label: "AGM notice sent", done: stage !== "Draft" || agmTask?.status === "Complete", note: stage !== "Draft" ? "Sent" : dueNote(agmLeft, "No date yet"), urgent: stage === "Draft" && agmLeft !== null && agmLeft < 21, tab: "AGM" },
+    { label: "AGM notice sent", done: stage !== "Draft", note: stage !== "Draft" ? "Sent" : noticeDue ? `Send by ${niceDate(noticeDue)} · ${dueNote(agmLeft, "")}` : "No meeting date yet", urgent: stage === "Draft" && agmLeft !== null && agmLeft < 21, tab: "AGM" },
     { label: "AGM minutes published", done: stage === "Published", note: stage === "Published" ? "Published" : stage === "Minutes" ? "Minutes in progress" : "After the meeting", urgent: false, tab: "AGM" },
     { label: "Insurance current", done: current.length > 0 && (renewLeft ?? 99) >= 30, note: policies.length === 0 ? "No policy recorded" : current.length === 0 ? "Policy has lapsed" : `Renews ${niceDate(nextRenewal!)}`, urgent: policies.length > 0 && (current.length === 0 || (renewLeft ?? 99) < 30), tab: "Insurance" },
   ];
@@ -415,8 +414,7 @@ export function OverviewSection({ scheme, levies, funds, transactions, balances,
 
   const visibleNotices = isCommittee ? notices : notices.filter(n => !n.lot_id || n.lot_id === myLot?.id);
   const myLevies = isCommittee ? levies : levies.filter(l => l.lot_id === myLot?.id);
-  const agmWidget = complianceWidgets.find(w => w.is_standard && w.enabled && w.standard_key === "agm_notice" && !isRetiredObligation(w.standard_key));
-  const glance = yearGlance({ budgets, levies, meetings, policies, scheme, agmTask: agmWidget ? currentTaskFor(agmWidget, tasks) : undefined });
+  const glance = yearGlance({ budgets, levies, meetings, policies, scheme });
 
   const present = new Set(slots.map(s => s.type));
   const available = Object.keys(WIDGET_CATALOG).filter(k => WIDGET_CATALOG[k]!.multiple || !present.has(k))

@@ -1,4 +1,5 @@
 import { useMemo, useState, type DragEvent, type FormEvent, type ReactNode } from "react";
+import { daysUntil, weekdayDate as niceDate } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, ChevronLeft, ChevronRight, List, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,8 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { isRetiredObligation, obligationTab, type ComplianceWidget } from "@/lib/action-publish";
 
-export type CalendarScheme = { id: string; next_agm_date: string | null; next_agm_meeting_id?: string | null } | null;
-type AgmDateSource = { next_agm_date: string | null } | null;
+export type CalendarScheme = { id: string; next_agm_date: string | null; next_agm_meeting_id?: string | null; agm_notice_due?: string | null } | null;
+type AgmDateSource = { next_agm_date: string | null; agm_notice_due?: string | null } | null;
 export type CalendarTask = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null };
 export type CalendarLevy = { id: string; due_date: string; status: string; amount: number };
 export type CalendarOrder = { id: string; title: string; status: string; target_date: string | null };
@@ -33,8 +34,6 @@ type Item = {
 
 const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const parse = (iso: string) => new Date(`${iso}T00:00:00`);
-const niceDate = (iso: string) => parse(iso).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "long", year: "numeric" });
-const daysUntil = (iso: string) => Math.ceil((parse(iso).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 const whenText = (iso: string) => {
   const d = daysUntil(iso);
   return d === 0 ? "Today" : d < 0 ? `${Math.abs(d)} days ago` : `In ${d} days`;
@@ -57,6 +56,11 @@ export function buildCalendarItems(scheme: AgmDateSource, tasks: CalendarTask[],
   if (scheme?.next_agm_date) list.push({
     key: `agm`, date: scheme.next_agm_date, title: "Annual general meeting", detail: "Your yearly owners meeting.",
     tone: "meeting", movable: true, goTo: "AGM", source: "Meeting",
+  });
+  if (scheme?.agm_notice_due) list.push({
+    key: "agm-notice", date: scheme.agm_notice_due, title: "AGM notice due",
+    detail: "Last day to send the notice to owners (14 days before the meeting; check your own rules). Send it from the AGM tab.",
+    tone: "compliance", movable: false, goTo: "AGM", source: "AGM",
   });
   for (const task of tasks) {
     const key = widgets.find(w => w.id === task.widget_id)?.standard_key;
@@ -90,7 +94,7 @@ export function buildCalendarItems(scheme: AgmDateSource, tasks: CalendarTask[],
   return list.sort((a, b) => a.date.localeCompare(b.date));
 }
 
-const useCalendarEvents = () => useQuery({
+export const useCalendarEvents = () => useQuery({
   queryKey: ["calendar-events"],
   queryFn: async () => {
     const { data, error } = await supabase.from("calendar_events").select("*").order("event_date");

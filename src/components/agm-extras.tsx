@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { money, niceDate } from "@/lib/format";
 import { Briefcase, Check, Coins, ExternalLink, FileText, Link2, Paperclip, Plus, ShieldCheck, Upload, Vote, Wrench, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -28,8 +29,6 @@ export type AgmContextData = {
   goTo?: (target: string) => void;
 };
 
-const money = (n: number | null | undefined) => n === null || n === undefined ? "—" : Number(n).toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
-const niceDate = (v: string | null) => v ? new Date(`${v.slice(0, 10)}T00:00:00`).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "—";
 const lotName = (l: VoterLot) => `Lot ${l.lot_number}${l.owner_name ? ` · ${l.owner_name}` : ""}`;
 
 // ─── Resolutions and votes ───────────────────────────────────────────────────

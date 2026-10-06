@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
+import { niceDate, daysUntil } from "@/lib/format";
 import { ArrowDown, ArrowLeft, ArrowUp, CalendarDays, Check, ChevronDown, Clock, Copy, Download, FileText, GripVertical, Lightbulb, MapPin, Pencil, Plus, Send, Trash2, Users, Video } from "lucide-react";
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -14,7 +15,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import type { Lot } from "@/routes/dashboard";
 import type { DocFile } from "@/components/documents";
-import { ensureStandardWidget, type ComplianceWidget, type Task } from "@/lib/action-publish";
 import { buildAgmMinutesPdf, buildAgmNoticePdf } from "@/lib/agm-pdf";
 import { ItemAttachments, ItemLinks, ResolutionPanel, linkSummary, resolutionSummary, type AgmAttachment, type AgmContextData, type ItemLink, type ResolutionType, type VoteChoice } from "@/components/agm-extras";
 
@@ -38,7 +38,6 @@ export type AgmMeeting = {
 export type AgmSuggestion = { id: string; meeting_id: string; lot_id: string | null; title: string; details: string | null; status: string; created_at: string };
 type AgmLot = Pick<Lot, "id" | "lot_number" | "owner_name" | "owner_email" | "entitlement_percent">;
 
-const AGM_WIDGET_SPEC = { key: "agm_notice", label: "AGM Notice", detail: "Written notice to every owner ahead of the annual general meeting." };
 const AGM_FOLDER = "AGM";
 const STAGES: AgmStage[] = ["Draft", "Notice sent", "Minutes", "Published"];
 const STAGE_LABEL: Record<AgmStage, string> = { Draft: "Agenda", "Notice sent": "Notice sent", Minutes: "Minutes", Published: "Published" };
@@ -56,8 +55,6 @@ const STANDARD_AGM_AGENDA: { label: string; notes: string }[] = [
   { label: "Close", notes: "" },
 ];
 
-const niceDate = (value: string) => new Date(value.length === 10 ? `${value}T00:00:00` : value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
-const daysUntil = (iso: string) => Math.ceil((new Date(`${iso}T00:00:00`).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 const stageOf = (m: AgmMeeting): AgmStage => m.stage ?? (m.status === "Published" ? "Published" : "Draft");
 const withIds = (agenda: AgendaItem[]) => agenda.map(a => ({ ...a, id: a.id ?? crypto.randomUUID() }));
 const lotLabel = (lot: AgmLot | undefined) => lot ? `Lot ${lot.lot_number}${lot.owner_name ? ` · ${lot.owner_name}` : ""}` : "A lot";
@@ -203,10 +200,10 @@ function AttendancePanel({ lots, attendance, editable, confirmedAt, onChange, on
   </div>;
 }
 
-function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents, isCommittee, schemeId, task, widgets, onBack, onChanged, ctx, attachments }: {
+function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents, isCommittee, schemeId, onBack, onChanged, ctx, attachments }: {
   meeting: AgmMeeting; scheme: { name: string; address: string | null } | null; lots: AgmLot[]; myLot: AgmLot | null;
   suggestions: AgmSuggestion[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
-  task: Task | undefined; widgets: ComplianceWidget[]; onBack: () => void; onChanged: () => void;
+  onBack: () => void; onChanged: () => void;
   ctx: AgmContextData; attachments: AgmAttachment[];
 }) {
   const stage = stageOf(meeting);
@@ -290,12 +287,6 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
   })) });
   const fileName = (kind: string) => `${kind} — ${(d.title.trim() || "AGM").replace(/[/\\]/g, "-")}.pdf`;
 
-  const completeObligation = async () => {
-    if (!schemeId) return;
-    const widget = widgets.find(w => w.standard_key === "agm_notice");
-    if (task) await supabase.from("compliance_tasks").update({ status: "Complete" }).eq("id", task.id);
-    else if (widget) await supabase.from("compliance_tasks").insert({ scheme_id: schemeId, widget_id: widget.id, task_name: widget.label, detail: widget.default_detail, due_date: new Date().toISOString().slice(0, 10), status: "Complete" });
-  };
 
   const sendNotice = async () => {
     if (!schemeId) return;
@@ -311,7 +302,6 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
       if (error) throw error;
       await supabase.from("notices").insert({ scheme_id: schemeId, pinned: true, lot_id: null, title: `Notice of AGM — ${d.title.trim()}`,
         message: `${d.meeting_date ? `${niceDate(d.meeting_date)}${d.meeting_time ? ` at ${d.meeting_time}` : ""}` : "Date to be confirmed"}${d.location ? ` · ${d.location}` : ""}. The notice and agenda are in Documents.` });
-      await completeObligation();
       downloadBlob(blob, name);
       const mail = noticeEmail({ ...meeting, ...d }, lots);
       setConfirmNotice(false); onChanged();
@@ -565,19 +555,11 @@ function SortableMeetingRow({ id, fresh = false, enabled, label, first, last, on
   </li>;
 }
 
-export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lots, myLot = null, scheme = null, suggestions = [], documents = [], onChanged, ctx = EMPTY_CTX, attachments = [] }: {
-  schemeId?: string | undefined; isCommittee: boolean; meetings: AgmMeeting[]; task: Task | undefined;
-  widgets: ComplianceWidget[]; lots: AgmLot[]; myLot?: AgmLot | null; scheme?: { name: string; address: string | null } | null;
+export function AgmSection({ schemeId, isCommittee, meetings, lots, myLot = null, scheme = null, suggestions = [], documents = [], onChanged, ctx = EMPTY_CTX, attachments = [] }: {
+  schemeId?: string | undefined; isCommittee: boolean; meetings: AgmMeeting[]; lots: AgmLot[]; myLot?: AgmLot | null; scheme?: { name: string; address: string | null } | null;
   suggestions?: AgmSuggestion[]; documents?: DocFile[]; onChanged: () => void;
   ctx?: AgmContextData; attachments?: AgmAttachment[];
 }) {
-  const bootstrapped = useRef(false);
-  useEffect(() => {
-    if (!schemeId || bootstrapped.current) return;
-    bootstrapped.current = true;
-    void ensureStandardWidget(schemeId, widgets, AGM_WIDGET_SPEC).then(created => { if (created) onChanged(); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemeId]);
 
   const [openId, setOpenId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<AgmMeeting | null>(null);
@@ -685,7 +667,7 @@ export function AgmSection({ schemeId, isCommittee, meetings, task, widgets, lot
 
     {open
       ? <MeetingNotebook key={open.id} meeting={open} scheme={scheme} lots={lots} myLot={myLot} suggestions={suggestions.filter(s => s.meeting_id === open.id)} ctx={ctx} attachments={attachments}
-          documents={documents} isCommittee={isCommittee} schemeId={schemeId} task={task} widgets={widgets} onBack={() => setOpenId(null)} onChanged={onChanged}/>
+          documents={documents} isCommittee={isCommittee} schemeId={schemeId} onBack={() => setOpenId(null)} onChanged={onChanged}/>
       : <Card className="mt-10 overflow-hidden">
           {sorted.length === 0
             ? <div className="p-10 text-center">

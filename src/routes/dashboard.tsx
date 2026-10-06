@@ -23,7 +23,7 @@ import { OverviewSection, type DashboardWidget, type Notice, type NoticeComment,
 import { FinanceSection, ensureDefaultFunds, type RecurringTx, type LevyReversal, type FinanceView, type FinanceBudget, type FinanceTx, type BudgetLineItem, type BudgetRevision } from "@/components/finance";
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
-import { nextAgm } from "@/lib/agm-date";
+import { agmNoticeDue, nextAgm } from "@/lib/agm-date";
 import { recordedFundBalances, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 import { AgmSection, type AgmMeeting, type AgmSuggestion } from "@/components/agm";
 import type { AgmAttachment } from "@/components/agm-extras";
@@ -56,7 +56,7 @@ const sections = [
   ["Documents", Files],
 ] as const;
 
-export const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
+export { money } from "@/lib/format";
 
 function DashboardPage() {
   const queryClient = useQueryClient();
@@ -377,7 +377,8 @@ function DashboardPage() {
   const myLot = myLotQuery.data ?? null;
   // The next AGM comes from the AGM tab's meetings, falling back to the date in Settings.
   const agmNext = nextAgm(agmMeetings.data ?? [], scheme.data?.next_agm_date ?? null);
-  const schemeWithAgm = scheme.data ? { ...scheme.data, next_agm_date: agmNext.date, next_agm_meeting_id: agmNext.meetingId } : null;
+  const noticeDue = agmNoticeDue(agmMeetings.data ?? []);
+  const schemeWithAgm = scheme.data ? { ...scheme.data, next_agm_date: agmNext.date, next_agm_meeting_id: agmNext.meetingId, agm_notice_due: noticeDue?.due ?? null } : null;
 
   useEffect(() => {
     if (!authChecked || !userId || scheme.isLoading || roleQuery.isLoading) return;
@@ -392,8 +393,6 @@ function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schemeId, budgetFunds.isLoading]);
 
-  const agmWidget = (complianceWidgets.data ?? []).find(w => w.standard_key === "agm_notice");
-  const currentAgmTask = agmWidget ? currentTaskFor(agmWidget, tasks.data ?? []) : undefined;
 
   if (!authChecked) return null;
 
@@ -405,7 +404,9 @@ function DashboardPage() {
         <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Dashboard sections">{sections.map(([label])=><Button key={label} size="sm" variant={active===label?"default":"ghost"} className="rounded-full px-3.5 text-xs font-medium transition-all duration-300" onClick={()=>setActive(label)}>{label}</Button>)}</nav>
         <div className="ml-auto flex items-center gap-1">
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings" onClick={()=>setActive("Settings")}><Settings /></Button>
-          <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo} overdrawnFunds={warnOverdrawn ? overdrawnFunds : []}/>
+          <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo} overdrawnFunds={warnOverdrawn ? overdrawnFunds : []}
+            levies={levies.data ?? []} notices={notices.data ?? []} transactions={activeTransactions} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []}
+            notifyLevyDue={schemeSettings.data?.notify_levy_due ?? true} agmNotice={noticeDue}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={()=>{ void supabase.auth.signOut().then(()=>navigate({ to: "/", replace: true })); }}><LogOut /></Button>
           <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav><div className="mt-4 border-t border-border/70 pt-4"><Button variant={active==="Settings"?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive("Settings")}><Settings/>Settings</Button></div></SheetContent></Sheet>
         </div>
@@ -428,8 +429,8 @@ function DashboardPage() {
         budgetLines={(budgetLineItems.data ?? []).map(l => ({ id: l.id, fund_id: l.fund_id, description: l.description, fy: (budgets.data ?? []).find(b => b.id === l.budget_id)?.financial_year ?? null }))}
         onChanged={()=>refresh(["repairs","documents","document-folders","finance","notices","contractors","budget-line-items"])}/>}
 
-      {active === "AGM" && <AgmSection schemeId={schemeId} isCommittee={isCommittee} meetings={agmMeetings.data ?? []}
-        task={currentAgmTask} widgets={complianceWidgets.data ?? []} lots={lots.data ?? []} myLot={myLot}
+      {active === "AGM" && <AgmSection schemeId={schemeId} isCommittee={isCommittee} meetings={agmMeetings.data ?? []} 
+        lots={lots.data ?? []} myLot={myLot}
         scheme={scheme.data ? { name: scheme.data.name, address: scheme.data.address ?? null } : null}
         suggestions={agmSuggestions.data ?? []} documents={documents.data ?? []} attachments={agmAttachments.data ?? []}
         ctx={{ orders: repairs.data ?? [], policies: policies.data ?? [], claims: claims.data ?? [], budgets: budgets.data ?? [],
@@ -574,12 +575,12 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged }: { lots: Lot[]; 
           <DialogDescription>Owner details on file for this lot.</DialogDescription>
         </DialogHeader>
         <div className="divide-y divide-border/70 text-sm">
-          {[["Owner", viewing?.owner_name || "Not recorded"],
+          {[["Owner", viewing?.owner_name || "—"],
             ["Entitlement", `${viewing?.entitlement_percent ?? 0}%`],
             ["Email", viewing?.owner_email || "No email on file"],
             ["Phone", viewing?.owner_phone || "No phone on file"],
             ["Address", viewing?.street_address || "No address on file"],
-            ["Occupancy", viewing?.occupied_status || "Not recorded"]].map(([label, value]) =>
+            ["Occupancy", viewing?.occupied_status || "—"]].map(([label, value]) =>
             <div key={label} className="flex items-center justify-between gap-6 py-3">
               <span className="text-[12px] uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
               <span className="text-right font-medium">{value}</span>

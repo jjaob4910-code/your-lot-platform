@@ -212,7 +212,7 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
             <Field label="Building name" value={scheme.name}/>
             <Field label="Address" value={scheme.address}/>
             <Field label="Total lots" value={String(scheme.total_lots)}/>
-            <Field label="Tier" value={scheme.tier ?? "Not recorded"}/>
+            <Field label="Tier" value={scheme.tier ?? "—"}/>
             <Field label="Next AGM" value={scheme.next_agm_date ? new Date(scheme.next_agm_date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "Not scheduled"}/>
           </div>
         : isCommittee

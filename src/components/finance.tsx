@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { money, niceDate, daysUntil } from "@/lib/format";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -134,9 +135,7 @@ const OUT_CATEGORIES = ["Repairs and maintenance", "Cleaning", "Gardening", "Uti
 const IN_CATEGORIES = ["Levy contribution", "Interest", "Reimbursement", "Fee or fine", "Other"];
 const STATUSES = ["Paid", "Approved", "Planned"];
 
-const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 const money2 = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const niceDate = (v: string) => new Date(v).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 const startYearOf = (iso: string) => { const d = new Date(iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
 const fyLabel = (startYear: number) => `${startYear}/${String(startYear + 1).slice(2)}`;
 
@@ -1171,7 +1170,6 @@ function BudgetHistoryDialog({ open, onOpenChange, budget, funds, revisions, onR
 }
 
 const effectiveLevyStatus = (levy: Levy) => (levy.status === "Pending" && daysUntil(levy.due_date) < 0 ? "Overdue" : levy.status);
-const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 
 export type LevyReversal = { id: string; levy_id: string; reason: string; actor_label: string | null; created_at: string };
 
