@@ -2,7 +2,10 @@
 // been on a committee.
 export const GLOSSARY = {
   oc: { term: "Owners corporation", text: "The legal group made up of every lot owner. It looks after the shared parts of the building and pays for them through levies." },
-  committee: { term: "Committee", text: "Owners elected at the AGM to run things day to day: budgets, repairs, insurance and records." },
+  committee: { term: "Committee", text: "Owners elected at the AGM to make decisions for the owners corporation between meetings: budgets, repairs, insurance and records." },
+  chairperson: { term: "Chairperson", text: "The committee member who chairs committee meetings and the AGM, and leads the committee's decisions." },
+  secretary: { term: "Secretary", text: "The committee member who keeps the records and minutes and sends notices to owners." },
+  manager: { term: "Building manager", text: "Someone the committee appoints to run the building day to day, often a professional owners corporation manager. They act for the committee, which still makes the big decisions." },
   levy: { term: "Levy", text: "Your share of the building's running costs, billed to each lot by the owners corporation." },
   entitlement: { term: "Lot entitlement", text: "Your lot's share of the building, set on the plan of subdivision. It decides how much of each levy you pay and how much your vote counts." },
   adminFund: { term: "Admin fund", text: "Money for regular running costs, like insurance, cleaning, gardening and power for common areas." },

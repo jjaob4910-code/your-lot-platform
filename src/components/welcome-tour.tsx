@@ -20,6 +20,12 @@ const ownerSteps = (building: string, lot: string | null, hasPayment: boolean): 
       ? "Levies are your share of the building's running costs. Here you'll see what you owe, when it's due, and the bank details to pay with your own reference."
       : "Levies are your share of the building's running costs. Here you'll see what you owe and when it's due. Your committee will add the bank details to pay.",
     expect: "The committee sends a levy notice before each due date and marks it paid once your money arrives." },
+  { tab: "Lots", title: "Who runs this building",
+    body: "Every lot owner, you included, is part of the owners corporation. The owners elect a committee to make decisions, and the committee may appoint a manager to run things day to day. Here's who they are and how to reach them.",
+    expect: "Questions about levies, repairs or the rules go to the manager, or to the Chairperson if there's no manager." },
+  { tab: "Dashboard", title: "Your responsibilities",
+    body: "As an owner you pay your levies on time, insure your own contents, follow the building's rules, report problems early and keep your contact details up to date. The full list is at the bottom of your dashboard.",
+    expect: "You can see all the building's records: the budget, every payment, every repair and every meeting." },
   { tab: "Work orders", title: "Report a problem",
     body: "Something broken in the common areas, or a leak into your lot? Report it here with a photo, and follow along as the committee gets it fixed.",
     expect: "For bigger jobs, owners may be asked to approve the spend. You'll get a notice and can vote right here." },
@@ -53,6 +59,21 @@ const committeeSteps = (building: string): Step[] => [
     expect: "You can replay this tour any time from Settings." },
 ];
 
+const managerSteps = (building: string): Step[] => [
+  { tab: "Dashboard", title: `Welcome, manager of ${building}`,
+    body: "The committee has appointed you to run this building day to day. You can do everything the committee can: levies, repairs, insurance, meetings and records.",
+    expect: "Owners see your name and contact details under Who runs this building, so they'll come to you first." },
+  { tab: "Finance", title: "Levies and the accounts",
+    body: "Send levy notices, mark payments, chase arrears and record expenses. Owners can read the budget and every payment, but only you and the committee can change them." },
+  { tab: "Work orders", title: "Repairs",
+    body: "Owners' reported problems land here. Collect quotes, ask owners to approve big spends, then record the payment." },
+  { tab: "AGM", title: "Meetings",
+    body: "Build the agenda, send the notice on time, take the minutes and publish them." },
+  { tab: "Dashboard", title: "All your buildings",
+    body: "If you manage more than one building, All buildings at the top shows every one of them, with what needs action first.",
+    expect: "You can replay this tour any time from Settings." },
+];
+
 const START_EVENT = "loty-start-tour";
 /** Opens the tour from anywhere, e.g. a "Take the tour" button. */
 export const startTour = () => window.dispatchEvent(new Event(START_EVENT));
@@ -60,12 +81,12 @@ export const startTour = () => window.dispatchEvent(new Event(START_EVENT));
 const seenKey = (userId: string, schemeId: string) => `loty-tour-${userId}-${schemeId}`;
 export const JUST_JOINED_KEY = "loty-just-joined";
 
-export function WelcomeTour({ userId, schemeId, isCommittee, ready, building, lot, hasPayment, goTo }: {
-  userId?: string | undefined; schemeId?: string | null | undefined; isCommittee: boolean; ready: boolean;
+export function WelcomeTour({ userId, schemeId, isCommittee, isManager = false, ready, building, lot, hasPayment, goTo }: {
+  userId?: string | undefined; schemeId?: string | null | undefined; isCommittee: boolean; isManager?: boolean; ready: boolean;
   building: string; lot: string | null; hasPayment: boolean; goTo: (tab: string) => void;
 }) {
   const [step, setStep] = useState<number | null>(null);
-  const steps = isCommittee ? committeeSteps(building) : ownerSteps(building, lot, hasPayment);
+  const steps = isManager ? managerSteps(building) : isCommittee ? committeeSteps(building) : ownerSteps(building, lot, hasPayment);
 
   // Owners always get it once; committee members only when they've just arrived by invite.
   useEffect(() => {

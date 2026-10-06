@@ -1789,9 +1789,9 @@ export type Database = {
         Relationships: []
       }
       scheme_members: {
-        Row: { created_at: string; id: string; lot_id: string | null; role: string; scheme_id: string; user_id: string }
-        Insert: { created_at?: string; id?: string; lot_id?: string | null; role: string; scheme_id: string; user_id: string }
-        Update: { created_at?: string; id?: string; lot_id?: string | null; role?: string; scheme_id?: string; user_id?: string }
+        Row: { company: string | null; created_at: string; id: string; lot_id: string | null; phone: string | null; role: string; scheme_id: string; user_id: string }
+        Insert: { company?: string | null; created_at?: string; id?: string; lot_id?: string | null; phone?: string | null; role: string; scheme_id: string; user_id: string }
+        Update: { company?: string | null; created_at?: string; id?: string; lot_id?: string | null; phone?: string | null; role?: string; scheme_id?: string; user_id?: string }
         Relationships: [
           { foreignKeyName: "scheme_members_scheme_id_fkey"; columns: ["scheme_id"]; isOneToOne: false; referencedRelation: "schemes"; referencedColumns: ["id"] },
         ]
@@ -2077,7 +2077,9 @@ export type Database = {
     Functions: {
       accept_invite: { Args: { _token: string }; Returns: string }
       building_finance_summary: { Args: { _scheme: string }; Returns: Json }
-      committee_contacts: { Args: { _scheme: string }; Returns: { name: string | null; committee_role: string | null; email: string | null; phone: string | null }[] }
+      committee_contacts: { Args: { _scheme: string }; Returns: { name: string | null; committee_role: string | null; email: string | null; phone: string | null; company: string | null; member_id: string }[] }
+      building_lots: { Args: { _scheme: string }; Returns: { id: string; lot_number: number; owner_name: string | null; entitlement_percent: number; occupancy: string | null; is_mine: boolean }[] }
+      portfolio_summary: { Args: Record<PropertyKey, never>; Returns: { scheme_id: string; name: string; address: string | null; role: string; total_lots: number; cash: number; levies_overdue: number; overdue_amount: number; open_work_orders: number; approvals_waiting: number; next_agm: string | null; agm_notice_sent: boolean | null; next_renewal: string | null; renewal_label: string | null }[] }
       create_building: { Args: { _name: string; _address: string; _total_lots: number }; Returns: string }
       create_invite: { Args: { _scheme: string; _role: string; _lot?: string | null }; Returns: string }
       can_manage_paid_finance: {

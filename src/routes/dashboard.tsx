@@ -1,3 +1,5 @@
+import { OPEN_TAB_KEY, PORTFOLIO_SEEN_KEY } from "@/lib/portfolio";
+import { WhoRunsCard } from "@/components/who-runs";
 import { WelcomeTour } from "@/components/welcome-tour";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -46,7 +48,7 @@ export const Route = createFileRoute("/dashboard")({
   component: DashboardPage,
 });
 
-type Membership = { scheme_id: string; role: "Committee" | "Owner"; lot_id: string | null; schemes: { id: string; name: string; address: string } | null };
+type Membership = { scheme_id: string; role: "Committee" | "Owner" | "Manager"; lot_id: string | null; schemes: { id: string; name: string; address: string } | null };
 const BUILDING_KEY = "loty-building";
 function pickMembership(list: Membership[]): Membership | undefined {
   let saved: string | null = null;
@@ -396,7 +398,9 @@ function DashboardPage() {
     onError: (e: Error) => { refresh(["levies"]); toast("Marked as paid, but could not record the transaction", { description: e.message }); },
   });
 
-  const isCommittee = membership?.role === "Committee";
+  // A manager can do everything the committee can.
+  const isManager = membership?.role === "Manager";
+  const isCommittee = membership?.role === "Committee" || isManager;
   const myLot = myLotQuery.data ?? null;
   // The next AGM comes from the AGM tab's meetings, falling back to the date in Settings.
   const agmNext = nextAgm(agmMeetings.data ?? [], scheme.data?.next_agm_date ?? null);
@@ -411,21 +415,38 @@ function DashboardPage() {
     if ((memberships.data ?? []).length === 0) navigate({ to: "/onboarding", replace: true });
   }, [authChecked, userId, memberships.isLoading, memberships.isError, memberships.data, navigate]);
 
+  // Managers and people in several buildings start on "My buildings", once per session.
+  const multi = (memberships.data ?? []).length > 1 || (memberships.data ?? []).some(m => m.role === "Manager");
+  useEffect(() => {
+    if (!multi) return;
+    let seen = true;
+    try { seen = sessionStorage.getItem(PORTFOLIO_SEEN_KEY) === "1"; } catch { /* storage unavailable */ }
+    if (!seen) navigate({ to: "/portfolio", replace: true });
+  }, [multi, navigate]);
+  // The portfolio can ask for a particular tab to open.
+  useEffect(() => {
+    try {
+      const tab = sessionStorage.getItem(OPEN_TAB_KEY);
+      if (tab) { sessionStorage.removeItem(OPEN_TAB_KEY); goTo(tab); }
+    } catch { /* storage unavailable */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fundsBootstrapped = useRef(false);
   useEffect(() => {
     // Only the committee can create funds; owners just read them.
-    if (!schemeId || membership?.role !== "Committee" || budgetFunds.isLoading || fundsBootstrapped.current) return;
+    if (!schemeId || !isCommittee || budgetFunds.isLoading || fundsBootstrapped.current) return;
     fundsBootstrapped.current = true;
     void ensureDefaultFunds(schemeId, budgetFunds.data?.length ?? 0).then(created => { if (created) refresh(["budget-funds"]); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemeId, membership?.role, budgetFunds.isLoading]);
+  }, [schemeId, isCommittee, budgetFunds.isLoading]);
 
 
   if (!authChecked) return null;
 
   return <div className="relative isolate min-h-screen bg-background">
     <Toaster />
-    <WelcomeTour userId={userId} schemeId={schemeId} isCommittee={isCommittee} goTo={goTo}
+    <WelcomeTour userId={userId} schemeId={schemeId} isCommittee={isCommittee} isManager={isManager} goTo={goTo}
       ready={!!scheme.data && !memberships.isLoading && !myLotQuery.isLoading}
       building={scheme.data?.name ?? "your building"} lot={myLot ? `Lot ${myLot.lot_number}` : null}
       hasPayment={!!paymentDetails(schemeSettings.data, 1)}/>
@@ -434,6 +455,7 @@ function DashboardPage() {
         <Link to="/" className="mr-2 flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0,1,2,3].map(i=><span key={i} className="rounded-[2px] bg-primary"/>)}</span><span className="hidden sm:inline">Loty</span></Link>
         <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Dashboard sections">{sections.map(([label])=><Button key={label} size="sm" variant={active===label?"default":"ghost"} className="rounded-full px-3.5 text-xs font-medium transition-all duration-300" onClick={()=>setActive(label)}>{label}</Button>)}</nav>
         <div className="ml-auto flex items-center gap-1">
+          {multi && <Button asChild size="sm" variant="ghost" className="hidden rounded-full sm:inline-flex"><Link to="/portfolio">All buildings</Link></Button>}
           {(memberships.data?.length ?? 0) > 1 && <select aria-label="Building" value={schemeId ?? ""} className="mr-1 max-w-[160px] truncate rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs"
             onChange={e => { try { localStorage.setItem(BUILDING_KEY, e.target.value); } catch { /* storage unavailable */ } window.location.reload(); }}>
             {(memberships.data ?? []).map(m => <option key={m.scheme_id} value={m.scheme_id}>{m.schemes?.name ?? "Building"}</option>)}
@@ -478,7 +500,7 @@ function DashboardPage() {
         onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets","agm-meetings","agm-suggestions","agm-attachments","notices"])}/>}
 
       {active === "Finance" && !isCommittee && <OwnerFinance schemeId={schemeId} levies={levies.data ?? []} myLotId={myLot?.id ?? null} payment={paymentDetails(schemeSettings.data, myLot?.lot_number)}
-        budgets={budgets.data ?? []} lineItems={budgetLineItems.data ?? []}/>}
+        budgets={budgets.data ?? []} lineItems={budgetLineItems.data ?? []} transactions={finance.data ?? []} funds={budgetFunds.data ?? []}/>}
       {active === "Finance" && isCommittee && <FinanceSection view={financeView} onViewChange={setFinanceView} transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
@@ -615,11 +637,11 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
   const [editing, setEditing] = useState<Lot | null>(null);
   const [viewing, setViewing] = useState<Lot | null>(null);
   const [inviting, setInviting] = useState<Lot | null>(null);
-  // Owners see only their own lot, plus how to reach the committee.
-  const contacts = useQuery({
-    queryKey: ["committee-contacts", schemeId],
+  // Owners see every lot (no contact details) from building_lots; the committee reads the table.
+  const ownerLots = useQuery({
+    queryKey: ["building-lots", schemeId],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("committee_contacts", { _scheme: schemeId! });
+      const { data, error } = await supabase.rpc("building_lots", { _scheme: schemeId! });
       if (error) throw error;
       return Array.isArray(data) ? data : [];
     },
@@ -627,11 +649,14 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
   });
   const total = lots.reduce((sum, l) => sum + Number(l.entitlement_percent || 0), 0);
   const totalOk = Math.abs(total - 100) < 0.01;
-  const visible = isCommittee ? lots : lots.filter(l => l.id === myLot?.id);
+  const visible: Lot[] = isCommittee ? lots
+    : ownerLots.data && ownerLots.data.length ? ownerLots.data.map(b => (b.is_mine && myLot ? myLot
+      : { id: b.id, lot_number: b.lot_number, owner_name: b.owner_name, entitlement_percent: b.entitlement_percent, occupied_status: b.occupancy ?? "", owner_email: null, owner_phone: null, street_address: null, owner_user_id: null } as unknown as Lot))
+    : lots.filter(l => l.id === myLot?.id);
 
   return <div>
-    <PageHead eyebrow="Your property" title={isCommittee ? "Lots" : "Your lot"}
-      blurb={isCommittee ? "Who owns what and who lives there. Invite each owner so they can see their levies and the building's notices." : "Your lot's details on file, and how to reach your committee."}
+    <PageHead eyebrow="Your property" title="Lots"
+      blurb={isCommittee ? "Who owns what and who lives there. Invite each owner so they can see their levies and the building's notices." : "Every lot in the building and its share of costs, and who runs the building. Other owners' contact details stay private."}
       action={isCommittee ? <Button className="rounded-full" onClick={()=>{ setEditing(null); setOpen(true); }}><Plus/> Add a lot</Button> : undefined}/>
     {isCommittee && lots.length > 0 && <p role="status" className={`mt-6 rounded-2xl px-4 py-3 text-[13px] ${totalOk ? "bg-secondary/50 text-muted-foreground" : "bg-amber-500/10 text-amber-800 dark:text-amber-300"}`}>
       {totalOk ? "Lot entitlements add up to 100%." : `Lot entitlements add up to ${Number(total.toFixed(3))}%. They should total 100% so levies and votes are shared correctly. Check them against your plan of subdivision.`} <Help term="entitlement"/>
@@ -639,31 +664,22 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
     <Card className="mt-6 overflow-hidden">
       <div className="divide-y divide-border/70">{visible.map(lot =>
         <div key={lot.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-muted/40 sm:px-7">
-          <button type="button" onClick={()=>setViewing(lot)} className="min-w-0 flex-1 text-left">
-            <p className="text-sm font-medium">Lot {lot.lot_number}{lot.owner_name ? ` · ${lot.owner_name}` : ""}</p>
-            <p className="mt-1 text-[12px] text-muted-foreground">{lot.entitlement_percent}% entitlement · {lot.occupied_status}{lot.owner_email ? ` · ${lot.owner_email}` : " · No email on file"}</p>
+          <button type="button" disabled={!isCommittee && lot.id !== myLot?.id} onClick={()=>setViewing(lot)} className="min-w-0 flex-1 text-left disabled:cursor-default">
+            <p className="text-sm font-medium">Lot {lot.lot_number}{lot.owner_name ? ` · ${lot.owner_name}` : ""}{!isCommittee && lot.id === myLot?.id && <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">Your lot</span>}</p>
+            <p className="mt-1 text-[12px] text-muted-foreground">{lot.entitlement_percent}% entitlement{lot.occupied_status ? ` · ${lot.occupied_status}` : ""}{isCommittee || lot.id === myLot?.id ? (lot.owner_email ? ` · ${lot.owner_email}` : " · No email on file") : ""}</p>
           </button>
           <div className="flex items-center gap-2">
             {isCommittee && (lot.owner_user_id
               ? <span className="rounded-full bg-emerald-600/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Joined</span>
               : <><span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">Not joined yet</span>
                   <Button type="button" size="sm" variant="outline" className="h-8 rounded-full" onClick={() => setInviting(lot)}>Invite</Button></>)}
-            <Button type="button" size="sm" variant="ghost" className="h-8 rounded-full" onClick={()=>setViewing(lot)}>Details</Button>
+            {(isCommittee || lot.id === myLot?.id) && <Button type="button" size="sm" variant="ghost" className="h-8 rounded-full" onClick={()=>setViewing(lot)}>Details</Button>}
           </div>
         </div>)}
         {visible.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">{isCommittee ? "No lots yet. Add your first lot to start billing levies." : "Your lot isn't linked to your account yet. Ask your committee to invite you, or to put your email on your lot."}</p>}
       </div>
     </Card>
-    {!isCommittee && <Card className="mt-6 p-5 sm:p-7">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Your committee</p>
-      <ul className="mt-3 divide-y divide-border/70">
-        {(contacts.data ?? []).map((c, i) => <li key={i} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
-          <span><span className="font-medium">{c.name ?? "Committee member"}</span>{c.committee_role ? <span className="text-muted-foreground"> · {c.committee_role}</span> : null}</span>
-          <span className="text-[13px] text-muted-foreground">{[c.email, c.phone].filter(Boolean).join(" · ")}</span>
-        </li>)}
-        {contacts.isSuccess && contacts.data.length === 0 && <li className="py-2.5 text-sm text-muted-foreground">No committee contacts on file yet.</li>}
-      </ul>
-    </Card>}
+    <div className="mt-6"><WhoRunsCard schemeId={schemeId}/></div>
     <Dialog open={!!viewing} onOpenChange={(o)=>{ if (!o) setViewing(null); }}>
       <DialogContent>
         <DialogHeader>
