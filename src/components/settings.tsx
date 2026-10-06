@@ -10,11 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { InviteDialog } from "@/components/invite";
+import { paymentDetails } from "@/lib/payment";
 
 export type SchemeSettings = {
   id: string; scheme_id: string;
   notify_new_work_order: boolean; notify_new_document: boolean; notify_levy_due: boolean;
   currency_code: string; date_format: string;
+  pay_account_name?: string | null; pay_bsb?: string | null; pay_account_number?: string | null; pay_reference?: string; pay_other?: string | null;
 };
 export type CommitteeRole = { id: string; lot_id: string; role: string };
 
@@ -22,8 +24,6 @@ type Scheme = { id: string; name: string; address: string; total_lots: number; t
 type Lot = { id: string; lot_number: number; owner_name: string | null; owner_email: string | null; owner_phone: string | null; entitlement_percent: number };
 
 const ROLE_OPTIONS = ["Chairperson", "Secretary", "Treasurer", "Member"];
-const CURRENCIES = ["AUD", "NZD", "USD"];
-const DATE_FORMATS = ["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"];
 
 function PageHead({ eyebrow, title, blurb }: { eyebrow: string; title: string; blurb: string }) {
   return <div className="max-w-2xl">
@@ -82,7 +82,7 @@ function SchemeDialog({ open, onOpenChange, scheme, onSaved }: {
         <div className="space-y-2"><Label htmlFor="address">Address</Label><Input id="address" name="address" defaultValue={scheme.address} required/></div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="total_lots">Total lots</Label><Input id="total_lots" name="total_lots" type="number" min="1" defaultValue={scheme.total_lots} required/></div>
-          <div className="space-y-2"><Label htmlFor="tier">Tier</Label><Input id="tier" name="tier" defaultValue={scheme.tier ?? ""} placeholder="Tier 3"/>
+          <div className="space-y-2"><Label htmlFor="tier">Loty plan</Label><Input id="tier" name="tier" defaultValue={scheme.tier ?? ""} placeholder="Tier 3"/>
             <p className="text-[12px] text-muted-foreground">Your owners corporation's tier (1–5) under Victorian law, set by lot count and annual fees. It decides some reporting and audit duties.</p></div>
         </div>
         {/* Once a meeting is scheduled in the AGM tab, that meeting's date is the one used everywhere. */}
@@ -126,7 +126,7 @@ function CreateSchemeDialog({ open, onOpenChange, onSaved }: {
         <div className="space-y-2"><Label htmlFor="new_address">Address</Label><Input id="new_address" name="address" placeholder="12 Banksia Street, Brunswick VIC 3056" required/></div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2"><Label htmlFor="new_total_lots">Total lots</Label><Input id="new_total_lots" name="total_lots" type="number" min="1" defaultValue={1} required/></div>
-          <div className="space-y-2"><Label htmlFor="new_tier">Tier</Label><Input id="new_tier" name="tier" placeholder="Tier 3"/></div>
+          <div className="space-y-2"><Label htmlFor="new_tier">Loty plan</Label><Input id="new_tier" name="tier" placeholder="Tier 3"/></div>
         </div>
         <div className="space-y-2"><Label htmlFor="new_next_agm_date">Next AGM date</Label><Input id="new_next_agm_date" name="next_agm_date" type="date"/></div>
         <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full">Create building</Button></div>
@@ -167,10 +167,49 @@ function AddRoleDialog({ open, onOpenChange, lots, onSaved }: {
             <SelectContent>{ROLE_OPTIONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full" disabled={!lotId}>Add role</Button></div>
+        <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full" disabled={!lotId}>Give committee role</Button></div>
       </form>
     </DialogContent>
   </Dialog>;
+}
+
+// Where owners send their levy payments. Owners see this on their Finance page, levy invoices
+// and reminder emails, with their own lot's reference filled in.
+function PaymentDetailsCard({ settings, onSave }: { settings: SchemeSettings | null; onSave: (patch: Partial<Omit<SchemeSettings, "id" | "scheme_id">>) => Promise<void> }) {
+  const [draft, setDraft] = useState({
+    pay_account_name: settings?.pay_account_name ?? "", pay_bsb: settings?.pay_bsb ?? "", pay_account_number: settings?.pay_account_number ?? "",
+    pay_reference: settings?.pay_reference ?? "LOT{lot}", pay_other: settings?.pay_other ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft(d => ({ ...d, [k]: e.target.value }));
+  const preview = paymentDetails(draft, 1);
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    if (draft.pay_bsb && !/^\d{3}-?\d{3}$/.test(draft.pay_bsb.trim())) { toast("Check the BSB", { description: "A BSB is six digits, like 063-000." }); return; }
+    setSaving(true);
+    await onSave({
+      pay_account_name: draft.pay_account_name.trim() || null, pay_bsb: draft.pay_bsb.trim() || null, pay_account_number: draft.pay_account_number.trim() || null,
+      pay_reference: draft.pay_reference.trim() || "LOT{lot}", pay_other: draft.pay_other.trim() || null,
+    });
+    setSaving(false); toast("Payment details saved", { description: "Owners will see them on their Finance page and invoices." });
+  };
+  return <Card className="mt-6 overflow-hidden">
+    <SectionHeading title="How owners pay" blurb="The building's bank account for levies. Owners see this on their Finance page, invoices and reminders, with their own reference."/>
+    <form onSubmit={save} className="grid gap-4 p-7 sm:grid-cols-2">
+      <div className="space-y-2"><Label htmlFor="pay_account_name">Account name</Label><Input id="pay_account_name" value={draft.pay_account_name} onChange={set("pay_account_name")} placeholder="Harbour View Owners Corporation"/></div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2"><Label htmlFor="pay_bsb">BSB</Label><Input id="pay_bsb" value={draft.pay_bsb} onChange={set("pay_bsb")} placeholder="063-000" inputMode="numeric"/></div>
+        <div className="space-y-2"><Label htmlFor="pay_account_number">Account number</Label><Input id="pay_account_number" value={draft.pay_account_number} onChange={set("pay_account_number")} placeholder="1234 5678" inputMode="numeric"/></div>
+      </div>
+      <div className="space-y-2"><Label htmlFor="pay_reference">Payment reference</Label><Input id="pay_reference" value={draft.pay_reference} onChange={set("pay_reference")}/>
+        <p className="text-[12px] text-muted-foreground">{"{lot}"} becomes the lot number, so each owner gets their own reference. Lot 1 would use “{preview?.reference ?? draft.pay_reference.replace(/\{lot\}/gi, "1")}”.</p></div>
+      <div className="space-y-2"><Label htmlFor="pay_other">Other ways to pay (optional)</Label><Input id="pay_other" value={draft.pay_other} onChange={set("pay_other")} placeholder="PayID: levies@harbourview.org"/></div>
+      <div className="flex items-center justify-end gap-2 sm:col-span-2">
+        {!preview && <p className="mr-auto text-[12px] text-amber-700 dark:text-amber-300">Owners can't see how to pay until a BSB and account number (or another way to pay) are added.</p>}
+        <Button type="submit" className="rounded-full" disabled={saving}>{saving ? "Saving…" : "Save payment details"}</Button>
+      </div>
+    </form>
+  </Card>;
 }
 
 export function SettingsSection({ scheme, lots, committeeRoles, settings, isCommittee, schemeId, userId, notifyFundOverdrawn = true, onChanged }: {
@@ -206,10 +245,10 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
   };
 
   return <div>
-    <PageHead eyebrow="Your property" title="Settings" blurb="Your building's details, who holds a committee role, and how Loty notifies and formats things for everyone."/>
+    <PageHead eyebrow="Your property" title="Settings" blurb={isCommittee ? "Your building's details, how owners pay, who's on the committee, and how Loty notifies people." : "Your building's details and your own notification choices."}/>
 
     <Card className="mt-10 overflow-hidden">
-      <SectionHeading title="Building details" blurb="The basics your owners and levies are built around."
+      <SectionHeading title={isCommittee ? "Building details" : "Your building"} blurb={isCommittee ? "The basics your owners and levies are built around." : "Run by your owners corporation committee."}
         action={isCommittee && scheme ? <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" className="rounded-full" onClick={()=>navigate({ to: "/onboarding" })}><Compass className="size-3.5"/>Run setup guide</Button>
           <Button variant="outline" size="sm" className="rounded-full" onClick={()=>setEditingScheme(true)}><Pencil className="size-3.5"/>Edit</Button>
@@ -218,8 +257,8 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
         ? <div className="grid gap-5 p-7 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Building name" value={scheme.name}/>
             <Field label="Address" value={scheme.address}/>
-            <Field label="Total lots" value={String(scheme.total_lots)}/>
-            <Field label="Tier" value={scheme.tier ?? "—"}/>
+            {isCommittee && <Field label="Total lots" value={String(scheme.total_lots)}/>}
+            {isCommittee && <Field label="Loty plan" value={scheme.tier ?? "—"}/>}
             <Field label="Next AGM" value={scheme.next_agm_date ? new Date(scheme.next_agm_date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "Not scheduled"}/>
           </div>
         : isCommittee
@@ -230,11 +269,14 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
           : <p className="p-7 text-sm text-muted-foreground">No building set up yet.</p>}
     </Card>
 
+    {isCommittee && scheme && <PaymentDetailsCard settings={settings} onSave={setPreference}/>}
+
+    {isCommittee && <>
     <Card className="mt-6 overflow-hidden">
       <SectionHeading title="People & roles" blurb="Owners on record and who holds a committee position."
         action={isCommittee ? <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" className="rounded-full" onClick={()=>setInvitingCommittee(true)}>Invite a committee member</Button>
-          {lots.length > 0 && <Button size="sm" className="rounded-full" onClick={()=>setAddingRole(true)}><Plus className="size-3.5"/>Add role</Button>}
+          <Button size="sm" variant="outline" className="rounded-full" onClick={()=>setInvitingCommittee(true)}>Send a committee invite link</Button>
+          {lots.length > 0 && <Button size="sm" className="rounded-full" onClick={()=>setAddingRole(true)}><Plus className="size-3.5"/>Give someone a committee role</Button>}
         </div> : undefined}/>
       <InviteDialog open={invitingCommittee} onOpenChange={setInvitingCommittee} schemeId={schemeId} role="Committee" buildingName={scheme?.name}/>
       <div className="divide-y divide-border/70">{lots.map(lot =>
@@ -258,6 +300,7 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
         </div>
       </div>
     </Card>
+    </>}
 
     <Card className="mt-6 overflow-hidden">
       <SectionHeading title="My notifications" blurb="Just for you. Everyone chooses their own."/>
@@ -267,36 +310,22 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
       </div>
     </Card>
 
+    {isCommittee && <>
     <Card className="mt-6 overflow-hidden">
-      <SectionHeading title="App preferences" blurb="Notifications, currency and date format for everyone viewing this building."/>
+      <SectionHeading title="Building notifications" blurb="What the bell shows for everyone in this building."/>
       <div className="divide-y divide-border/70">
         {([
-          ["notify_new_work_order", "New work order notices", "Notify when a repair or maintenance request comes in."],
-          ["notify_new_document", "New document notices", "Notify when a file is added to Documents."],
-          ["notify_levy_due", "Levy due reminders", "Notify as a levy's due date approaches."],
+          ["notify_new_work_order", "New work orders", "Show the committee each new repair or job in the bell for a week."],
+          ["notify_new_document", "New documents", "Show newly added documents in the bell for a week. Owners only see ones shared with them."],
+          ["notify_levy_due", "Levy reminders", "Remind people when a levy is due within two weeks or overdue."],
         ] as const).map(([key, label, blurb]) =>
           <div key={key} className="flex items-center justify-between gap-4 px-7 py-4">
             <div><p className="text-sm font-medium">{label}</p><p className="mt-1 text-[12px] text-muted-foreground">{blurb}</p></div>
             <Switch checked={settings?.[key] ?? true} disabled={!isCommittee} onCheckedChange={(checked)=>{ void setPreference({ [key]: checked } as Partial<SchemeSettings>); }}/>
           </div>)}
-        <div className="grid gap-5 px-7 py-5 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Currency</Label>
-            <Select value={settings?.currency_code ?? "AUD"} disabled={!isCommittee} onValueChange={(v)=>{ void setPreference({ currency_code: v }); }}>
-              <SelectTrigger className="w-full"><SelectValue/></SelectTrigger>
-              <SelectContent>{CURRENCIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Date format</Label>
-            <Select value={settings?.date_format ?? "DD/MM/YYYY"} disabled={!isCommittee} onValueChange={(v)=>{ void setPreference({ date_format: v }); }}>
-              <SelectTrigger className="w-full"><SelectValue/></SelectTrigger>
-              <SelectContent>{DATE_FORMATS.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-        </div>
       </div>
     </Card>
+    </>}
 
     {scheme && <SchemeDialog open={editingScheme} onOpenChange={setEditingScheme} scheme={scheme} onSaved={onChanged}/>}
     {creatingScheme && <CreateSchemeDialog open={creatingScheme} onOpenChange={setCreatingScheme} onSaved={onChanged}/>}

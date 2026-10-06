@@ -9,9 +9,10 @@ const asDate = (v: string) => new Date(v.length === 10 ? `${v}T00:00:00` : v);
 export const money = (n: Maybe<number>) =>
   n === null || n === undefined ? "—" : Number(n).toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 
-/** Dollars and cents where amounts are exact (ledger entries, quotes, claims), e.g. "$1,234.50". */
+/** Dollars and cents where amounts are exact (ledger entries, quotes, claims), e.g. "$1,234.50"; whole amounts drop the ".00". */
 export const moneyCents = (n: Maybe<number>) =>
-  n === null || n === undefined ? "—" : Number(n).toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 2 });
+  n === null || n === undefined ? "—"
+    : Number(n).toLocaleString("en-AU", { style: "currency", currency: "AUD", minimumFractionDigits: Number.isInteger(Number(n)) ? 0 : 2, maximumFractionDigits: 2 });
 
 /** "30 Nov 2026". */
 export const niceDate = (v: Maybe<string>) =>

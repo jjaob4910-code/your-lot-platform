@@ -24,6 +24,8 @@ import { FinanceSection, ensureDefaultFunds, shareAmount, type RecurringTx, type
 import { SettingsSection, type SchemeSettings, type CommitteeRole } from "@/components/settings";
 import { NotificationsBell } from "@/components/notifications";
 import { InviteDialog } from "@/components/invite";
+import { Help } from "@/components/help";
+import { paymentDetails, setCurrentPaySettings } from "@/lib/payment";
 import { OwnerFinance } from "@/components/owner-finance";
 import { agmNoticeDue, nextAgm } from "@/lib/agm-date";
 import { budgetStartYear, currentFinancialYearStart, recordedFundBalances, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
@@ -398,6 +400,7 @@ function DashboardPage() {
   // The next AGM comes from the AGM tab's meetings, falling back to the date in Settings.
   const agmNext = nextAgm(agmMeetings.data ?? [], scheme.data?.next_agm_date ?? null);
   const noticeDue = agmNoticeDue(agmMeetings.data ?? []);
+  setCurrentPaySettings(schemeSettings.data);
   const schemeWithAgm = scheme.data ? { ...scheme.data, next_agm_date: agmNext.date, next_agm_meeting_id: agmNext.meetingId, agm_notice_due: noticeDue?.due ?? null,
     renewals: (policies.data ?? []).filter(p => p.renewal_date).map(p => ({ id: p.id, label: p.policy_type, date: p.renewal_date!.slice(0, 10) })) } : null;
 
@@ -434,6 +437,8 @@ function DashboardPage() {
           <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo} overdrawnFunds={warnOverdrawn ? overdrawnFunds : []}
             levies={levies.data ?? []} notices={notices.data ?? []} transactions={activeTransactions} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []}
             notifyLevyDue={schemeSettings.data?.notify_levy_due ?? true} agmNotice={noticeDue}
+            orders={repairs.data ?? []} documents={documents.data ?? []}
+            notifyNewWorkOrder={schemeSettings.data?.notify_new_work_order ?? true} notifyNewDocument={schemeSettings.data?.notify_new_document ?? true}
             renewals={(policies.data ?? []).filter(p => p.renewal_date).map(p => ({ id: p.id, label: p.policy_type, date: p.renewal_date!.slice(0, 10) }))}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={()=>{ void supabase.auth.signOut().then(()=>navigate({ to: "/", replace: true })); }}><LogOut /></Button>
           <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav><div className="mt-4 border-t border-border/70 pt-4"><Button variant={active==="Settings"?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive("Settings")}><Settings/>Settings</Button></div></SheetContent></Sheet>
@@ -442,7 +447,7 @@ function DashboardPage() {
     </header>
 
     <main className="mx-auto max-w-[1500px] px-4 pb-32 pt-10 sm:px-7 sm:pt-14">
-      {active === "Dashboard" && <OverviewSection lots={lots.data ?? []} firstName={(myLot?.owner_name || String(session?.user?.user_metadata?.["display_name"] ?? "")).trim().split(/\s+/)[0] || undefined}
+      {active === "Dashboard" && <OverviewSection lots={lots.data ?? []} hasPayment={!!paymentDetails(schemeSettings.data, 1)} firstName={(myLot?.owner_name || String(session?.user?.user_metadata?.["display_name"] ?? "")).trim().split(/\s+/)[0] || undefined}
         scheme={schemeWithAgm} levies={levies.data ?? []} funds={budgetFunds.data ?? []} transactions={activeTransactions}
         balances={recordedBalances} budgets={budgets.data ?? []} meetings={agmMeetings.data ?? []} policies={policies.data ?? []} userId={userId}
         tasks={tasks.data ?? []} complianceWidgets={complianceWidgets.data ?? []} repairs={repairs.data ?? []} myLot={myLot} notices={notices.data ?? []} noticeComments={noticeComments.data ?? []}
@@ -467,7 +472,7 @@ function DashboardPage() {
           levies: levies.data ?? [], funds: budgetFunds.data ?? [], fundBalances: recordedBalances, goTo }}
         onChanged={()=>refresh(["tasks","documents","document-folders","compliance-widgets","agm-meetings","agm-suggestions","agm-attachments","notices"])}/>}
 
-      {active === "Finance" && !isCommittee && <OwnerFinance schemeId={schemeId} levies={levies.data ?? []} myLotId={myLot?.id ?? null}
+      {active === "Finance" && !isCommittee && <OwnerFinance schemeId={schemeId} levies={levies.data ?? []} myLotId={myLot?.id ?? null} payment={paymentDetails(schemeSettings.data, myLot?.lot_number)}
         budgets={budgets.data ?? []} lineItems={budgetLineItems.data ?? []}/>}
       {active === "Finance" && isCommittee && <FinanceSection view={financeView} onViewChange={setFinanceView} transactions={finance.data ?? []} budgets={budgets.data ?? []} levies={levies.data ?? []}
         revisions={budgetRevisions.data ?? []} lineItems={budgetLineItems.data ?? []} lots={lots.data ?? []} funds={budgetFunds.data ?? []} documents={documents.data ?? []}
@@ -510,7 +515,7 @@ function StatusPill({ status }: { status: string }) {
   const tone = status === "Overdue" ? "bg-destructive/10 text-destructive"
     : status === "Paid" || status === "Complete" ? "bg-primary/10 text-primary"
     : "bg-secondary text-muted-foreground";
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${tone}`}>{status}</span>;
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${tone}`}>{status === "Pending" ? "To pay" : status}</span>;
 }
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -624,7 +629,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
       blurb={isCommittee ? "Who owns what and who lives there. Invite each owner so they can see their levies and the building's notices." : "Your lot's details on file, and how to reach your committee."}
       action={isCommittee ? <Button className="rounded-full" onClick={()=>{ setEditing(null); setOpen(true); }}><Plus/> Add a lot</Button> : undefined}/>
     {isCommittee && lots.length > 0 && <p role="status" className={`mt-6 rounded-2xl px-4 py-3 text-[13px] ${totalOk ? "bg-secondary/50 text-muted-foreground" : "bg-amber-500/10 text-amber-800 dark:text-amber-300"}`}>
-      {totalOk ? "Lot entitlements add up to 100%." : `Lot entitlements add up to ${Number(total.toFixed(3))}%. They should total 100% so levies and votes are shared correctly. Check them against your plan of subdivision.`}
+      {totalOk ? "Lot entitlements add up to 100%." : `Lot entitlements add up to ${Number(total.toFixed(3))}%. They should total 100% so levies and votes are shared correctly. Check them against your plan of subdivision.`} <Help term="entitlement"/>
     </p>}
     <Card className="mt-6 overflow-hidden">
       <div className="divide-y divide-border/70">{visible.map(lot =>
@@ -669,7 +674,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
             ["Occupancy", viewing?.occupied_status || "—"],
             ...(isCommittee ? [["On Loty", viewing?.owner_user_id ? "Joined" : "Not joined yet"]] : [])].map(([label, value]) =>
             <div key={label} className="flex items-center justify-between gap-6 py-3">
-              <span className="text-[12px] uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
+              <span className="flex items-center gap-1 text-[12px] uppercase tracking-[0.12em] text-muted-foreground">{label}{label === "Entitlement" && <Help term="entitlement"/>}</span>
               <span className="text-right font-medium">{value}</span>
             </div>)}
         </div>

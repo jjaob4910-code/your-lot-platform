@@ -1,4 +1,7 @@
+import { HowItWorks } from "./how-it-works";
 import { useEffect, useState, type FormEvent } from "react";
+import { Help } from "@/components/help";
+import type { GlossaryKey } from "@/lib/glossary";
 import { money, niceDate, daysUntil } from "@/lib/format";
 import { FileText, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -37,9 +40,9 @@ function PageHead({ eyebrow, title, blurb, action }: { eyebrow: string; title: s
   </div>;
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, help }: { label: string; value: string; help?: GlossaryKey }) {
   return <div>
-    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+    <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}{help && <Help term={help}/>}</p>
     <p className="mt-1.5 text-sm">{value}</p>
   </div>;
 }
@@ -228,12 +231,13 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
   };
 
   return <div>
-    <PageHead eyebrow="Your property" title="Insurance" blurb="Every policy on your building in one place: who underwrites it, what it cost, the policy number and when it renews. Attach the policy documents and they file themselves under Insurance in your documents."
+    <PageHead eyebrow="Your property" title="Insurance" blurb={isCommittee ? "Every policy on your building in one place: who underwrites it, what it cost, the policy number and when it renews. Attach the policy documents and they file themselves under Insurance in your documents." : "What the building is insured for, when it renews, and any claims in progress."}
       action={isCommittee ? <Button className="rounded-full" onClick={()=>{ setEditing(null); setOpen(true); }}><Plus/> Add a policy</Button> : undefined}/>
 
+    <HowItWorks page="insurance" committee={isCommittee}/>
     <div className="mt-10 grid gap-4 sm:grid-cols-3">
       <Card className="p-6">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Sum insured (building)</p>
+        <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Sum insured (building) <Help term="sumInsured"/></p>
         <p className="mt-3 text-3xl font-medium tracking-[-0.03em]">{building ? money(building.sum_insured) : "—"}</p>
         <p className="mt-2 text-[12px] text-muted-foreground">{building?.insurer ?? "No building policy recorded yet"}</p>
       </Card>
@@ -279,12 +283,12 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
           </div>
 
           <div className="mt-6 grid gap-5 border-t border-border/70 pt-6 sm:grid-cols-3 lg:grid-cols-4">
-            <Field label="Sum insured" value={money(policy.sum_insured)}/>
-            <Field label="Annual premium" value={money(policy.premium)}/>
-            <Field label="Excess" value={money(policy.excess)}/>
+            <Field label="Sum insured" value={money(policy.sum_insured)} help="sumInsured"/>
+            <Field label="Annual premium" value={money(policy.premium)} help="premium"/>
+            <Field label="Excess" value={money(policy.excess)} help="excess"/>
             <Field label="Cover starts" value={niceDate(policy.start_date)}/>
             <Field label="Renews" value={niceDate(policy.renewal_date)}/>
-            <Field label="Broker" value={policy.broker ?? "—"}/>
+            <Field label="Broker" value={policy.broker ?? "—"} help="broker"/>
             <Field label="Broker contact" value={policy.broker_contact ?? "—"}/>
             <Field label="Policy number" value={policy.policy_number ?? "—"}/>
           </div>

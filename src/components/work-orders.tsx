@@ -1,4 +1,7 @@
+import { HowItWorks } from "./how-it-works";
 import { financialYearOf } from "@/lib/fund-balance";
+import { Help } from "@/components/help";
+import type { GlossaryKey } from "@/lib/glossary";
 import { niceDate, moneyCents as money } from "@/lib/format";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -205,7 +208,7 @@ function StepProgress({ steps }: { steps: WorkOrderStep[] }) {
   </div>;
 }
 
-export function WorkOrderTable({ orders, lots = [], onOpen }: { orders: WorkOrder[]; lots?: WorkOrderLot[]; onOpen: (order: WorkOrder) => void }) {
+export function WorkOrderTable({ orders, lots = [], onOpen, isCommittee = false }: { orders: WorkOrder[]; lots?: WorkOrderLot[]; onOpen: (order: WorkOrder) => void; isCommittee?: boolean }) {
   if (orders.length === 0) return <p className="px-7 py-10 text-center text-sm text-muted-foreground">Nothing logged yet.</p>;
   return <div className="divide-y divide-border/70">{orders.map(order => {
     const steps = sortedSteps(order);
@@ -221,7 +224,7 @@ export function WorkOrderTable({ orders, lots = [], onOpen }: { orders: WorkOrde
           {lotsLabel(order, lots)} · Logged {niceDate(order.created_at)}
           {order.priority !== "Normal" ? ` · ${order.priority} priority` : ""}
         </p>
-        <div className="mt-3 max-w-xs">{steps.length > 0 ? <StepProgress steps={steps}/> : <p className="text-[12px] text-muted-foreground">Waiting for the committee to set up steps</p>}</div>
+        <div className="mt-3 max-w-xs">{steps.length > 0 ? <StepProgress steps={steps}/> : <p className="text-[12px] text-muted-foreground">{isCommittee ? "Open to add the steps for this job" : "The committee has this and will add the next steps"}</p>}</div>
       </div>
       <div className="flex items-center gap-3">
         {complete ? <WorkOrderPill status="Complete"/> : next ? <span className="text-[12px] font-medium">Next: {next.label}</span> : <WorkOrderPill status={order.status}/>}
@@ -394,7 +397,7 @@ function NewWorkOrderDialog({ open, onOpenChange, lots, isCommittee, myLot, sche
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[600px]">
       <DialogHeader>
-        <DialogTitle className="font-display tracking-[-0.02em]">New work order</DialogTitle>
+        <DialogTitle className="font-display tracking-[-0.02em]">{isCommittee ? "New work order" : "Report a problem"}</DialogTitle>
         <DialogDescription>{isCommittee ? "Record works for the building, or a task the committee needs to see through." : "Let the committee know about something that needs attention."}</DialogDescription>
       </DialogHeader>
       <form onSubmit={submit} className="space-y-4">
@@ -451,7 +454,7 @@ function NewWorkOrderDialog({ open, onOpenChange, lots, isCommittee, myLot, sche
               {lots.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted-foreground">No lots set up yet.</p>}
             </div>}
           </div>
-          <div className="space-y-2"><Label>Approval requirement</Label>
+          <div className="space-y-2"><Label className="flex items-center gap-1">Approval requirement <Help term="approval"/></Label>
             <Select value={approval} onValueChange={v => setApproval(v as "no" | "yes")}><SelectTrigger><SelectValue/></SelectTrigger>
               <SelectContent>
                 <SelectItem value="no">Committee can proceed</SelectItem>
@@ -590,16 +593,17 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
   const completed = orders.filter(isDone);
 
   return <div>
-    <PageHead eyebrow="Your property" title="Work orders" blurb="Log a repair, collect quotes, get owners' approval if it's needed, then pay it. Payments are recorded in Finance for you. For anything else the committee needs to see through, log a task with your own steps."
-      action={<Button className="rounded-full" onClick={() => setOpen(true)}><Plus/> New work order</Button>}/>
+    <PageHead eyebrow="Your property" title="Work orders" blurb={isCommittee ? "Log a repair, collect quotes, get owners' approval if it's needed, then pay it. Payments are recorded in Finance for you. For anything else the committee needs to see through, log a task with your own steps." : "Report a problem in your lot or the common areas, and follow repairs the committee is handling."}
+      action={<Button className="rounded-full" onClick={() => setOpen(true)}><Plus/> {isCommittee ? "New work order" : "Report a problem"}</Button>}/>
 
+    <HowItWorks page="workOrders" committee={isCommittee}/>
     <NewWorkOrderDialog open={open} onOpenChange={setOpen} lots={lots} isCommittee={isCommittee} myLot={myLot} schemeId={schemeId}
       onCreated={result => { onChanged(); if (result.approvalLots.length > 0) setPendingNotify(result); }}/>
     <NotifyOwnersDialog pending={pendingNotify} schemeId={schemeId} onClose={() => setPendingNotify(null)} onSent={onChanged}/>
 
     <Card className="mt-10 overflow-hidden">
       <div className="border-b border-border/70 px-5 py-4 sm:px-7"><p className="text-sm font-medium">Active <span className="text-muted-foreground">· {active.length}</span></p></div>
-      <WorkOrderTable orders={active} lots={lots} onOpen={o => setViewing(o.id)}/>
+      <WorkOrderTable orders={active} lots={lots} isCommittee={isCommittee} onOpen={o => setViewing(o.id)}/>
     </Card>
 
     <Card className="mt-4 overflow-hidden">
@@ -608,10 +612,10 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
         <p className="text-sm font-medium">Completed <span className="text-muted-foreground">· {completed.length}</span></p>
         <ChevronDown className={`size-4 text-muted-foreground transition-transform ${showCompleted ? "rotate-180" : ""}`}/>
       </button>
-      {showCompleted && <div className="border-t border-border/70"><WorkOrderTable orders={completed} lots={lots} onOpen={o => setViewing(o.id)}/></div>}
+      {showCompleted && <div className="border-t border-border/70"><WorkOrderTable orders={completed} lots={lots} isCommittee={isCommittee} onOpen={o => setViewing(o.id)}/></div>}
     </Card>
 
-    <ContractorsList contractors={contractors} orders={orders} isCommittee={isCommittee} schemeId={schemeId} onChanged={onChanged}/>
+    {isCommittee && <ContractorsList contractors={contractors} orders={orders} isCommittee={isCommittee} schemeId={schemeId} onChanged={onChanged}/>}
 
     <Dialog open={!!current} onOpenChange={o => { if (!o) setViewing(null); }}>
       <DialogContent className="h-[100dvh] max-h-[100dvh] w-screen max-w-none overflow-y-auto overflow-x-hidden rounded-none p-4 pb-0 sm:h-auto sm:max-h-[90vh] sm:w-[calc(100vw-2rem)] sm:max-w-3xl sm:rounded-lg sm:p-6">
@@ -1108,7 +1112,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
 
       {order.kind === "Repair" && <div id="wo-sec-quotes" className="scroll-mt-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <SectionLabel>Quotes</SectionLabel>
+          <div className="flex items-center gap-1"><SectionLabel>Quotes</SectionLabel><Help term="quote"/></div>
           {isCommittee && !addingQuote && !accepted && <Button size="sm" variant="outline" className="h-8 rounded-full" onClick={() => setAddingQuote(true)}><Plus/> Add quote</Button>}
         </div>
         {addingQuote && <div className="mt-3"><AddQuoteForm order={order} contractors={contractors} schemeId={schemeId} pendingContractorId={newContractorId}
