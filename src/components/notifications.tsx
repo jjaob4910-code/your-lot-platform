@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { daysUntil } from "@/lib/format";
 import { AlertTriangle, Bell, Calendar, Coins, FileCheck2, MessageSquare, Vote, Wrench } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Lot } from "@/routes/dashboard";
 import { isRetiredObligation, obligationTab } from "@/lib/action-publish";
+import { useCalendarEvents } from "@/components/calendar-view";
 
-const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 const relativeDay = (value: string) => {
   const days = Math.floor((Date.now() - new Date(value).getTime()) / 86400000);
   if (days <= 0) return "today";
@@ -21,20 +22,21 @@ const relativeDay = (value: string) => {
 // the unread dot or count.
 type NotificationItem = { id: string; category: string; icon: typeof Bell; text: string; sub: string; tab: string; timestamp?: string | undefined };
 
-export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, overdrawnFunds = [] }: {
+type BellLevy = { id: string; lot_id: string; amount: number; due_date: string; status: string };
+type BellNotice = { id: string; title: string; created_at: string; lot_id: string | null };
+type BellTx = { id: string; description: string; amount: number; direction: string; status: string; budget_line_item_id: string | null; voided_at?: string | null; created_at?: string };
+type BellTask = { id: string; task_name: string; due_date: string; status: string; widget_id: string | null };
+type BellWidget = { id: string; standard_key: string | null };
+
+// Levies, notices, spending, obligations and calendar events come from the dashboard's own
+// queries (passed in or shared by cache key), so the bell never fetches a second copy.
+export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, overdrawnFunds = [], levies = [], notices = [], transactions = [], tasks = [], widgets = [], notifyLevyDue = true, agmNotice = null }: {
   schemeId?: string | undefined; userId?: string | undefined; isCommittee: boolean; myLot: Lot | null; goTo: (tab: string) => void;
   /** Already filtered by the viewer's own "Fund overdrawn alerts" preference. */
   overdrawnFunds?: { id: string; name: string; balance: number }[];
+  levies?: BellLevy[]; notices?: BellNotice[]; transactions?: BellTx[]; tasks?: BellTask[]; widgets?: BellWidget[];
+  notifyLevyDue?: boolean; agmNotice?: { due: string; meetingDate: string } | null;
 }) {
-  const schemeSettings = useQuery({
-    queryKey: ["notif-scheme-settings", schemeId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("scheme_settings").select("notify_levy_due").eq("scheme_id", schemeId!).maybeSingle();
-      if (error) throw error;
-      return data?.notify_levy_due ?? true;
-    },
-    enabled: !!schemeId,
-  });
   const queryClient = useQueryClient();
   const [optimisticReadAt, setOptimisticReadAt] = useState<string | null>(null);
 
@@ -82,61 +84,17 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
     enabled: !!schemeId,
   });
 
-  const compliance = useQuery({
-    queryKey: ["notif-compliance", schemeId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("compliance_tasks").select("id, task_name, due_date, status, compliance_widgets(standard_key)").eq("scheme_id", schemeId!).neq("status", "Complete");
-      if (error) throw error;
-      return (data ?? []) as unknown as { id: string; task_name: string; due_date: string; status: string; compliance_widgets: { standard_key: string | null } | null }[];
-    },
-    enabled: !!schemeId,
-  });
 
-  const events = useQuery({
-    queryKey: ["notif-events", schemeId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("calendar_events").select("id, title, event_date").eq("scheme_id", schemeId!);
-      if (error) throw error;
-      return (data ?? []) as { id: string; title: string; event_date: string }[];
-    },
-    enabled: !!schemeId,
-  });
 
-  const notices = useQuery({
-    queryKey: ["notif-notices", schemeId],
-    queryFn: async () => {
-      const since = new Date(Date.now() - 7 * 86400000).toISOString();
-      const { data, error } = await supabase.from("notices").select("id, title, created_at, lot_id").eq("scheme_id", schemeId!).gte("created_at", since).order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as { id: string; title: string; created_at: string; lot_id: string | null }[];
-    },
-    enabled: !!schemeId,
-  });
 
-  const duelevies = useQuery({
-    queryKey: ["notif-levies", schemeId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("levies")
-        .select("id, lot_id, amount, due_date, status, budgets!inner(scheme_id)")
-        .eq("budgets.scheme_id", schemeId!).eq("status", "Pending");
-      if (error) throw error;
-      return (data ?? []) as unknown as { id: string; lot_id: string; amount: number; due_date: string; status: string }[];
-    },
-    enabled: !!schemeId,
-  });
 
-  const unbudgetedSpend = useQuery({
-    queryKey: ["notif-unbudgeted", schemeId],
-    queryFn: async () => {
-      const since = new Date(Date.now() - 7 * 86400000).toISOString();
-      const { data, error } = await supabase.from("finance_transactions")
-        .select("id, description, amount, occurred_on, created_at")
-        .eq("scheme_id", schemeId!).eq("direction", "out").eq("status", "Paid").is("budget_line_item_id", null).is("voided_at", null).gte("created_at", since);
-      if (error) throw error;
-      return (data ?? []) as { id: string; description: string; amount: number; occurred_on: string; created_at: string }[];
-    },
-    enabled: !!schemeId && isCommittee,
-  });
+
+  const events = useCalendarEvents();
+  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  const recentNotices = notices.filter(n => n.created_at >= weekAgo);
+  const dueLevies = levies.filter(l => l.status !== "Paid" && l.status !== "Void");
+  const unbudgeted = isCommittee ? transactions.filter(t => t.direction === "out" && t.status === "Paid" && !t.budget_line_item_id && !t.voided_at && (t.created_at ?? "") >= weekAgo) : [];
+  const openTasks = tasks.filter(t => t.status !== "Complete");
 
   const items: NotificationItem[] = [];
 
@@ -160,10 +118,18 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
     items.push({ id: `update-${u.id}`, category: "Work order update", icon: Wrench, text: u.maintenance_requests?.title ?? "Work order", sub: `${u.note} · ${relativeDay(u.created_at)}`, tab: "Work orders", timestamp: u.created_at });
   }
 
-  for (const task of compliance.data ?? []) {
+  for (const task of openTasks) {
+    const key = widgets.find(w => w.id === task.widget_id)?.standard_key;
     const left = daysUntil(task.due_date);
-    if (left > 14 || isRetiredObligation(task.compliance_widgets?.standard_key)) continue;
-    items.push({ id: `task-${task.id}`, category: "Obligations", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: obligationTab(task.compliance_widgets?.standard_key) });
+    if (left > 14 || isRetiredObligation(key)) continue;
+    items.push({ id: `task-${task.id}`, category: "Obligations", icon: FileCheck2, text: task.task_name, sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: obligationTab(key) });
+  }
+
+  // The AGM notice reminder comes from the meeting itself: shown from 21 days before it's due.
+  if (isCommittee && agmNotice) {
+    const left = daysUntil(agmNotice.due);
+    if (left <= 21) items.push({ id: "agm-notice", category: "Obligations", icon: FileCheck2, text: "Send the AGM notice",
+      sub: left < 0 ? `${Math.abs(left)} days overdue` : left === 0 ? "Due today" : `Due in ${left} days`, tab: "AGM" });
   }
 
   for (const event of events.data ?? []) {
@@ -172,16 +138,20 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
     items.push({ id: `event-${event.id}`, category: "Upcoming event", icon: Calendar, text: event.title, sub: left === 0 ? "Today" : left === 1 ? "Tomorrow" : `In ${left} days`, tab: "Calendar" });
   }
 
-  for (const notice of notices.data ?? []) {
+  for (const notice of recentNotices) {
     if (!isCommittee && notice.lot_id && notice.lot_id !== myLot?.id) continue;
     items.push({ id: `notice-${notice.id}`, category: "Message", icon: MessageSquare, text: notice.title, sub: `Posted ${relativeDay(notice.created_at)}`, tab: "Dashboard", timestamp: notice.created_at });
   }
 
-  if (schemeSettings.data !== false) {
-    const dueSoon = (duelevies.data ?? []).filter(l => daysUntil(l.due_date) <= 14);
+  if (notifyLevyDue) {
+    const dueSoon = dueLevies.filter(l => daysUntil(l.due_date) <= 14);
     if (isCommittee) {
       if (dueSoon.length > 0) {
-        items.push({ id: "levies-aggregate", category: "Levy due", icon: Coins, text: `${dueSoon.length} levy${dueSoon.length === 1 ? "" : "ies"} coming due`, sub: "Across the scheme", tab: "Finance/Levies" });
+        const overdue = dueSoon.filter(l => daysUntil(l.due_date) < 0).length;
+        const plural = (n: number) => n === 1 ? "levy" : "levies";
+        items.push({ id: "levies-aggregate", category: "Levy due", icon: Coins,
+          text: overdue === dueSoon.length ? `${overdue} ${plural(overdue)} overdue` : overdue > 0 ? `${dueSoon.length} ${plural(dueSoon.length)} due, ${overdue} overdue` : `${dueSoon.length} ${plural(dueSoon.length)} coming due`,
+          sub: "Across the scheme", tab: "Finance/Levies" });
       }
     } else if (myLot) {
       for (const levy of dueSoon.filter(l => l.lot_id === myLot.id)) {
@@ -191,7 +161,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
     }
   }
 
-  for (const tx of unbudgetedSpend.data ?? []) {
+  for (const tx of unbudgeted) {
     items.push({ id: `unbudgeted-${tx.id}`, category: "Unbudgeted spend", icon: AlertTriangle, text: tx.description, sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(Number(tx.amount))} · not in the budget`, tab: "Finance/Cashflow", timestamp: tx.created_at });
   }
 

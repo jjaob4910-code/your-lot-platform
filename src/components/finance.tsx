@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { money, niceDate, daysUntil } from "@/lib/format";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
 import type { DocFile } from "@/components/documents";
-import { broughtForwardBalances, levyShareForFund, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
+import { broughtForwardBalances, budgetStartYear, currentFinancialYearStart, levyShareForFund, splitLevyAcrossFunds, type Levy } from "@/lib/fund-balance";
 import type { BudgetFund } from "@/components/overview";
 
 export type { BudgetFund } from "@/components/overview";
@@ -134,16 +135,14 @@ const OUT_CATEGORIES = ["Repairs and maintenance", "Cleaning", "Gardening", "Uti
 const IN_CATEGORIES = ["Levy contribution", "Interest", "Reimbursement", "Fee or fine", "Other"];
 const STATUSES = ["Paid", "Approved", "Planned"];
 
-const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 const money2 = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const niceDate = (v: string) => new Date(v).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 const startYearOf = (iso: string) => { const d = new Date(iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
 const fyLabel = (startYear: number) => `${startYear}/${String(startYear + 1).slice(2)}`;
 
 // Financial years run 1 July – 30 June. A picker instead of free text, so every budget
 // lands in a real year (free text like "2026" or "fefe" used to all fall into this year).
 function FinancialYearSelect({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
-  const now = new Date(); const current = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+  const current = currentFinancialYearStart();
   const picked = value.match(/\d{4}/) ? Number(value.match(/\d{4}/)![0]) : current;
   const years = [...new Set([...Array.from({ length: 8 }, (_, i) => current - 5 + i), picked])].sort((a, b) => b - a);
   const [typing, setTyping] = useState(false);
@@ -166,7 +165,7 @@ function FinancialYearSelect({ value, onChange, disabled }: { value: string; onC
 const LEVY_EXPLAINER = (method: string) => method === "Equal"
   ? "When you lock this in, every lot gets one levy for the budget total divided by the number of lots, due on the levy due date. Each levy is split across funds in the same proportions as the budget."
   : "When you lock this in, every lot gets one levy for its entitlement percentage of the budget total, due on the levy due date. Each levy is split across funds in the same proportions as the budget.";
-export const budgetStartYear = (fy: string) => { const m = fy.match(/\d{4}/); return m ? Number(m[0]) : new Date().getFullYear(); };
+export { budgetStartYear };
 const FY_MONTHS = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
 const monthName = (m: number) => new Date(2000, m - 1, 1).toLocaleDateString("en-AU", { month: "short" });
 const monthLabel = (m: number, startYear: number) => `${monthName(m)} ${m >= 7 ? startYear : startYear + 1}`;
@@ -781,7 +780,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
 }) {
   const [lines, setLines] = useState<DraftLine[]>(initialLines && initialLines.length > 0 ? initialLines : [emptyDraftLine(funds[0]?.id)]);
   const [method, setMethod] = useState("Entitlement");
-  const [financialYear, setFinancialYear] = useState(() => { const n = new Date(); return fyLabel(n.getMonth() >= 6 ? n.getFullYear() : n.getFullYear() - 1); });
+  const [financialYear, setFinancialYear] = useState(() => fyLabel(currentFinancialYearStart()));
   const [dueDate, setDueDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const totals = draftTotals(lines, funds);
@@ -1171,7 +1170,6 @@ function BudgetHistoryDialog({ open, onOpenChange, budget, funds, revisions, onR
 }
 
 const effectiveLevyStatus = (levy: Levy) => (levy.status === "Pending" && daysUntil(levy.due_date) < 0 ? "Overdue" : levy.status);
-const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 
 export type LevyReversal = { id: string; levy_id: string; reason: string; actor_label: string | null; created_at: string };
 
@@ -1516,7 +1514,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
   view?: FinanceView | undefined; onViewChange?: (v: FinanceView) => void;
 }) {
   const today = new Date();
-  const currentFy = today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1;
+  const currentFy = currentFinancialYearStart();
   // Bring recurring rules up to date whenever the committee opens Finance.
   useEffect(() => {
     if (!isCommittee || !schemeId) return;

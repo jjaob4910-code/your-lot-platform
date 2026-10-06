@@ -25,7 +25,9 @@ export const currentFinancialYearStart = () => {
   return today.getMonth() >= 6 ? today.getFullYear() : today.getFullYear() - 1;
 };
 
-const startYearOf = (iso: string) => { const d = new Date(iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
+/** The financial year (1 Jul – 30 Jun) a date falls in, as its starting calendar year. */
+export const financialYearOf = (iso: string) => { const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
+const startYearOf = financialYearOf;
 export const budgetStartYear = (fy: string) => { const m = fy.match(/\d{4}/); return m ? Number(m[0]) : new Date().getFullYear(); };
 
 // Splits a levy's own amount across its budget's funds, proportionally to each fund's
@@ -81,22 +83,3 @@ export function broughtForwardBalances(levies: Levy[], transactions: FundTx[], y
   return recordedFundBalances(earlierLevies, earlierTx);
 }
 
-export function computeFundBalances(levies: Levy[], transactions: FundTx[], year: number) {
-  const yearLevies = levies.filter(l => l.budgets ? budgetStartYear(l.budgets.financial_year) === year : startYearOf(l.due_date) === year);
-  const yearTx = transactions.filter(t => startYearOf(t.occurred_on) === year);
-
-  const fundIds = new Set<string>();
-  yearLevies.forEach(l => l.budgets?.budget_fund_totals.forEach(t => fundIds.add(t.fund_id)));
-  yearTx.forEach(t => fundIds.add(t.fund_id));
-
-  const sum = (list: FundTx[]) => list.reduce((s, t) => s + Number(t.amount), 0);
-  const byFund: Record<string, number> = {};
-  for (const fundId of fundIds) {
-    const collected = yearLevies.filter(l => l.status === "Paid").reduce((s, l) => s + levyShareForFund(l, fundId), 0)
-      + sum(yearTx.filter(t => t.direction === "in" && t.fund_id === fundId && t.status === "Paid" && !t.levy_id));
-    const spent = sum(yearTx.filter(t => t.direction === "out" && t.fund_id === fundId && t.status === "Paid"));
-    byFund[fundId] = collected - spent;
-  }
-  const total = Object.values(byFund).reduce((s, v) => s + v, 0);
-  return { total, byFund };
-}

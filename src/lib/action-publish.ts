@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { daysUntil } from "@/lib/format";
 
 export type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null; created_at: string };
 export type ActionDraft = { id: string; scheme_id: string; standard_key: string; content: string };
@@ -9,7 +10,6 @@ export type ComplianceWidget = {
 
 export const COMPLIANCE_FOLDER = "Actions";
 
-const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 
 export function urgencyTone(dueDate: string | null | undefined, done: boolean) {
   if (done) return { label: "Done", className: "text-muted-foreground" };
@@ -83,5 +83,6 @@ export const obligationTab = (standardKey: string | null | undefined) => (standa
 
 // Obligations no longer managed anywhere in the app. Their old rows stay in the
 // database but are hidden from the checklist, bell and calendar.
-const RETIRED_OBLIGATIONS = new Set(["insurance_renewal", "maintenance_plan", "financial_statements"]);
+// agm_notice is now tracked by the meeting itself (its stage), not a separate task.
+const RETIRED_OBLIGATIONS = new Set(["insurance_renewal", "maintenance_plan", "financial_statements", "agm_notice"]);
 export const isRetiredObligation = (standardKey: string | null | undefined) => !!standardKey && RETIRED_OBLIGATIONS.has(standardKey);

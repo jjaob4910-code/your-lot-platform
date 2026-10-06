@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { money, niceDate, daysUntil } from "@/lib/format";
 import { FileText, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -20,9 +21,6 @@ export type Policy = {
 const INSURANCE_FOLDER = "Insurance";
 const POLICY_TYPES = ["Building", "Public liability", "Office bearers", "Voluntary workers", "Fidelity guarantee", "Machinery breakdown", "Other"];
 
-const money = (n: number | null) => (n === null || n === undefined ? "Not recorded" : n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }));
-const niceDate = (value: string | null) => (value ? new Date(value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "Not recorded");
-const daysUntil = (date: string) => Math.ceil((new Date(date + "T00:00:00").getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`rounded-[26px] border border-border/70 bg-card ${className}`}>{children}</div>;
@@ -193,7 +191,7 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
     try {
       const folderId = await insuranceFolderId();
       for (const file of picked) {
-        const path = `${schemeId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.\-]/g, "_")}`;
+        const path = `${schemeId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]/g, "_")}`;
         const { error: upErr } = await supabase.storage.from("documents").upload(path, file);
         if (upErr) throw upErr;
         const { error } = await supabase.from("documents").insert({
@@ -286,9 +284,9 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
             <Field label="Excess" value={money(policy.excess)}/>
             <Field label="Cover starts" value={niceDate(policy.start_date)}/>
             <Field label="Renews" value={niceDate(policy.renewal_date)}/>
-            <Field label="Broker" value={policy.broker ?? "Not recorded"}/>
-            <Field label="Broker contact" value={policy.broker_contact ?? "Not recorded"}/>
-            <Field label="Policy number" value={policy.policy_number ?? "Not recorded"}/>
+            <Field label="Broker" value={policy.broker ?? "—"}/>
+            <Field label="Broker contact" value={policy.broker_contact ?? "—"}/>
+            <Field label="Policy number" value={policy.policy_number ?? "—"}/>
           </div>
 
           {policy.notes && <p className="mt-5 text-[13px] leading-6 text-muted-foreground">{policy.notes}</p>}

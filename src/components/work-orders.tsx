@@ -1,3 +1,5 @@
+import { financialYearOf } from "@/lib/fund-balance";
+import { niceDate, moneyCents as money } from "@/lib/format";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, ChevronDown, Info, MoreHorizontal, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2, Undo2 } from "lucide-react";
@@ -57,9 +59,7 @@ export type WorkOrderLot = { id: string; lot_number: number; owner_name: string 
 const WORK_ORDERS_FOLDER = "Work orders";
 const DEFAULT_TASK_STEPS = ["Plan", "Do", "Close out"];
 
-const niceDate = (value: string) => new Date(value.length === 10 ? `${value}T00:00:00` : value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
 const niceStamp = (value: string) => new Date(value).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
-const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 2 });
 const todayIso = () => new Date().toLocaleDateString("en-CA");
 const safeName = (name: string) => name.replace(/[^\w.-]/g, "_");
 const kindLabel = (kind: string) => (kind === "Repair" ? "Works" : "Task");
@@ -109,6 +109,18 @@ export async function syncWorkOrderStatus(order: WorkOrder, steps: Pick<WorkOrde
   const { error } = await supabase.from("maintenance_requests").update({ status, closed_at }).eq("id", order.id);
   if (error) throw error;
   return status;
+}
+
+/** Orders run without steps still move on: accepting a quote starts the work, paying finishes it.
+ *  Orders with steps keep following their steps; one still awaiting approval isn't skipped past. */
+export async function advanceWithoutSteps(order: WorkOrder, to: "In progress" | "Complete") {
+  const { count } = await supabase.from("work_order_steps").select("id", { count: "exact", head: true }).eq("work_order_id", order.id);
+  if ((count ?? 0) > 0 || order.status === "Complete" || order.status === "Closed") return order.status;
+  if (to === "In progress" && order.status === "Awaiting approval") return order.status;
+  const closed_at = to === "Complete" ? new Date().toISOString() : null;
+  const { error } = await supabase.from("maintenance_requests").update({ status: to, closed_at }).eq("id", order.id);
+  if (error) throw error;
+  return to;
 }
 
 async function workOrdersFolderId(schemeId: string) {
@@ -667,7 +679,7 @@ function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBal
 }) {
   const [lineId, setLineId] = useState<string>("");
   // Payment date decides the financial year (1 Jul – 30 Jun); offer that year's lines in the chosen fund.
-  const fyOf = (iso: string) => { const d = new Date(`${iso}T00:00:00`); const y = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; return `${y}/${String(y + 1).slice(2)}`; };
+  const fyOf = (iso: string) => { const y = financialYearOf(iso); return `${y}/${String(y + 1).slice(2)}`; };
   const [fundId, setFundId] = useState<string>("");
   const [date, setDate] = useState(todayIso());
   const [saving, setSaving] = useState(false);
@@ -692,7 +704,8 @@ function MarkPaidDialog({ quote, order, contractorName, funds, schemeId, fundBal
     }).select("id").single();
     if (error || !data) { setSaving(false); toast("Could not record the payment", { description: error?.message }); return; }
     const { error: qErr } = await supabase.from("work_order_quotes").update({ paid_at: date, finance_transaction_id: data.id }).eq("id", quote.id);
-    await supabase.from("work_order_updates").insert({ work_order_id: order.id, note: `Paid ${money(Number(quote.amount))}${contractorName ? ` to ${contractorName}` : ""}.`, status_at_time: order.status, author_label: "Committee" });
+    const status = await advanceWithoutSteps(order, "Complete").catch(() => order.status);
+    await supabase.from("work_order_updates").insert({ work_order_id: order.id, note: `Paid ${money(Number(quote.amount))}${contractorName ? ` to ${contractorName}` : ""}.`, status_at_time: status, author_label: "Committee" });
     setSaving(false);
     onClose(); onDone();
     if (qErr) toast("Payment recorded in Finance, but the quote could not be updated", { description: qErr.message });
@@ -888,7 +901,8 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
       // Accepting a quote settles the scope too, so both steps close together.
       const toClose = steps.filter(st => (st.step_type === "scope" || st.step_type === "quotes") && !st.done_at);
       let status = order.status;
-      if (toClose.length) {
+      if (!steps.length) status = await advanceWithoutSteps(order, "In progress");
+      else if (toClose.length) {
         const stamp = new Date().toISOString();
         const { error: e4 } = await supabase.from("work_order_steps").update({ done_at: stamp }).in("id", toClose.map(st => st.id));
         if (e4) throw e4;

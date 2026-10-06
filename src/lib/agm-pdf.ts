@@ -12,7 +12,7 @@ export type AgmPdfMeeting = {
 };
 export type AgmPdfScheme = { name: string; address: string | null } | null;
 
-const longDate = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+import { longDate } from "@/lib/format";
 
 async function pdfWriter(heading: string, scheme: AgmPdfScheme) {
   const { jsPDF } = await import("jspdf");
