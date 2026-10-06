@@ -314,6 +314,8 @@ BEGIN
 END $$;
 -- Owners cast their own approval vote
 CREATE POLICY owner_vote ON public.work_order_approvals FOR UPDATE TO authenticated USING (public.owns_lot(lot_id)) WITH CHECK (public.owns_lot(lot_id));
+-- Owners can add photos to a job they can see (e.g. when logging their own repair)
+CREATE POLICY owner_photo ON public.work_order_photos FOR INSERT TO authenticated WITH CHECK (public.can_see_work_order(work_order_id));
 -- Owners can post an update on a job they can see (e.g. "the leak is back")
 CREATE POLICY owner_update_note ON public.work_order_updates FOR INSERT TO authenticated WITH CHECK (public.can_see_work_order(work_order_id));
 

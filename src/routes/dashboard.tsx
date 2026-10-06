@@ -409,11 +409,12 @@ function DashboardPage() {
 
   const fundsBootstrapped = useRef(false);
   useEffect(() => {
-    if (!schemeId || budgetFunds.isLoading || fundsBootstrapped.current) return;
+    // Only the committee can create funds; owners just read them.
+    if (!schemeId || membership?.role !== "Committee" || budgetFunds.isLoading || fundsBootstrapped.current) return;
     fundsBootstrapped.current = true;
     void ensureDefaultFunds(schemeId, budgetFunds.data?.length ?? 0).then(created => { if (created) refresh(["budget-funds"]); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schemeId, budgetFunds.isLoading]);
+  }, [schemeId, membership?.role, budgetFunds.isLoading]);
 
 
   if (!authChecked) return null;
