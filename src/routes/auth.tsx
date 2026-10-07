@@ -127,6 +127,7 @@ function AuthPage() {
                 {mode === "signin" ? "No account yet? Create one" : "Already have an account? Sign in"}
               </button>
             </form>}
+        <Link to="/staff" className="mt-6 text-center text-xs text-muted-foreground underline-offset-4 hover:underline">Loty staff sign in</Link>
       </main>
     </div>
   );

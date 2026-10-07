@@ -431,7 +431,13 @@ function DashboardPage() {
   }, [authChecked, userId, memberships.isLoading, memberships.isError, memberships.data, navigate]);
 
   // Managers and people in several buildings start on "My buildings", once per session.
-  const multi = (memberships.data ?? []).length > 1 || (memberships.data ?? []).some(m => m.role === "Manager" || m.role === "Loty");
+  // Loty staff always get a way to the Loty dashboard, even before Loty manages any buildings.
+  const lotyStaff = useQuery({
+    queryKey: ["is-loty-staff", userId], enabled: !!userId,
+    queryFn: async () => { const { data, error } = await supabase.rpc("is_loty_staff"); return !error && data === true; },
+  });
+  const isLotyStaff = lotyStaff.data === true;
+  const multi = isLotyStaff || (memberships.data ?? []).length > 1 || (memberships.data ?? []).some(m => m.role === "Manager" || m.role === "Loty");
   useEffect(() => {
     if (!multi) return;
     let seen = true;
@@ -475,7 +481,7 @@ function DashboardPage() {
         <Link to="/" className="mr-2 flex shrink-0 items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0,1,2,3].map(i=><span key={i} className="rounded-[2px] bg-primary"/>)}</span><span className="hidden sm:inline">Loty</span></Link>
         <nav className="hidden min-w-0 flex-1 items-center gap-1 lg:flex" aria-label="Dashboard sections">{sections.map(([label])=><Button key={label} size="sm" variant={active===label?"default":"ghost"} className="rounded-full px-3.5 text-xs font-medium transition-all duration-300" onClick={()=>setActive(label)}>{label}</Button>)}</nav>
         <div className="ml-auto flex items-center gap-1">
-          {multi && <Button asChild size="sm" variant="ghost" className="hidden rounded-full sm:inline-flex"><Link to="/portfolio">{(memberships.data ?? []).some(m => m.role === "Loty") ? "Loty dashboard" : "All buildings"}</Link></Button>}
+          {multi && <Button asChild size="sm" variant="ghost" className="hidden rounded-full sm:inline-flex"><Link to="/portfolio">{isLotyStaff ? "Loty dashboard" : "All buildings"}</Link></Button>}
           {(memberships.data?.length ?? 0) > 1 && <select aria-label="Building" value={schemeId ?? ""} className="mr-1 max-w-[160px] truncate rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs"
             onChange={e => { try { localStorage.setItem(BUILDING_KEY, e.target.value); } catch { /* storage unavailable */ } window.location.reload(); }}>
             {(memberships.data ?? []).map(m => <option key={m.scheme_id} value={m.scheme_id}>{m.schemes?.name ?? "Building"}</option>)}
@@ -496,7 +502,7 @@ function DashboardPage() {
             notifyNewWorkOrder={schemeSettings.data?.notify_new_work_order ?? true} notifyNewDocument={schemeSettings.data?.notify_new_document ?? true}
             renewals={(policies.data ?? []).filter(p => p.renewal_date).map(p => ({ id: p.id, label: p.policy_type, date: p.renewal_date!.slice(0, 10) }))}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={()=>{ void supabase.auth.signOut().then(()=>navigate({ to: "/", replace: true })); }}><LogOut /></Button>
-          <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav><div className="mt-4 border-t border-border/70 pt-4"><Button variant={active==="Settings"?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive("Settings")}><Settings/>Settings</Button></div></SheetContent></Sheet>
+          <Sheet><SheetTrigger asChild><Button size="icon" variant="ghost" className="rounded-full lg:hidden" aria-label="Open navigation"><Menu/></Button></SheetTrigger><SheetContent side="right"><SheetTitle className="font-display">Your property</SheetTitle><nav className="mt-8 space-y-1">{sections.map(([label,Icon])=><Button key={label} variant={active===label?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive(label)}><Icon/>{label}</Button>)}</nav><div className="mt-4 border-t border-border/70 pt-4"><Button variant={active==="Settings"?"default":"ghost"} className="w-full justify-start rounded-full" onClick={()=>setActive("Settings")}><Settings/>Settings</Button>{multi && <Button asChild variant="ghost" className="w-full justify-start rounded-full"><Link to="/portfolio"><LayoutDashboard/>{isLotyStaff ? "Loty dashboard" : "All buildings"}</Link></Button>}</div></SheetContent></Sheet>
         </div>
       </div>
     </header>

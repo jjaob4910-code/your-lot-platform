@@ -84,7 +84,7 @@ function PortfolioPage() {
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-[68px] max-w-[1500px] items-center gap-4 px-4 sm:px-7">
         <Link to="/" className="flex items-center gap-2 font-display text-lg font-semibold tracking-[-0.02em]"><span className="grid size-5 grid-cols-2 gap-0.5">{[0, 1, 2, 3].map(i => <span key={i} className="rounded-[3px] bg-primary"/>)}</span>Loty</Link>
-        <Button size="icon" variant="ghost" className="ml-auto rounded-full" aria-label="Sign out" onClick={() => { void supabase.auth.signOut().then(() => navigate({ to: "/", replace: true })); }}><LogOut/></Button>
+        <Button size="icon" variant="ghost" className="ml-auto rounded-full" aria-label="Sign out" onClick={() => { void supabase.auth.signOut().then(() => navigate({ to: isStaff ? "/staff" : "/", replace: true })); }}><LogOut/></Button>
       </div>
     </header>
     <main className="mx-auto max-w-[1500px] px-4 pb-24 pt-10 sm:px-7 sm:pt-14">
@@ -133,7 +133,7 @@ function PortfolioPage() {
             </dl>
           </button>; })}
       </div>
-      {list.length === 0 && !rows.isLoading && <p className="mt-6 text-sm text-muted-foreground">{isStaff ? "Loty isn't managing any buildings yet. Switch one on below." : "You're not in any buildings yet."}</p>}
+      {list.length === 0 && !rows.isLoading && <p className="mt-6 text-sm text-muted-foreground">{isStaff ? "No buildings yet. Switch on Managed by Loty below for each building Loty runs." : "You're not in any buildings yet."}</p>}
 
       {isStaff && <AllBuildings onChanged={() => void rows.refetch()}/>}
       {isStaff && <TeamContact/>}
