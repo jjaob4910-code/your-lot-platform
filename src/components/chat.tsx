@@ -72,6 +72,8 @@ export const PAGE_LINKS: ChatLinkTarget[] = [
 // Links are stored in the message as #[Label](Target); icons as :code:; mentions as @Name.
 const LINK_PATTERN = /#\[([^\]\n]{1,80})\]\(([^)\n]{1,40})\)/g;
 
+const missingMentions = (message: string) => /mentions/i.test(message) && /column|schema cache/i.test(message);
+
 /** Messages after my last read that mention me: for the bell. */
 export function unreadMentions(messages: ChatMessage[], members: ChatMember[], userId?: string) {
   const me = members.find(m => m.user_id === userId);
@@ -223,14 +225,20 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
     const mentions = picked.filter(m => body.includes(`@${m.name}`)).map(m => m.user_id);
     setMentionQuery(null); setLinkQuery(null);
     if (editing) {
-      const { error } = await supabase.from("chat_messages").update({ body, mentions }).eq("id", editing.id);
+      const patch: { body: string; mentions?: string[] } = mentions.length ? { body, mentions } : { body };
+      let { error } = await supabase.from("chat_messages").update(patch).eq("id", editing.id);
+      if (error && missingMentions(error.message)) ({ error } = await supabase.from("chat_messages").update({ body }).eq("id", editing.id));
       if (error) { toast("Could not save your edit", { description: error.message }); return; }
       setEditing(null); setDraft(""); setPicked([]);
     } else {
       setDraft(""); setPicked([]); atBottom.current = true;
       const temp: ChatMessage = { id: `temp-${Date.now()}`, scheme_id: schemeId, user_id: userId ?? "", author_name: myName, author_label: null, body, created_at: new Date().toISOString(), edited_at: null, deleted_at: null, mentions };
       queryClient.setQueryData<ChatMessage[]>(["chat", schemeId], old => [...(old ?? []), temp]);
-      const { error } = await supabase.from("chat_messages").insert({ scheme_id: schemeId, body, author_name: myName, mentions });
+      // Mentions are only sent when there are some, and dropped if the database doesn't have them yet,
+      // so text, icons and links always go through.
+      const row: { scheme_id: string; body: string; author_name: string; mentions?: string[] } = { scheme_id: schemeId, body, author_name: myName };
+      let { error } = await supabase.from("chat_messages").insert(mentions.length ? { ...row, mentions } : row);
+      if (error && missingMentions(error.message)) ({ error } = await supabase.from("chat_messages").insert(row));
       if (error) {
         queryClient.setQueryData<ChatMessage[]>(["chat", schemeId], old => (old ?? []).filter(m => m.id !== temp.id));
         setDraft(body); toast("Message not sent", { description: error.message }); return;
