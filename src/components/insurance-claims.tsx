@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { moneyCents as money, niceDate } from "@/lib/format";
+import { moneyCents as money, niceDate, localISO } from "@/lib/format";
 import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ const INSURANCE_FOLDER = "Insurance";
 const NONE = "__none";
 const OTHER = "__other";
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localISO();
 const num = (v: string) => (v.trim() === "" ? null : Number(v));
 
 function progressIndex(status: string) {
@@ -69,7 +69,8 @@ function responsibleLabel(c: Claim, lots: ClaimLot[]) {
 }
 
 async function insuranceFolderId(schemeId: string) {
-  const { data } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", INSURANCE_FOLDER).maybeSingle();
+  const { data, error: lookupError } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", INSURANCE_FOLDER).maybeSingle();
+  if (lookupError) throw lookupError;
   if (data?.id) return data.id as string;
   const { data: made, error } = await supabase.from("document_folders")
     .insert({ scheme_id: schemeId, name: INSURANCE_FOLDER, icon: "ShieldCheck", color: "blue" }).select("id").single();

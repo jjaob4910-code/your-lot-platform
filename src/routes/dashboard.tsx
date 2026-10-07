@@ -188,9 +188,9 @@ function DashboardPage() {
     },
   });
   const repairs = useQuery({
-    queryKey: ["repairs"],
+    queryKey: ["repairs"], enabled: !!schemeId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("maintenance_requests").select("*, lots(lot_number), work_order_steps(*), work_order_quotes(*, finance_transactions(fund_id))").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("maintenance_requests").select("*, lots(lot_number), work_order_steps(*), work_order_quotes(*, finance_transactions(fund_id))").eq("scheme_id", schemeId!).order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Repair[];
     },
@@ -301,8 +301,20 @@ function DashboardPage() {
       return (data ?? []) as { id: string; start_year: number }[];
     },
   });
+  const agmMeetings = useQuery({
+    queryKey: ["agm-meetings"], enabled: !!schemeId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("agm_meetings").select("*").eq("scheme_id", schemeId!).order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as AgmMeeting[];
+    },
+  });
+  // Tables without a scheme_id are scoped through this building's lots, levies and meetings.
+  const lotIds = (lots.data ?? []).map(l => l.id);
+  const meetingIds = (agmMeetings.data ?? []).map(m => m.id);
+  const levyIdSet = new Set((levies.data ?? []).map(l => l.id));
   const levyReversals = useQuery({
-    queryKey: ["levy-reversals"],
+    queryKey: ["levy-reversals", schemeId],
     queryFn: async () => {
       const { data, error } = await supabase.from("levy_payment_reversals").select("id, levy_id, reason, actor_label, created_at");
       if (error) throw error;
@@ -334,34 +346,26 @@ function DashboardPage() {
   });
   const warnOverdrawn = myPrefs.data?.notify_fund_overdrawn ?? true;
   const agmAttachments = useQuery({
-    queryKey: ["agm-attachments"],
+    queryKey: ["agm-attachments", meetingIds], enabled: meetingIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase.from("agm_item_attachments").select("id, meeting_id, item_id, document_id");
+      const { data, error } = await supabase.from("agm_item_attachments").select("id, meeting_id, item_id, document_id").in("meeting_id", meetingIds);
       if (error) throw error;
       return (data ?? []) as AgmAttachment[];
     },
   });
   const agmSuggestions = useQuery({
-    queryKey: ["agm-suggestions"],
+    queryKey: ["agm-suggestions", meetingIds], enabled: meetingIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase.from("agm_suggestions").select("*").order("created_at");
+      const { data, error } = await supabase.from("agm_suggestions").select("*").in("meeting_id", meetingIds).order("created_at");
       if (error) throw error;
       return (data ?? []) as AgmSuggestion[];
     },
   });
-  const agmMeetings = useQuery({
-    queryKey: ["agm-meetings"], enabled: !!schemeId,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("agm_meetings").select("*").eq("scheme_id", schemeId!).order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as unknown as AgmMeeting[];
-    },
-  });
 
   const committeeRoles = useQuery({
-    queryKey: ["committee-roles"],
+    queryKey: ["committee-roles", lotIds], enabled: lotIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase.from("committee_roles").select("*");
+      const { data, error } = await supabase.from("committee_roles").select("*").in("lot_id", lotIds);
       if (error) throw error;
       return (data ?? []) as unknown as CommitteeRole[];
     },
@@ -407,10 +411,10 @@ function DashboardPage() {
         category: "Levy contribution", description: `Levy — Lot ${levy.lots?.lot_number ?? "?"} (${levy.budgets?.financial_year ?? ""})`,
         levy_id: levy.id,
       })));
-      if (txError) throw txError;
+      if (txError) throw Object.assign(txError, { levyMarked: true });
     },
     onSuccess: () => { refresh(["levies", "finance"]); toast("Marked as paid"); },
-    onError: (e: Error) => { refresh(["levies"]); toast("Marked as paid, but could not record the transaction", { description: e.message }); },
+    onError: (e: Error & { levyMarked?: boolean }) => { refresh(["levies"]); toast(e.levyMarked ? "Marked as paid, but could not record the transaction" : "Couldn't mark that levy paid", { description: e.message }); },
   });
 
   // A manager can do everything the committee can.
@@ -560,7 +564,7 @@ function DashboardPage() {
         isCommittee={isCommittee} schemeId={schemeId} onMarkLevyPaid={(id,paidAt)=>markLevyPaid.mutate({id,paidAt})}
         canManagePaid={canManagePaid.data ?? false} treasurerName={treasurerName}
         recordedBalances={recordedBalances} warnOverdrawn={warnOverdrawn} userId={userId} recurring={recurringTx.data ?? []}
-        financialYears={financialYears.data ?? []} levyReversals={levyReversals.data ?? []} onOpenSettings={()=>setActive("Settings")}
+        financialYears={financialYears.data ?? []} levyReversals={(levyReversals.data ?? []).filter(r => levyIdSet.has(r.levy_id))} onOpenSettings={()=>setActive("Settings")}
         onChanged={()=>refresh(["finance","recurring","financial-years","levy-reversals","can-manage-paid","budgets","levies","budget-line-items","budget-revisions","budget-funds","documents","document-folders","notices"])}/>}
 
       {active === "Insurance" && <InsuranceSection policies={policies.data ?? []} documents={documents.data ?? []} isCommittee={isCommittee}

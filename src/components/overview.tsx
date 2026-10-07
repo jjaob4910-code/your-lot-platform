@@ -2,7 +2,7 @@ import { ResponsibilitiesCard, WhoRunsCard } from "./who-runs";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Help } from "@/components/help";
 import { useQuery } from "@tanstack/react-query";
-import { money, niceDate, daysUntil } from "@/lib/format";
+import { money, niceDate, daysUntil, localISO } from "@/lib/format";
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -283,7 +283,7 @@ function yearGlance({ budgets, levies, meetings, policies, scheme }: { budgets: 
   const noticeDue = scheme?.agm_notice_due ?? null;
   const agmLeft = noticeDue ? daysUntil(noticeDue) : null;
   const dueNote = (left: number | null, fallback: string) => left === null ? fallback : left < 0 ? `${-left} days overdue` : `${left} days left`;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISO();
   const current = policies.filter(p => p.renewal_date && p.renewal_date >= today).sort((a, b) => (a.renewal_date ?? "").localeCompare(b.renewal_date ?? ""));
   const nextRenewal = current[0]?.renewal_date ?? null;
   const renewLeft = nextRenewal ? daysUntil(nextRenewal) : null;
@@ -343,7 +343,7 @@ function ownerGlance({ myLevies, meetings, policies, scheme }: { myLevies: Levy[
   const mine = fyLevies(myLevies, fy);
   const owing = mine.filter(l => l.status !== "Paid");
   const overdue = owing.filter(l => daysUntil(l.due_date) < 0);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISO();
   const insured = policies.some(p => p.renewal_date && p.renewal_date >= today);
   const lastMeeting = meetings.filter(m => m.stage === "Published").sort((a, b) => (b.published_at ?? b.created_at).localeCompare(a.published_at ?? a.created_at))[0];
   return [

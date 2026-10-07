@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { daysUntil } from "@/lib/format";
+import { daysUntil, localISO } from "@/lib/format";
 
 export type Task = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null; created_at: string };
 export type ActionDraft = { id: string; scheme_id: string; standard_key: string; content: string };
@@ -48,7 +48,7 @@ export async function publishActionDocument(schemeId: string, widget: Compliance
 
   const taskId = existingTaskId ?? (await supabase.from("compliance_tasks").insert({
     scheme_id: schemeId, widget_id: widget.id, task_name: widget.label,
-    detail: widget.default_detail, due_date: new Date().toISOString().slice(0, 10), status: "Complete",
+    detail: widget.default_detail, due_date: localISO(), status: "Complete",
   }).select("id").single()).data?.id as string | undefined;
   if (!taskId) throw new Error("Could not create the obligation record");
   if (existingTaskId) {

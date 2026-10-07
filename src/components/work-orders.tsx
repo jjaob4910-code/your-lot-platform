@@ -127,7 +127,8 @@ export async function advanceWithoutSteps(order: WorkOrder, to: "In progress" | 
 }
 
 async function workOrdersFolderId(schemeId: string) {
-  const { data } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", WORK_ORDERS_FOLDER).maybeSingle();
+  const { data, error: lookupError } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", WORK_ORDERS_FOLDER).maybeSingle();
+  if (lookupError) throw lookupError;
   if (data?.id) return data.id as string;
   const { data: made, error } = await supabase.from("document_folders")
     .insert({ scheme_id: schemeId, name: WORK_ORDERS_FOLDER, icon: "Wrench", color: "blue" }).select("id").single();

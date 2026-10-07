@@ -29,3 +29,6 @@ export const longDate = (v: Maybe<string>) =>
 /** Whole days from today until the date (negative once it has passed). */
 export const daysUntil = (date: string) =>
   Math.ceil((asDate(date.slice(0, 10)).getTime() - new Date(new Date().toDateString()).getTime()) / 86400000);
+/** A date as YYYY-MM-DD in the viewer's own time zone (toISOString would give the UTC date). */
+export const localISO = (d: Date = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { Help } from "@/components/help";
 import type { GlossaryKey } from "@/lib/glossary";
 import { currentPayment, paymentText } from "@/lib/payment";
-import { money, niceDate, daysUntil } from "@/lib/format";
+import { money, niceDate, daysUntil, localISO } from "@/lib/format";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -140,7 +140,7 @@ const IN_CATEGORIES = ["Levy contribution", "Interest", "Reimbursement", "Fee or
 const STATUSES = ["Paid", "Approved", "Planned"];
 
 const money2 = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const startYearOf = (iso: string) => { const d = new Date(iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
+const startYearOf = (iso: string) => { const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
 const fyLabel = (startYear: number) => `${startYear}/${String(startYear + 1).slice(2)}`;
 
 // Financial years run 1 July – 30 June. A picker instead of free text, so every budget
@@ -637,7 +637,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
   open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; tx: FinanceTx | null; funds: BudgetFund[];
   defaultFundId?: string | undefined; lineItems: BudgetLineItem[]; onSaved: () => void; balances?: Record<string, number> | undefined; inGrace?: boolean;
 }) {
-  const [dateText, setDateText] = useState(tx?.occurred_on ?? new Date().toISOString().slice(0, 10));
+  const [dateText, setDateText] = useState(tx?.occurred_on ?? localISO());
   const [amountText, setAmountText] = useState(tx ? String(tx.amount) : "");
   const [direction, setDirection] = useState(tx?.direction ?? "out");
   const [fundId, setFundId] = useState(tx?.fund_id ?? defaultFundId ?? funds[0]?.id ?? "");
@@ -670,7 +670,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
       description: String(form.get("description") ?? "").trim(),
       supplier: text("supplier"),
       amount: Number(amountText) || 0,
-      occurred_on: text("occurred_on") ?? new Date().toISOString().slice(0, 10),
+      occurred_on: text("occurred_on") ?? localISO(),
       notes: text("notes"),
       budget_line_item_id: direction === "out" && budgetLineItemId !== "" ? budgetLineItemId : null,
     };
@@ -1418,8 +1418,8 @@ function SendLevyDialog({ levies, funds, schemeId, onOpenChange, onSent }: {
 function MarkPaidDialog({ levy, funds, onOpenChange, onConfirm }: {
   levy: Levy | null; funds: BudgetFund[]; onOpenChange: (v: boolean) => void; onConfirm: (paidAt: string) => void;
 }) {
-  const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 10));
-  return <Dialog open={!!levy} onOpenChange={(o) => { if (o && levy) setPaidAt(new Date().toISOString().slice(0, 10)); onOpenChange(o); }}>
+  const [paidAt, setPaidAt] = useState(() => localISO());
+  return <Dialog open={!!levy} onOpenChange={(o) => { if (o && levy) setPaidAt(localISO()); onOpenChange(o); }}>
     <DialogContent>
       <DialogHeader>
         <DialogTitle className="font-display tracking-[-0.02em]">Mark this levy paid</DialogTitle>

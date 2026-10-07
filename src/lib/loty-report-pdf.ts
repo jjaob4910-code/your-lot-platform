@@ -2,7 +2,7 @@
 // jsPDF is loaded on demand so it never weighs down the rest of the app.
 
 import { supabase } from "@/integrations/supabase/client";
-import { daysUntil, money, niceDate } from "@/lib/format";
+import { daysUntil, money, niceDate, localISO } from "@/lib/format";
 
 type Summary = { name: string; address: string | null; cash: number };
 
@@ -10,7 +10,10 @@ type Summary = { name: string; address: string | null; cash: number };
 export async function downloadMonthlyReport(schemeId: string, s: Summary, month: string /* YYYY-MM */) {
   const start = `${month}-01`;
   const endD = new Date(`${start}T00:00:00`); endD.setMonth(endD.getMonth() + 1);
-  const end = endD.toISOString().slice(0, 10);
+  const end = localISO(endD);
+  // Timestamps are stored in UTC, so bound them by the local month's start and end instants.
+  const startAt = new Date(`${start}T00:00:00`).toISOString(), endAt = endD.toISOString();
+  const inMonth = (ts: unknown) => !!ts && new Date(String(ts)) >= new Date(startAt) && new Date(String(ts)) < endD;
   const monthName = new Date(`${start}T00:00:00`).toLocaleDateString("en-AU", { month: "long", year: "numeric" });
 
   const [lotsQ, jobsQ, insQ, agmQ, actQ] = await Promise.all([
@@ -18,20 +21,20 @@ export async function downloadMonthlyReport(schemeId: string, s: Summary, month:
     supabase.from("maintenance_requests").select("id, title, created_at, closed_at").eq("scheme_id", schemeId),
     supabase.from("insurance_policies").select("policy_type, insurer, renewal_date").eq("scheme_id", schemeId),
     supabase.from("agm_meetings").select("title, meeting_date, notice_sent_at").eq("scheme_id", schemeId),
-    supabase.from("loty_activity").select("actor_name, summary, action, created_at").eq("scheme_id", schemeId).gte("created_at", start).lt("created_at", end),
+    supabase.from("loty_activity").select("actor_name, summary, action, created_at").eq("scheme_id", schemeId).gte("created_at", startAt).lt("created_at", endAt),
   ]);
   const lots = lotsQ.data ?? [];
   const lotById = new Map(lots.map(l => [l.id as string, l]));
   const levQ = lots.length ? await supabase.from("levies").select("lot_id, amount, due_date, status, paid_at").in("lot_id", lots.map(l => l.id as string)) : { data: [] };
   const levies = levQ.data ?? [];
-  const paidThisMonth = levies.filter(v => v.status === "Paid" && v.paid_at && String(v.paid_at) >= start && String(v.paid_at) < end);
+  const paidThisMonth = levies.filter(v => v.status === "Paid" && v.paid_at && String(v.paid_at).slice(0, 10) >= start && String(v.paid_at).slice(0, 10) < end);
   const owing = levies.filter(v => v.status !== "Paid" && String(v.status) !== "Void");
   const overdue = owing.filter(v => daysUntil(String(v.due_date)) < 0);
   const jobs = jobsQ.data ?? [];
-  const opened = jobs.filter(j => String(j.created_at) >= start && String(j.created_at) < end);
-  const closed = jobs.filter(j => j.closed_at && String(j.closed_at) >= start && String(j.closed_at) < end);
+  const opened = jobs.filter(j => inMonth(j.created_at));
+  const closed = jobs.filter(j => inMonth(j.closed_at));
   const open = jobs.filter(j => !j.closed_at);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISO();
   const nextAgm = (agmQ.data ?? []).filter(m => m.meeting_date && String(m.meeting_date) >= today).sort((a, b) => String(a.meeting_date).localeCompare(String(b.meeting_date)))[0];
   const renewals = (insQ.data ?? []).filter(p => p.renewal_date && String(p.renewal_date) >= today).sort((a, b) => String(a.renewal_date).localeCompare(String(b.renewal_date)));
   const sum = (xs: { amount: unknown }[]) => xs.reduce((t, x) => t + Number(x.amount), 0);
