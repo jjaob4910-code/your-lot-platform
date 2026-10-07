@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { daysUntil } from "@/lib/format";
 import { AlertTriangle, Bell, Calendar, Coins, FileCheck2, FileText, MessageSquare, Vote, Wrench } from "lucide-react";
+import { AtSign } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ type BellWidget = { id: string; standard_key: string | null };
 
 // Levies, notices, spending, obligations and calendar events come from the dashboard's own
 // queries (passed in or shared by cache key), so the bell never fetches a second copy.
-export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, overdrawnFunds = [], renewals = [], orders = [], documents = [], notifyNewWorkOrder = true, notifyNewDocument = true, levies = [], notices = [], transactions = [], tasks = [], widgets = [], notifyLevyDue = true, agmNotice = null }: {
+export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, overdrawnFunds = [], renewals = [], orders = [], documents = [], notifyNewWorkOrder = true, notifyNewDocument = true, chatMentions = [], levies = [], notices = [], transactions = [], tasks = [], widgets = [], notifyLevyDue = true, agmNotice = null }: {
   schemeId?: string | undefined; userId?: string | undefined; isCommittee: boolean; myLot: Lot | null; goTo: (tab: string) => void;
   /** Already filtered by the viewer's own "Fund overdrawn alerts" preference. */
   overdrawnFunds?: { id: string; name: string; balance: number }[];
@@ -40,6 +41,8 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
   /** New work orders and documents, each shown for a week when the building's switch is on. */
   orders?: { id: string; title: string; created_at: string }[]; documents?: { id: string; name: string; uploaded_at: string; shared_with_owners?: boolean | null }[];
   notifyNewWorkOrder?: boolean; notifyNewDocument?: boolean;
+  /** Unread chat messages that @mention this person. Opening one opens the chat. */
+  chatMentions?: { id: string; author_name: string; body: string; created_at: string }[];
 }) {
   const queryClient = useQueryClient();
   const [optimisticReadAt, setOptimisticReadAt] = useState<string | null>(null);
@@ -160,6 +163,10 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
     items.push({ id: `event-${event.id}`, category: "Upcoming event", icon: Calendar, text: event.title, sub: left === 0 ? "Today" : left === 1 ? "Tomorrow" : `In ${left} days`, tab: "Calendar" });
   }
 
+  for (const m of chatMentions) {
+    items.push({ id: `mention-${m.id}`, category: "Mentioned you", icon: AtSign, text: `${m.author_name} mentioned you in chat`, sub: m.body.length > 60 ? `${m.body.slice(0, 60)}…` : m.body, tab: "Chat", timestamp: m.created_at });
+  }
+
   for (const notice of recentNotices) {
     if (!isCommittee && notice.lot_id && notice.lot_id !== myLot?.id) continue;
     items.push({ id: `notice-${notice.id}`, category: "Message", icon: MessageSquare, text: notice.title, sub: `Posted ${relativeDay(notice.created_at)}`, tab: "Dashboard", timestamp: notice.created_at });
@@ -192,7 +199,7 @@ export function NotificationsBell({ schemeId, userId, isCommittee, myLot, goTo, 
       sub: `${new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(f.balance)} based on what's recorded in Loty`, tab: "Finance/Cashflow" });
   }
 
-  const categoryOrder = ["Fund overdrawn", "Approval needed", "Unbudgeted spend", "New work order", "Work order update", "Levy due", "Reminders", "Upcoming event", "New document", "Message"];
+  const categoryOrder = ["Mentioned you", "Fund overdrawn", "Approval needed", "Unbudgeted spend", "New work order", "Work order update", "Levy due", "Reminders", "Upcoming event", "New document", "Message"];
   items.sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 
   const isUnread = (item: NotificationItem) => !!item.timestamp && (!lastReadAt || item.timestamp > lastReadAt);

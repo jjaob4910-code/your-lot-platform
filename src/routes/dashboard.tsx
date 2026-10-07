@@ -1,4 +1,4 @@
-import { BuildingChat } from "@/components/chat";
+import { BuildingChat, openChat, unreadMentions, useChatMembers, useChatMessages } from "@/components/chat";
 import { OPEN_TAB_KEY, PORTFOLIO_SEEN_KEY } from "@/lib/portfolio";
 import { WhoRunsCard } from "@/components/who-runs";
 import { WelcomeTour } from "@/components/welcome-tour";
@@ -81,6 +81,7 @@ function DashboardPage() {
   const [financeView, setFinanceView] = useState<FinanceView>("Budget");
   // Deep links elsewhere in the app use "Tab" or "Finance/Levies" to open and scroll to a Finance section.
   const goTo = (target: string) => {
+    if (target === "Chat") { openChat(); return; }
     const [tab, sub] = target.split("/");
     if (tab === "Finance" && (sub === "Budget" || sub === "Levies" || sub === "Cashflow")) setFinanceView(sub);
     setActive(tab!);
@@ -446,6 +447,11 @@ function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Unread chat messages that mention you, for the bell.
+  const chatMessages = useChatMessages(schemeId);
+  const chatMembers = useChatMembers(schemeId);
+  const chatMentions = unreadMentions(chatMessages.data ?? [], chatMembers.data ?? [], userId);
+
   const fundsBootstrapped = useRef(false);
   useEffect(() => {
     // Only the committee can create funds; owners just read them.
@@ -474,13 +480,14 @@ function DashboardPage() {
             onChange={e => { try { localStorage.setItem(BUILDING_KEY, e.target.value); } catch { /* storage unavailable */ } window.location.reload(); }}>
             {(memberships.data ?? []).map(m => <option key={m.scheme_id} value={m.scheme_id}>{m.schemes?.name ?? "Building"}</option>)}
           </select>}
-          <BuildingChat schemeId={schemeId} userId={userId} buildingName={scheme.data?.name}
+          <BuildingChat schemeId={schemeId} userId={userId} buildingName={scheme.data?.name} isCommittee={isCommittee}
+            chatName={schemeSettings.data?.chat_name} settingsId={schemeSettings.data?.id} onRenamed={()=>refresh(["scheme-settings"])}
             myName={(myLot?.owner_name || String(session?.user?.user_metadata?.["display_name"] ?? "") || session?.user?.email?.split("@")[0] || "Me").trim()}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings" onClick={()=>setActive("Settings")}><Settings /></Button>
           <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo} overdrawnFunds={warnOverdrawn ? overdrawnFunds : []}
             levies={levies.data ?? []} notices={notices.data ?? []} transactions={activeTransactions} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []}
             notifyLevyDue={schemeSettings.data?.notify_levy_due ?? true} agmNotice={noticeDue}
-            orders={repairs.data ?? []} documents={documents.data ?? []}
+            orders={repairs.data ?? []} documents={documents.data ?? []} chatMentions={chatMentions}
             notifyNewWorkOrder={schemeSettings.data?.notify_new_work_order ?? true} notifyNewDocument={schemeSettings.data?.notify_new_document ?? true}
             renewals={(policies.data ?? []).filter(p => p.renewal_date).map(p => ({ id: p.id, label: p.policy_type, date: p.renewal_date!.slice(0, 10) }))}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Sign out" onClick={()=>{ void supabase.auth.signOut().then(()=>navigate({ to: "/", replace: true })); }}><LogOut /></Button>
