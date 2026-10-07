@@ -1,7 +1,8 @@
 import { createPortal } from "react-dom";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, AtSign, Camera, Check, CheckCheck, Mail, MessageCircle, MoreHorizontal, Pencil, Phone, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, AtSign, Building2, CalendarDays, Camera, Check, CheckCheck, Coins, FileText, Gavel, LayoutDashboard, Link2, Mail, MessageCircle, MoreHorizontal, Pencil, Phone, Send, ShieldCheck, SmilePlus, Trash2, Wrench, X } from "lucide-react";
+import { CHAT_ICONS, ICON_BY_CODE, ICON_PATTERN, LotyIcon, REACTIONS } from "@/lib/chat-icons";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,31 @@ export function useChatMembers(schemeId?: string | null) {
   });
 }
 
+export type ChatReaction = { message_id: string; user_id: string; emoji: string };
+function useChatReactions(schemeId?: string | null) {
+  return useQuery({
+    queryKey: ["chat-reactions", schemeId], enabled: !!schemeId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("chat_reactions").select("message_id, user_id, emoji").eq("scheme_id", schemeId!);
+      if (error) return [] as ChatReaction[]; // before the chat upgrade is applied
+      return (data ?? []) as ChatReaction[];
+    },
+  });
+}
+
+/** Something in the app a message can link to: a page, or an item on a page. */
+export type ChatLinkTarget = { label: string; target: string; kind: "page" | "work-order" | "meeting" | "document" };
+const LINK_ICON: Record<string, typeof Wrench> = {
+  Dashboard: LayoutDashboard, Lots: Building2, Insurance: ShieldCheck, "Work orders": Wrench, Finance: Coins, AGM: Gavel, Calendar: CalendarDays, Documents: FileText,
+};
+const linkIcon = (target: string) => LINK_ICON[target.split("/")[0]!] ?? Link2;
+export const PAGE_LINKS: ChatLinkTarget[] = [
+  ["Dashboard", "Dashboard"], ["Lots", "Lots"], ["Insurance", "Insurance"], ["Work orders", "Work orders"], ["Finance · Budget", "Finance/Budget"],
+  ["Finance · Levies", "Finance/Levies"], ["Finance · Cashflow", "Finance/Cashflow"], ["AGM", "AGM"], ["Calendar", "Calendar"], ["Documents", "Documents"],
+].map(([label, target]) => ({ label: label!, target: target!, kind: "page" as const }));
+// Links are stored in the message as #[Label](Target); icons as :code:; mentions as @Name.
+const LINK_PATTERN = /#\[([^\]\n]{1,80})\]\(([^)\n]{1,40})\)/g;
+
 /** Messages after my last read that mention me: for the bell. */
 export function unreadMentions(messages: ChatMessage[], members: ChatMember[], userId?: string) {
   const me = members.find(m => m.user_id === userId);
@@ -73,9 +99,13 @@ function Avatar({ id, name, url, size = 8 }: { id: string; name: string; url?: s
 
 type View = { kind: "chat" } | { kind: "people" } | { kind: "person"; id: string } | { kind: "me" };
 
-export function BuildingChat({ schemeId, userId, myName, buildingName, chatName, isCommittee, settingsId, onRenamed }: {
+export function BuildingChat({ schemeId, userId, myName, buildingName, chatName, isCommittee, settingsId, onRenamed, goTo, linkTargets = [] }: {
   schemeId?: string | undefined; userId?: string | undefined; myName: string; buildingName?: string | undefined;
   chatName?: string | null | undefined; isCommittee: boolean; settingsId?: string | null | undefined; onRenamed: () => void;
+  /** Opens a page of the app (closing the chat), for links in messages. */
+  goTo: (target: string) => void;
+  /** Work orders, meetings and documents people can link to, alongside the pages. */
+  linkTargets?: ChatLinkTarget[];
 }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -87,6 +117,10 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
   const [editing, setEditing] = useState<ChatMessage | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [showReaders, setShowReaders] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [linkQuery, setLinkQuery] = useState<string | null>(null);
+  const [linkIndex, setLinkIndex] = useState(0);
+  const [iconsOpen, setIconsOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const atBottom = useRef(true);
@@ -94,6 +128,15 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
 
   const messages = useChatMessages(schemeId);
   const membersQ = useChatMembers(schemeId);
+  const reactionsQ = useChatReactions(schemeId);
+  const reactionsBy = useMemo(() => {
+    const map = new Map<string, Map<string, string[]>>();
+    for (const r of reactionsQ.data ?? []) {
+      const byEmoji = map.get(r.message_id) ?? new Map<string, string[]>();
+      byEmoji.set(r.emoji, [...(byEmoji.get(r.emoji) ?? []), r.user_id]); map.set(r.message_id, byEmoji);
+    }
+    return map;
+  }, [reactionsQ.data]);
   const list = useMemo(() => messages.data ?? [], [messages.data]);
   const members = useMemo(() => membersQ.data ?? [], [membersQ.data]);
   const byId = useMemo(() => new Map(members.map(m => [m.user_id, m])), [members]);
@@ -108,6 +151,8 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
         () => void queryClient.invalidateQueries({ queryKey: ["chat", schemeId] }))
       .on("postgres_changes", { event: "*", schema: "public", table: "chat_reads", filter: `scheme_id=eq.${schemeId}` },
         () => void queryClient.invalidateQueries({ queryKey: ["chat-members", schemeId] }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "chat_reactions", filter: `scheme_id=eq.${schemeId}` },
+        () => void queryClient.invalidateQueries({ queryKey: ["chat-reactions", schemeId] }))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [schemeId, queryClient]);
@@ -149,7 +194,21 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
     const before = value.slice(0, caret);
     const at = /(?:^|\s)@([^\s@]{0,30})$/.exec(before);
     setMentionQuery(at ? at[1]! : null); setMentionIndex(0);
+    const hash = /(?:^|\s)#([^\s#[]{0,30})$/.exec(before);
+    setLinkQuery(hash ? hash[1]! : null); setLinkIndex(0);
   };
+  // Inserts text where the cursor is (or replaces the #query being typed).
+  const insertAtCursor = (text: string, replace?: RegExp) => {
+    const el = inputRef.current; const caret = el?.selectionStart ?? draft.length;
+    let before = draft.slice(0, caret);
+    before = replace && replace.test(before) ? before.replace(replace, text) : `${before}${before && !/\s$/.test(before) ? " " : ""}${text}`;
+    setDraft(before + draft.slice(caret));
+    setTimeout(() => { el?.focus(); el?.setSelectionRange(before.length, before.length); }, 0);
+  };
+  const allLinks = [...PAGE_LINKS, ...linkTargets];
+  const linkMatches = linkQuery === null ? [] : allLinks.filter(l => l.label.toLowerCase().includes(linkQuery.toLowerCase())).slice(0, 8);
+  const pickLink = (l: ChatLinkTarget) => { insertAtCursor(`#[${l.label.replace(/[\]\n]/g, "")}](${l.target}) `, /#([^\s#[]{0,30})$/); setLinkQuery(null); };
+  const pickIcon = (code: string) => { insertAtCursor(`:${code}: `); setIconsOpen(false); };
   const pickMention = (m: ChatMember) => {
     const el = inputRef.current; const caret = el?.selectionStart ?? draft.length;
     const before = draft.slice(0, caret).replace(/@([^\s@]{0,30})$/, `@${m.name} `);
@@ -162,7 +221,7 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
     const body = draft.trim();
     if (!body || !schemeId) return;
     const mentions = picked.filter(m => body.includes(`@${m.name}`)).map(m => m.user_id);
-    setMentionQuery(null);
+    setMentionQuery(null); setLinkQuery(null);
     if (editing) {
       const { error } = await supabase.from("chat_messages").update({ body, mentions }).eq("id", editing.id);
       if (error) { toast("Could not save your edit", { description: error.message }); return; }
@@ -185,6 +244,12 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
     void queryClient.invalidateQueries({ queryKey: ["chat", schemeId] });
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (linkMatches.length && linkQuery !== null) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setLinkIndex(i => (i + 1) % linkMatches.length); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setLinkIndex(i => (i - 1 + linkMatches.length) % linkMatches.length); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickLink(linkMatches[linkIndex]!); return; }
+      if (e.key === "Escape") { e.stopPropagation(); setLinkQuery(null); return; }
+    }
     if (matches.length && mentionQuery !== null) {
       if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex(i => (i + 1) % matches.length); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setMentionIndex(i => (i - 1 + matches.length) % matches.length); return; }
@@ -197,28 +262,74 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
 
   const rename = async (name: string) => {
     if (!schemeId) return;
-    const value = name.trim() || null;
+    const trimmed = name.trim();
+    const value = !trimmed || trimmed === `${buildingName ?? "Building"} chat` ? null : trimmed;
+    if (value === (chatName?.trim() || null)) { setRenaming(false); return; }
     const { error } = settingsId
       ? await supabase.from("scheme_settings").update({ chat_name: value }).eq("id", settingsId)
       : await supabase.from("scheme_settings").insert({ scheme_id: schemeId, chat_name: value });
-    if (error) { toast("Could not rename the chat", { description: error.message }); return; }
-    setRenaming(false); onRenamed(); toast(value ? `Chat renamed to “${value}”` : "Chat name reset");
+    if (error) {
+      setRenameError(/chat_name|column|schema cache/i.test(error.message)
+        ? "Renaming needs the chat upgrade set up in Supabase first." : `Couldn't save: ${error.message}`);
+      return;
+    }
+    setRenaming(false); setRenameError(null); onRenamed(); toast(value ? `Chat renamed to “${value}”` : "Chat name reset");
   };
 
-  // Highlights @Name for anyone in the building; a mention of you stands out more.
-  const renderBody = (m: ChatMessage, mine: boolean): ReactNode => {
+  // Turns a message's text into: link chips #[Label](Target), Loty icons :code:, and @Name mentions
+  // (a mention of you stands out more).
+  const mentionRe = useMemo(() => {
     const names = members.map(x => x.name).filter(Boolean).sort((a, b) => b.length - a.length);
-    if (!names.length || !m.body.includes("@")) return m.body;
-    const re = new RegExp(`@(${names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "g");
-    const parts: ReactNode[] = []; let last = 0; let k = 0;
-    for (const hit of m.body.matchAll(re)) {
-      parts.push(m.body.slice(last, hit.index));
-      const isMe = me && hit[1] === me.name;
-      parts.push(<span key={k++} data-mention className={`rounded px-0.5 font-medium ${mine ? "bg-primary-foreground/20" : isMe ? "bg-amber-200/80 text-amber-950" : "text-primary"}`}>{hit[0]}</span>);
+    return names.length ? new RegExp(`@(${names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "g") : null;
+  }, [members]);
+  const iconsOnly = (body: string) => body.replace(ICON_PATTERN, (m, c: string) => (ICON_BY_CODE.has(c) ? "" : m)).trim() === "" && /:([a-z-]{2,20}):/.test(body);
+  const renderBody = (m: ChatMessage, mine: boolean): ReactNode => {
+    const big = iconsOnly(m.body);
+    const out: ReactNode[] = []; let k = 0;
+    const mentions = (text: string) => {
+      if (!mentionRe || !text.includes("@")) { out.push(text); return; }
+      let last = 0;
+      for (const hit of text.matchAll(mentionRe)) {
+        out.push(text.slice(last, hit.index));
+        const isMe = me && hit[1] === me.name;
+        out.push(<span key={k++} data-mention className={`rounded px-0.5 font-medium ${mine ? "bg-primary-foreground/20" : isMe ? "bg-amber-200/80 text-amber-950" : "text-primary"}`}>{hit[0]}</span>);
+        last = hit.index! + hit[0].length;
+      }
+      out.push(text.slice(last));
+    };
+    const icons = (text: string) => {
+      let last = 0;
+      for (const hit of text.matchAll(ICON_PATTERN)) {
+        if (!ICON_BY_CODE.has(hit[1]!)) continue;
+        mentions(text.slice(last, hit.index));
+        out.push(<LotyIcon key={k++} code={hit[1]!} size={big ? "lg" : "sm"} onPrimary={mine && !big}/>);
+        last = hit.index! + hit[0].length;
+      }
+      mentions(text.slice(last));
+    };
+    let last = 0;
+    for (const hit of m.body.matchAll(LINK_PATTERN)) {
+      icons(m.body.slice(last, hit.index));
+      const [, label, target] = hit; const Icon = linkIcon(target!);
+      out.push(<button key={k++} type="button" data-chat-link={target} onClick={() => { setOpen(false); goTo(target!); }}
+        className={`mx-0.5 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 align-middle text-[13px] font-medium underline-offset-2 hover:underline ${mine ? "bg-primary-foreground/20 text-primary-foreground" : "bg-card text-primary ring-1 ring-primary/20"}`}>
+        <Icon className="size-3.5 shrink-0"/><span className="truncate">{label}</span></button>);
       last = hit.index! + hit[0].length;
     }
-    parts.push(m.body.slice(last));
-    return parts;
+    icons(m.body.slice(last));
+    return big ? <span className="flex flex-wrap gap-1.5">{out}</span> : out;
+  };
+
+  const toggleReaction = async (m: ChatMessage, code: string) => {
+    if (!schemeId || !userId) return;
+    const mine = reactionsBy.get(m.id)?.get(code)?.includes(userId);
+    const key = ["chat-reactions", schemeId];
+    queryClient.setQueryData<ChatReaction[]>(key, old => mine ? (old ?? []).filter(r => !(r.message_id === m.id && r.user_id === userId && r.emoji === code)) : [...(old ?? []), { message_id: m.id, user_id: userId, emoji: code }]);
+    const { error } = mine
+      ? await supabase.from("chat_reactions").delete().eq("message_id", m.id).eq("user_id", userId).eq("emoji", code)
+      : await supabase.from("chat_reactions").insert({ message_id: m.id, scheme_id: schemeId, user_id: userId, emoji: code });
+    if (error) toast("Couldn't save your reaction", { description: /chat_reactions|schema cache/i.test(error.message) ? "Reactions need the chat upgrade set up in Supabase first." : error.message });
+    void queryClient.invalidateQueries({ queryKey: key });
   };
 
   // Read receipts for your most recent message.
@@ -250,14 +361,17 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
         <div className="min-w-0 flex-1">
           {renaming
             ? <form onSubmit={e => { e.preventDefault(); void rename(String(new FormData(e.currentTarget).get("name") ?? "")); }} className="flex items-center gap-1">
-                <Input name="name" autoFocus defaultValue={chatName ?? ""} placeholder={`${buildingName ?? "Building"} chat`} aria-label="Chat name" maxLength={60} className="h-8"
-                  onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); setRenaming(false); } }}/>
+                <Input name="name" autoFocus defaultValue={title} aria-label="Chat name" maxLength={60} className="h-8"
+                  onFocus={e => { const v = e.currentTarget.value.length; e.currentTarget.setSelectionRange(v, v); }}
+                  onChange={() => setRenameError(null)}
+                  onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); setRenaming(false); setRenameError(null); } }}/>
                 <Button type="submit" size="icon" variant="ghost" className="size-8 rounded-full" aria-label="Save name"><Check className="size-4"/></Button>
               </form>
             : <div className="flex items-center gap-1">
                 <p className="truncate text-sm font-medium" data-chat-title>{view.kind === "people" ? "People" : view.kind === "me" ? "Your profile" : view.kind === "person" ? person?.name ?? "Profile" : title}</p>
                 {view.kind === "chat" && isCommittee && <button type="button" aria-label="Rename chat" onClick={() => setRenaming(true)} className="grid size-6 place-items-center rounded-full text-muted-foreground hover:bg-secondary"><Pencil className="size-3"/></button>}
               </div>}
+          {renaming && renameError && <p role="alert" className="mt-1 text-[11px] text-destructive" data-rename-error>{renameError}</p>}
           {view.kind === "chat" && !renaming && <button type="button" onClick={() => setView({ kind: "people" })} className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground" data-people-button>
             <span className="flex -space-x-1.5">{sortedPeople.slice(0, 4).map(m => <span key={m.user_id} className="rounded-full ring-2 ring-card"><Avatar id={m.user_id} name={m.name} url={m.avatar_url} size={6}/></span>)}</span>
             {members.length} {members.length === 1 ? "person" : "people"}
@@ -303,17 +417,27 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
               {newDay && <p className="my-3 text-center text-[11px] font-medium text-muted-foreground">{dayLabel(m.created_at)}</p>}
               {m.id === firstUnreadId && <p className="my-2 flex items-center gap-2 text-[11px] font-medium text-destructive"><span className="h-px flex-1 bg-destructive/40"/>New<span className="h-px flex-1 bg-destructive/40"/></p>}
               <div className={`group flex gap-2 ${mine ? "flex-row-reverse" : ""} ${grouped ? "mt-0.5" : "mt-3"}`} data-chat-message={mine ? "mine" : "theirs"}>
+                {mine && <div className="w-6 shrink-0 self-end">{!grouped && <button type="button" onClick={() => setView({ kind: "me" })} aria-label="Your profile" data-my-bubble><Avatar id={m.user_id} name={name} url={who?.avatar_url} size={6}/></button>}</div>}
                 {!mine && <div className="w-8 shrink-0">{!grouped && <button type="button" onClick={() => setView({ kind: "person", id: m.user_id })} aria-label={`${name}'s profile`}><Avatar id={m.user_id} name={name} url={who?.avatar_url}/></button>}</div>}
                 <div className={`flex min-w-0 max-w-[78%] flex-col ${mine ? "items-end" : "items-start"}`}>
                   {!grouped && <p className="mb-1 px-1 text-[12px]" data-chat-author>
                     {mine ? <span className="font-medium">You</span>
                       : <button type="button" className="font-medium hover:underline" onClick={() => setView({ kind: "person", id: m.user_id })}>{name}</button>}
                     {!mine && label ? <span className="text-muted-foreground"> · {label}</span> : null}</p>}
-                  <div className="flex items-center gap-1">
+                  <div className={`flex items-center gap-1 ${mine ? "" : "flex-row-reverse justify-end"}`}>
+                    {!m.deleted_at && !m.id.startsWith("temp-") && <ReactPicker onPick={code => void toggleReaction(m, code)}/>}
                     {mine && !m.deleted_at && !m.id.startsWith("temp-") && <OwnMenu onEdit={() => { setEditing(m); setDraft(m.body); setPicked(members.filter(x => (m.mentions ?? []).includes(x.user_id))); inputRef.current?.focus(); }} onDelete={() => void remove(m)}/>}
                     <div className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-[14px] leading-5 ${m.deleted_at ? "border border-dashed border-border bg-transparent italic text-muted-foreground"
+                      : iconsOnly(m.body) ? "bg-transparent px-0 py-0.5"
                       : mine ? "rounded-br-md bg-primary text-primary-foreground" : mentionsMe ? "rounded-bl-md bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-500/10" : "rounded-bl-md bg-secondary"}`}>{m.deleted_at ? "Message deleted" : renderBody(m, mine)}</div>
                   </div>
+                  {reactionsBy.get(m.id) && <div className={`mt-1 flex flex-wrap gap-1 ${mine ? "justify-end" : ""}`} data-reactions>
+                    {[...reactionsBy.get(m.id)!.entries()].map(([code, users]) => { const mineToo = users.includes(userId ?? "");
+                      return <button key={code} type="button" onClick={() => void toggleReaction(m, code)} title={listNames(users.map(u => u === userId ? "You" : byId.get(u)?.name ?? "Someone"))}
+                        aria-label={`${ICON_BY_CODE.get(code)?.label ?? code}, ${users.length}${mineToo ? ", including you" : ""}`}
+                        className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${mineToo ? "border-primary/40 bg-primary/10 text-primary" : "border-border bg-card text-muted-foreground hover:bg-secondary"}`}>
+                        <LotyIcon code={code}/>{users.length}</button>; })}
+                  </div>}
                   <p className="mt-0.5 px-1 text-[10px] text-muted-foreground">{m.id.startsWith("temp-") ? "" : time(m.created_at)}{m.edited_at && !m.deleted_at ? " · edited" : ""}</p>
                   {myLast && m.id === myLast.id && receipt && <button type="button" data-receipt onClick={() => setShowReaders(s => !s)} disabled={!readers.length}
                     className="mt-0.5 flex items-center gap-1 px-1 text-[11px] text-muted-foreground enabled:hover:text-foreground">
@@ -336,17 +460,35 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
                 <Avatar id={m.user_id} name={m.name} url={m.avatar_url} size={6}/><span className="font-medium">{m.name}</span>{m.label && <span className="text-muted-foreground">{m.label}</span>}
               </button></li>)}
           </ul>}
+          {linkMatches.length > 0 && linkQuery !== null && <ul role="listbox" aria-label="Link to a page" data-link-list
+            className="absolute inset-x-3 bottom-full mb-2 max-h-64 overflow-y-auto rounded-2xl border border-border/70 bg-card p-1 shadow-lg">
+            {linkMatches.map((l, i) => { const Icon = linkIcon(l.target); return <li key={`${l.kind}-${l.label}`} role="option" aria-selected={i === linkIndex}>
+              <button type="button" onMouseDown={e => { e.preventDefault(); pickLink(l); }} className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] ${i === linkIndex ? "bg-secondary" : "hover:bg-secondary/60"}`}>
+                <Icon className="size-4 text-primary"/><span className="truncate font-medium">{l.label}</span>
+                <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{l.kind === "page" ? "Page" : l.kind === "work-order" ? "Work order" : l.kind === "meeting" ? "Meeting" : "Document"}</span>
+              </button></li>; })}
+          </ul>}
+          {iconsOpen && <div data-icon-picker className="absolute inset-x-3 bottom-full mb-2 rounded-2xl border border-border/70 bg-card p-3 shadow-lg">
+            {(["Reactions", "Building"] as const).map(g => <div key={g} className="mb-2 last:mb-0">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{g}</p>
+              <div className="grid grid-cols-6 gap-1">{CHAT_ICONS.filter(i => i.group === g).map(i =>
+                <button key={i.code} type="button" title={i.label} aria-label={`Insert ${i.label}`} onMouseDown={e => { e.preventDefault(); pickIcon(i.code); }}
+                  className="grid place-items-center rounded-xl py-1.5 hover:bg-secondary"><LotyIcon code={i.code} size="md"/></button>)}</div>
+            </div>)}
+          </div>}
           {editing && <div className="mb-2 flex items-center justify-between rounded-xl bg-secondary px-3 py-1.5 text-[12px]"><span>Editing your message</span>
             <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => { setEditing(null); setDraft(""); }}>Cancel</button></div>}
           <div className="flex items-end gap-2">
             <textarea ref={inputRef} value={draft} onChange={e => onDraft(e.target.value, e.target.selectionStart)} onKeyDown={onKey} rows={1} maxLength={4000}
-              placeholder="Message everyone · @ to mention" aria-label="Message"
+              placeholder="Message" aria-label="Message"
               className="max-h-32 min-h-[40px] flex-1 resize-none rounded-2xl border border-border/70 bg-background px-3.5 py-2.5 text-[14px] leading-5 outline-none focus:border-primary/50"
               style={{ height: `${Math.min(128, 40 + (draft.split("\n").length - 1) * 20)}px` }}/>
-            <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full" aria-label="Mention someone" onClick={() => { const el = inputRef.current; const v = `${draft}${draft && !draft.endsWith(" ") ? " " : ""}@`; setDraft(v); setMentionQuery(""); el?.focus(); }}><AtSign className="size-4"/></Button>
+            <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full" aria-label="Loty icons" aria-expanded={iconsOpen} onClick={() => { setIconsOpen(o => !o); setLinkQuery(null); setMentionQuery(null); }}><SmilePlus className="size-4"/></Button>
+            <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full max-sm:hidden" aria-label="Link to a page" onClick={() => { setIconsOpen(false); insertAtCursor("#"); setLinkQuery(""); }}><Link2 className="size-4"/></Button>
+            <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full max-sm:hidden" aria-label="Mention someone" onClick={() => { const el = inputRef.current; const v = `${draft}${draft && !draft.endsWith(" ") ? " " : ""}@`; setDraft(v); setMentionQuery(""); el?.focus(); }}><AtSign className="size-4"/></Button>
             <Button size="icon" className="size-10 shrink-0 rounded-full" aria-label={editing ? "Save edit" : "Send"} disabled={!draft.trim()} onClick={() => void send()}><Send className="size-4"/></Button>
           </div>
-          <p className="mt-1.5 px-1 text-[10px] text-muted-foreground">Enter to send · Shift + Enter for a new line</p>
+          <p className="mt-1.5 px-1 text-[10px] text-muted-foreground">Enter to send · Shift + Enter for a new line · @ to mention · # to link a page</p>
         </div>
       </>}
     </div>, document.body)}
@@ -408,6 +550,18 @@ function MyProfile({ userId, current, fallbackName, onSaved }: { userId?: string
     <p className="mt-1 text-[11px] text-muted-foreground">Shown on your messages, in mentions and to everyone in your buildings.</p>
     <Button className="mt-5 w-full rounded-full" disabled={busy} onClick={() => void save()}>{busy ? "Uploading…" : "Save profile"}</Button>
   </div>;
+}
+
+/** Quick reactions with Loty icons. */
+function ReactPicker({ onPick }: { onPick: (code: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return <Popover open={open} onOpenChange={setOpen}>
+    <PopoverTrigger asChild><button type="button" aria-label="React" className="grid size-6 place-items-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-secondary focus:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"><SmilePlus className="size-4"/></button></PopoverTrigger>
+    <PopoverContent align="center" className="flex w-auto gap-1 rounded-full p-1.5" data-react-picker>
+      {REACTIONS.map(code => <button key={code} type="button" aria-label={`React with ${ICON_BY_CODE.get(code)?.label}`} onClick={() => { setOpen(false); onPick(code); }}
+        className="rounded-full p-0.5 transition-transform hover:scale-110"><LotyIcon code={code} size="md"/></button>)}
+    </PopoverContent>
+  </Popover>;
 }
 
 function OwnMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {

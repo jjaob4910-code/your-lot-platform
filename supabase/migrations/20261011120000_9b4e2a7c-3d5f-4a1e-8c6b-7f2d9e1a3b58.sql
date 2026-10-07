@@ -111,3 +111,29 @@ DO $$ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_reads;
   END IF;
 END $$;
+
+-- ── Reactions (Loty icons, stored by code such as 'thumbs-up') ───────────────
+CREATE TABLE IF NOT EXISTS public.chat_reactions (
+  message_id uuid NOT NULL REFERENCES public.chat_messages(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+  scheme_id uuid NOT NULL REFERENCES public.schemes(id) ON DELETE CASCADE,
+  emoji text NOT NULL CHECK (emoji ~ '^[a-z-]{1,20}$'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (message_id, user_id, emoji)
+);
+ALTER TABLE public.chat_reactions ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, DELETE ON public.chat_reactions TO authenticated;
+DROP POLICY IF EXISTS member_read ON public.chat_reactions;
+DROP POLICY IF EXISTS own_add ON public.chat_reactions;
+DROP POLICY IF EXISTS own_remove ON public.chat_reactions;
+CREATE POLICY member_read ON public.chat_reactions FOR SELECT TO authenticated USING (public.is_member(scheme_id));
+CREATE POLICY own_add ON public.chat_reactions FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid() AND public.is_member(scheme_id)
+    AND EXISTS (SELECT 1 FROM public.chat_messages c WHERE c.id = message_id AND c.scheme_id = chat_reactions.scheme_id AND c.deleted_at IS NULL));
+CREATE POLICY own_remove ON public.chat_reactions FOR DELETE TO authenticated USING (user_id = auth.uid());
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+     AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'chat_reactions') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_reactions;
+  END IF;
+END $$;
