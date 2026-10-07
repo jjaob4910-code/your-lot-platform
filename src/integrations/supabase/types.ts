@@ -1628,19 +1628,25 @@ export type Database = {
       }
       profiles: {
         Row: {
+          avatar_url: string | null
           created_at: string
           display_name: string | null
           email: string | null
+          full_name: string | null
           id: string
         }
         Insert: {
+          avatar_url?: string | null
           created_at?: string
+          full_name?: string | null
           display_name?: string | null
           email?: string | null
           id: string
         }
         Update: {
+          avatar_url?: string | null
           created_at?: string
+          full_name?: string | null
           display_name?: string | null
           email?: string | null
           id?: string
@@ -1736,6 +1742,7 @@ export type Database = {
           pay_account_number: string | null
           pay_bsb: string | null
           pay_other: string | null
+          chat_name: string | null
           pay_reference: string
           scheme_id: string
           updated_at: string
@@ -1752,6 +1759,7 @@ export type Database = {
           pay_account_number?: string | null
           pay_bsb?: string | null
           pay_other?: string | null
+          chat_name?: string | null
           pay_reference?: string
           scheme_id: string
           updated_at?: string
@@ -1768,6 +1776,7 @@ export type Database = {
           pay_account_number?: string | null
           pay_bsb?: string | null
           pay_other?: string | null
+          chat_name?: string | null
           pay_reference?: string
           scheme_id?: string
           updated_at?: string
@@ -1833,9 +1842,15 @@ export type Database = {
         Relationships: []
       }
       chat_messages: {
-        Row: { author_label: string | null; author_name: string; body: string; created_at: string; deleted_at: string | null; edited_at: string | null; id: string; scheme_id: string; user_id: string }
-        Insert: { author_label?: string | null; author_name: string; body: string; created_at?: string; deleted_at?: string | null; edited_at?: string | null; id?: string; scheme_id: string; user_id?: string }
-        Update: { author_label?: string | null; author_name?: string; body?: string; created_at?: string; deleted_at?: string | null; edited_at?: string | null; id?: string; scheme_id?: string; user_id?: string }
+        Row: { author_label: string | null; author_name: string; body: string; created_at: string; deleted_at: string | null; edited_at: string | null; id: string; mentions: string[]; scheme_id: string; user_id: string }
+        Insert: { author_label?: string | null; author_name: string; body: string; mentions?: string[]; created_at?: string; deleted_at?: string | null; edited_at?: string | null; id?: string; scheme_id: string; user_id?: string }
+        Update: { author_label?: string | null; author_name?: string; body?: string; mentions?: string[]; created_at?: string; deleted_at?: string | null; edited_at?: string | null; id?: string; scheme_id?: string; user_id?: string }
+        Relationships: []
+      }
+      chat_reads: {
+        Row: { last_read_at: string; scheme_id: string; user_id: string }
+        Insert: { last_read_at?: string; scheme_id: string; user_id?: string }
+        Update: { last_read_at?: string; scheme_id?: string; user_id?: string }
         Relationships: []
       }
       loty_staff: {
@@ -2102,6 +2117,7 @@ export type Database = {
       accept_invite: { Args: { _token: string }; Returns: string }
       building_finance_summary: { Args: { _scheme: string }; Returns: Json }
       committee_contacts: { Args: { _scheme: string }; Returns: { name: string | null; committee_role: string | null; email: string | null; phone: string | null; company: string | null; member_id: string }[] }
+      chat_members: { Args: { _scheme: string }; Returns: { user_id: string; name: string; label: string | null; avatar_url: string | null; role: string; last_read_at: string | null }[] }
       is_loty_staff: { Args: Record<PropertyKey, never>; Returns: boolean }
       loty_all_buildings: { Args: Record<PropertyKey, never>; Returns: { id: string; name: string; address: string | null; total_lots: number; managed_by_loty: boolean; managed_since: string | null; members: number; created_at: string }[] }
       loty_set_managed: { Args: { _scheme: string; _managed: boolean }; Returns: undefined }

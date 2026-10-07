@@ -18,7 +18,7 @@ export type SchemeSettings = {
   id: string; scheme_id: string;
   notify_new_work_order: boolean; notify_new_document: boolean; notify_levy_due: boolean;
   currency_code: string; date_format: string;
-  pay_account_name?: string | null; pay_bsb?: string | null; pay_account_number?: string | null; pay_reference?: string; pay_other?: string | null;
+  pay_account_name?: string | null; pay_bsb?: string | null; pay_account_number?: string | null; pay_reference?: string; pay_other?: string | null; chat_name?: string | null;
 };
 export type CommitteeRole = { id: string; lot_id: string; role: string };
 
