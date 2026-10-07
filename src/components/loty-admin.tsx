@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, CalendarDays, Clock, Download, FileSignature, FileText, History, Layers, Mail, Phone, Users, Wrench } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarDays, Clock, Download, FileSignature, FileText, History, Layers, Mail, Phone, Wrench, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -218,27 +219,6 @@ export function JobsResponse({ buildings, onOpen }: { buildings: AdminBuilding[]
   </section>;
 }
 
-// ── 4. Team workload ─────────────────────────────────────────────────────────
-export function TeamWorkload({ buildings, team, todo, onAssign }: {
-  buildings: AdminBuilding[]; team: { user_id: string; name: string }[]; todo: (id: string) => number; onAssign: () => void;
-}) {
-  const people = [...team.map(t => ({ ...t, list: buildings.filter(b => b.assignedTo === t.user_id) })), { user_id: "", name: "Unassigned", list: buildings.filter(b => !b.assignedTo) }];
-  const assign = async (b: AdminBuilding, userId: string) => { if (await saveLotyMeta(b.id, { assigned_to: userId || null })) onAssign(); };
-  return <section className="soft-shadow rounded-3xl border border-border/70 bg-card p-5 sm:p-7" data-admin-team>
-    <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"><Users className="size-3.5"/>Team and assignments</p>
-    <p className="mt-1 text-[13px] text-muted-foreground">Who looks after each building, and how much each person has on.</p>
-    <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {people.map(p => <div key={p.user_id || "none"} className="rounded-2xl border border-border/70 p-4" data-team-person={p.name}>
-        <p className="flex items-center justify-between text-sm font-medium">{p.name}<span className="text-[12px] font-normal text-muted-foreground">{p.list.length} {p.list.length === 1 ? "building" : "buildings"} · {p.list.reduce((t, b) => t + todo(b.id), 0)} to do</span></p>
-        <ul className="mt-2 space-y-1.5">{p.list.map(b => <li key={b.id} className="flex items-center gap-2 text-[13px]"><Dot color={b.color}/><span className="min-w-0 flex-1 truncate">{b.name}</span>
-          <select aria-label={`Assign ${b.name}`} value={b.assignedTo ?? ""} onChange={e => void assign(b, e.target.value)} className="h-7 rounded-full border border-border/70 bg-background px-2 text-[12px]">
-            <option value="">Unassigned</option>{team.map(t => <option key={t.user_id} value={t.user_id}>{t.name}</option>)}</select></li>)}
-          {p.list.length === 0 && <li className="text-[12px] text-muted-foreground">None</li>}</ul>
-      </div>)}
-    </div>
-  </section>;
-}
-
 // ── 5. Activity log ──────────────────────────────────────────────────────────
 type Activity = { id: string; scheme_id: string; actor_id: string | null; actor_name: string | null; table_name: string; action: string; summary: string | null; created_at: string };
 export function ActivityFeed({ buildings, initialBuilding }: { buildings: AdminBuilding[]; initialBuilding?: string | null | undefined }) {
@@ -270,6 +250,36 @@ export function ActivityFeed({ buildings, initialBuilding }: { buildings: AdminB
         </li>; })}
     </ul>
   </section>;
+}
+
+/** One building's Loty activity as a side panel, for the admin bar inside a building. */
+export function ActivityPanel({ schemeId, buildingName, onClose }: { schemeId: string; buildingName: string; onClose: () => void }) {
+  const data = useQuery({
+    queryKey: ["loty-activity", schemeId],
+    queryFn: async () => { const { data, error } = await supabase.from("loty_activity").select("*").eq("scheme_id", schemeId).order("created_at", { ascending: false }).limit(300); return error ? [] as Activity[] : (data ?? []) as Activity[]; },
+  });
+  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
+  const rows = data.data ?? [];
+  return createPortal(<>
+    <div className="fixed inset-0 z-[60] bg-foreground/10" aria-hidden onClick={onClose}/>
+    <aside role="dialog" aria-label={`Activity log for ${buildingName}`} data-activity-panel
+      className="soft-shadow fixed inset-0 z-[61] flex flex-col bg-card sm:inset-y-4 sm:left-auto sm:right-4 sm:w-[440px] sm:rounded-3xl sm:border sm:border-border/70">
+      <div className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-4">
+        <div className="min-w-0"><p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"><History className="size-3.5"/>Activity log</p>
+          <p className="truncate text-sm font-medium">{buildingName}</p></div>
+        <Button size="icon" variant="ghost" className="rounded-full" aria-label="Close activity log" onClick={onClose}><X/></Button>
+      </div>
+      <p className="border-b border-border/70 px-5 py-2.5 text-[12px] text-muted-foreground">Every change the Loty team makes in this building, recorded automatically. The committee can see this too.</p>
+      <ul className="flex-1 divide-y divide-border/60 overflow-y-auto px-5">
+        {data.isLoading && <li className="py-3 text-sm text-muted-foreground">Loading…</li>}
+        {data.isSuccess && rows.length === 0 && <li className="py-8 text-center text-[13px] text-muted-foreground">No Loty activity recorded in this building yet.</li>}
+        {rows.map(a => <li key={a.id} className="py-3 text-sm" data-activity-row>
+          <p><span className="font-medium">{a.actor_name ?? "Loty"}</span> {a.action} {a.summary}</p>
+          <p className="text-[11px] text-muted-foreground">{new Date(a.created_at).toLocaleString("en-AU", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</p>
+        </li>)}
+      </ul>
+    </aside>
+  </>, document.body);
 }
 
 // ── 6. Contact log ───────────────────────────────────────────────────────────
@@ -407,7 +417,7 @@ function PickBuildings({ buildings, picked, setPicked }: { buildings: AdminBuild
 }
 
 // ── 9. Bulk actions ──────────────────────────────────────────────────────────
-export function BulkActions({ buildings, team, onChanged }: { buildings: AdminBuilding[]; team: { user_id: string; name: string }[]; onChanged: () => void }) {
+export function BulkActions({ buildings, onChanged }: { buildings: AdminBuilding[]; onChanged: () => void }) {
   const queryClient = useQueryClient();
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -448,7 +458,7 @@ export function BulkActions({ buildings, team, onChanged }: { buildings: AdminBu
     if (error) { toast("Couldn't log", { description: /loty_followups|schema cache/i.test(error.message) ? "Needs the Loty staff tools (round 2) set up in Supabase first." : error.message }); return; }
     void queryClient.invalidateQueries({ queryKey: ["loty-followups"] }); toast(`Next reminder step logged for ${rows.length} ${rows.length === 1 ? "levy" : "levies"}`);
   };
-  const bulkMeta = async (patch: { color?: LotyColor | null; assigned_to?: string | null }) => {
+  const bulkMeta = async (patch: { color?: LotyColor | null }) => {
     if (!picked.length) return;
     let ok = true; for (const id of picked) ok = (await saveLotyMeta(id, patch)) && ok;
     if (ok) { onChanged(); toast(`Updated ${picked.length} ${picked.length === 1 ? "building" : "buildings"}`); }
@@ -482,13 +492,10 @@ export function BulkActions({ buildings, team, onChanged }: { buildings: AdminBu
         </>}
       </div>
       <div className="rounded-2xl border border-border/70 p-4 lg:col-span-2" data-bulk-meta>
-        <p className="text-sm font-medium">Colour and assignment</p>
+        <p className="text-sm font-medium">Colour</p>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <span className="text-[12px] text-muted-foreground">Set colour</span>
           {LOTY_COLORS.map(c => <button key={c.key} type="button" disabled={!picked.length} aria-label={`Set ${c.label} for chosen buildings`} onClick={() => void bulkMeta({ color: c.key })} className={`size-6 rounded-full ${c.swatch} disabled:opacity-40`}/>)}
-          <span className="ml-4 text-[12px] text-muted-foreground">Assign to</span>
-          <select aria-label="Assign chosen buildings to" disabled={!picked.length} defaultValue="" onChange={e => { if (e.target.value) void bulkMeta({ assigned_to: e.target.value === "none" ? null : e.target.value }); e.target.value = ""; }} className="h-8 rounded-full border border-border/70 bg-background px-3 text-[13px] disabled:opacity-40">
-            <option value="" disabled>Choose…</option><option value="none">Unassigned</option>{team.map(t => <option key={t.user_id} value={t.user_id}>{t.name}</option>)}</select>
         </div>
       </div>
     </div>

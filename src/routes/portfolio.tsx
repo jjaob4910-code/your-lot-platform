@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, Building2, Camera, Check, FileText, LogOut, MoreHorizontal, Move, Search, StickyNote, Trash2 } from "lucide-react";
-import { ActivityFeed, Agreements, ArrearsFollowUp, BulkActions, ComplianceCalendar, ContactLog, CoverFramer, JobsResponse, Reports, TeamWorkload, type AdminBuilding } from "@/components/loty-admin";
+import { ActivityFeed, Agreements, ArrearsFollowUp, BulkActions, ComplianceCalendar, ContactLog, CoverFramer, JobsResponse, Reports, type AdminBuilding } from "@/components/loty-admin";
 import { downloadMonthlyReport } from "@/lib/loty-report-pdf";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LOTY_COLORS, LotyNotesPanel, colorOf, saveLotyMeta, uploadCover, useCoverUrl, useLotyMeta, useLotyNotes, useLotyTeam, type LotyMeta, type LotyNote } from "@/components/loty-notes";
@@ -49,9 +49,9 @@ function actionsFor(r: Row): Action[] {
   return out;
 }
 
-type AdminTab = "buildings" | "calendar" | "arrears" | "jobs" | "contacts" | "activity" | "agreements" | "reports" | "bulk" | "team";
+type AdminTab = "buildings" | "calendar" | "arrears" | "jobs" | "contacts" | "activity" | "agreements" | "reports" | "bulk";
 const ADMIN_TABS: [AdminTab, string][] = [["buildings", "Buildings"], ["calendar", "Compliance calendar"], ["arrears", "Arrears"], ["jobs", "Work orders"],
-  ["contacts", "Contacts"], ["activity", "Activity"], ["agreements", "Agreements"], ["reports", "Reports"], ["bulk", "Bulk actions"], ["team", "Team"]];
+  ["contacts", "Contacts"], ["activity", "Activity"], ["agreements", "Agreements"], ["reports", "Reports"], ["bulk", "Bulk actions"]];
 
 function Segmented<T extends string>({ label, value, onChange, options }: { label: string; value: T; onChange: (v: T) => void; options: [T, string][] }) {
   return <div role="group" aria-label={label} className="flex rounded-full border border-border/70 bg-background p-0.5">
@@ -65,7 +65,6 @@ function SelfManagedCard({ b, meta, notes, team, onNotes, onChanged, onTakeOn }:
   b: Building; meta?: LotyMeta | undefined; notes: LotyNote[]; team: { user_id: string; name: string }[]; onNotes: () => void; onChanged: () => void; onTakeOn: () => void;
 }) {
   const pinned = notes.find(x => x.pinned);
-  const who = team.find(t => t.user_id === meta?.assigned_to);
   return <div data-building={b.name} data-self-managed data-color={meta?.color ?? ""} className="soft-shadow group relative flex flex-col overflow-hidden rounded-3xl border border-dashed border-border bg-card">
     <CardMedia schemeId={b.id} name={b.name} meta={meta} staff team={team} onChanged={onChanged}/>
     <div className="flex-1 p-5 sm:p-6">
@@ -75,10 +74,9 @@ function SelfManagedCard({ b, meta, notes, team, onNotes, onChanged, onTakeOn }:
         <span className="shrink-0 rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">Self-managed</span>
       </div>
       <p className="mt-4 text-[12px] text-muted-foreground">On Loty since {niceDate(b.created_at)}</p>
-      <Button size="sm" variant="outline" className="mt-3 rounded-full" onClick={onTakeOn}>Take on as Loty managed</Button>
+      <Button size="sm" variant="outline" className="mt-3 rounded-full" onClick={onTakeOn}>Move to Pro (Loty managed)</Button>
     </div>
     <div className="flex items-center gap-2 border-t border-border/70 px-5 py-3 text-[12px] sm:px-6">
-      {who && <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px]">{who.name}</span>}
       {pinned ? <p className="min-w-0 flex-1 truncate text-muted-foreground"><span className="font-medium text-foreground">Pinned:</span> {pinned.body}</p> : <span className="flex-1"/>}
       <button type="button" onClick={onNotes} className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 font-medium text-primary hover:bg-secondary"><StickyNote className="size-3.5"/>Notes{notes.length ? ` (${notes.length})` : ""}</button>
     </div>
@@ -135,11 +133,6 @@ function CardMedia({ schemeId, name, meta, staff, team, onOpen, onChanged, onRep
         {meta?.cover_path && cover.data && <button type="button" className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] hover:bg-secondary" onClick={() => { setMenu(false); setFraming(true); }}><Move className="size-4"/>Adjust photo</button>}
         {meta?.cover_path && <button type="button" className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] text-destructive hover:bg-secondary" onClick={() => void saveLotyMeta(schemeId, { cover_path: null }).then(done)}><Trash2 className="size-4"/>Remove photo</button>}
         {onReport && <button type="button" className="mt-3 flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] hover:bg-secondary" onClick={() => { setMenu(false); onReport(); }}><FileText className="size-4"/>Last month's report (PDF)</button>}
-        <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Looked after by</p>
-        <select aria-label={`Who looks after ${name}`} value={meta?.assigned_to ?? ""} onChange={e => void saveLotyMeta(schemeId, { assigned_to: e.target.value || null }).then(done)}
-          className="mt-2 h-8 w-full rounded-full border border-border/70 bg-background px-3 text-[13px]">
-          <option value="">Unassigned</option>{team.map(t => <option key={t.user_id} value={t.user_id}>{t.name}</option>)}
-        </select>
       </PopoverContent>
     </Popover>}
     {framing && cover.data && <CoverFramer open={framing} onOpenChange={setFraming} schemeId={schemeId} url={cover.data} position={meta?.cover_pos} onSaved={onChanged}/>}
@@ -152,7 +145,6 @@ function BuildingCard({ r, meta, notes, staff, team, onOpen, onNotes, onChanged 
 }) {
   const n = actionsFor(r).length;
   const pinned = notes.find(x => x.pinned);
-  const who = team.find(t => t.user_id === meta?.assigned_to);
   return <div data-building={r.name} data-color={meta?.color ?? ""} className="soft-shadow group relative flex flex-col overflow-hidden rounded-3xl border border-border/70 bg-card">
     <CardMedia schemeId={r.scheme_id} name={r.name} meta={meta} staff={staff} team={team} onOpen={onOpen} onChanged={onChanged}
       onReport={r.role === "Loty" ? () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
@@ -175,7 +167,6 @@ function BuildingCard({ r, meta, notes, staff, team, onOpen, onNotes, onChanged 
       </dl>
     </button>
     {staff && <div className="flex items-center gap-2 border-t border-border/70 px-5 py-3 text-[12px] sm:px-6">
-      {who && <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px]" data-assignee>{who.name}</span>}
       {pinned ? <p className="min-w-0 flex-1 truncate text-muted-foreground" data-pinned-note><span className="font-medium text-foreground">Pinned:</span> {pinned.body}</p> : <span className="flex-1"/>}
       <button type="button" onClick={onNotes} className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 font-medium text-primary hover:bg-secondary" data-notes-button><StickyNote className="size-3.5"/>Notes{notes.length ? ` (${notes.length})` : ""}</button>
     </div>}
@@ -231,8 +222,7 @@ function PortfolioPage() {
   // Staff: which tool, which buildings (Loty-managed, self-managed or all) and whose.
   const [tab, setTab] = useState<AdminTab>(() => { try { return (sessionStorage.getItem("loty-admin-tab") as AdminTab) || "buildings"; } catch { return "buildings"; } });
   useEffect(() => { try { sessionStorage.setItem("loty-admin-tab", tab); } catch { /* storage unavailable */ } }, [tab]);
-  const [scope, setScope] = useState<"managed" | "self" | "all">("managed");
-  const [owner, setOwner] = useState<"everyone" | "mine" | "unassigned">("everyone");
+  const [scope, setScope] = useState<"managed" | "self" | "all">("all");
   const everyBuilding = useQuery({
     queryKey: ["loty-all-buildings"], enabled: isStaff,
     queryFn: async () => { const { data, error } = await supabase.rpc("loty_all_buildings"); if (error) throw error; return (Array.isArray(data) ? data : []) as Building[]; },
@@ -240,15 +230,12 @@ function PortfolioPage() {
   const selfManaged = (everyBuilding.data ?? []).filter(b => !b.managed_by_loty)
     .filter(b => !q || `${b.name} ${b.address ?? ""}`.toLowerCase().includes(q.toLowerCase()))
     .filter(b => !colorFilter || metaOf(b.id)?.color === colorFilter)
-    .filter(b => owner === "everyone" || (owner === "mine" ? !!userId && metaOf(b.id)?.assigned_to === userId : !metaOf(b.id)?.assigned_to))
     .sort((a, b) => a.name.localeCompare(b.name));
-  const ownerOk = (id: string) => owner === "everyone" || (owner === "mine" ? !!userId && metaOf(id)?.assigned_to === userId : !metaOf(id)?.assigned_to);
 
   const all = rows.data ?? [];
   const list = all
     .filter(r => !q || `${r.name} ${r.address ?? ""}`.toLowerCase().includes(q.toLowerCase()))
     .filter(r => !colorFilter || metaOf(r.scheme_id)?.color === colorFilter)
-    .filter(r => !isStaff || ownerOk(r.scheme_id))
     .sort(SORTS.find(x => x.key === sort)!.cmp);
   const actions = all.flatMap(actionsFor).sort((a, b) => a.urgency - b.urgency);
   const managed = all.filter(r => r.role === "Manager" || r.role === "Loty").length;
@@ -286,8 +273,7 @@ function PortfolioPage() {
       {isStaff && tab === "activity" && <div className="mt-6"><ActivityFeed buildings={adminBuildings} initialBuilding={(() => { try { return sessionStorage.getItem("loty-activity-building"); } catch { return null; } })()}/></div>}
       {isStaff && tab === "agreements" && <div className="mt-6"><Agreements buildings={adminBuildings}/></div>}
       {isStaff && tab === "reports" && <div className="mt-6"><Reports buildings={adminBuildings} summaries={new Map(all.map(r => [r.scheme_id, { name: r.name, address: r.address, cash: Number(r.cash) }]))}/></div>}
-      {isStaff && tab === "bulk" && <div className="mt-6"><BulkActions buildings={adminBuildings} team={teamList} onChanged={refreshMeta}/></div>}
-      {isStaff && tab === "team" && <div className="mt-6 space-y-6"><TeamWorkload buildings={adminBuildings} team={teamList} todo={id => { const r = all.find(x => x.scheme_id === id); return r ? actionsFor(r).length : 0; }} onAssign={refreshMeta}/><TeamContact/></div>}
+      {isStaff && tab === "bulk" && <div className="mt-6"><BulkActions buildings={adminBuildings} onChanged={refreshMeta}/></div>}
 
       {(!isStaff || tab === "buildings") && <>
       <section className="soft-shadow mt-8 rounded-3xl border border-border/70 bg-card p-5 sm:p-7" data-needs-action>
@@ -314,8 +300,7 @@ function PortfolioPage() {
             className={`size-6 rounded-full ${c.swatch} ring-offset-2 ring-offset-background transition ${colorFilter === c.key ? "ring-2 ring-foreground" : colorFilter ? "opacity-40" : ""}`}/>)}
           {colorFilter && <button type="button" onClick={() => setColorFilter(null)} className="ml-1 text-[12px] text-muted-foreground hover:underline">Clear</button>}
         </div>}
-        {isStaff && <Segmented label="Which buildings" value={scope} onChange={setScope} options={[["managed", "Loty managed"], ["self", "Self-managed"], ["all", "All"]]}/>}
-        {isStaff && <Segmented label="Whose buildings" value={owner} onChange={setOwner} options={[["everyone", "Everyone"], ["mine", "Mine"], ["unassigned", "Unassigned"]]}/>}
+        {isStaff && <Segmented label="Which buildings" value={scope} onChange={setScope} options={[["all", "All"], ["managed", "Pro"], ["self", "Self-managed"]]}/>}
         <label className="ml-auto flex items-center gap-2 text-[13px] text-muted-foreground">Sort
           <select value={sort} onChange={e => setSort(e.target.value as SortKey)} aria-label="Sort buildings" className="h-9 rounded-full border border-border/70 bg-background px-3 text-[13px] text-foreground">
             {SORTS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
@@ -340,6 +325,7 @@ function PortfolioPage() {
       {notesFor && <LotyNotesPanel schemeId={notesFor.scheme_id} buildingName={notesFor.name} userId={userId} onClose={() => setNotesFor(null)}/>}
       {all.length === 0 && !rows.isLoading && <p className="mt-6 text-sm text-muted-foreground">{isStaff ? "No buildings yet. Switch on Managed by Loty below for each building Loty runs." : "You're not in any buildings yet."}</p>}
 
+      {isStaff && <TeamContact/>}
       {isStaff && <AllBuildings onChanged={() => { void rows.refetch(); void everyBuilding.refetch(); }}/>}
       </>}
     </main>
