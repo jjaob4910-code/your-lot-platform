@@ -1859,10 +1859,34 @@ export type Database = {
         Update: { last_read_at?: string; scheme_id?: string; user_id?: string }
         Relationships: []
       }
+      loty_activity: {
+        Row: { action: string; actor_id: string | null; actor_name: string | null; created_at: string; id: string; scheme_id: string; summary: string | null; table_name: string }
+        Insert: { action: string; actor_id?: string | null; actor_name?: string | null; created_at?: string; id?: string; scheme_id: string; summary?: string | null; table_name: string }
+        Update: { action?: string; actor_id?: string | null; actor_name?: string | null; created_at?: string; id?: string; scheme_id?: string; summary?: string | null; table_name?: string }
+        Relationships: []
+      }
+      loty_agreements: {
+        Row: { end_date: string | null; fee_amount: number | null; fee_period: string; notice_days: number; scheme_id: string; scope: string | null; start_date: string | null; updated_at: string }
+        Insert: { end_date?: string | null; fee_amount?: number | null; fee_period?: string; notice_days?: number; scheme_id: string; scope?: string | null; start_date?: string | null; updated_at?: string }
+        Update: { end_date?: string | null; fee_amount?: number | null; fee_period?: string; notice_days?: number; scheme_id?: string; scope?: string | null; start_date?: string | null; updated_at?: string }
+        Relationships: []
+      }
+      loty_contacts: {
+        Row: { created_at: string; created_by: string; created_by_name: string | null; follow_up_on: string | null; id: string; kind: string; scheme_id: string; summary: string; with_whom: string | null }
+        Insert: { created_at?: string; created_by?: string; created_by_name?: string | null; follow_up_on?: string | null; id?: string; kind: string; scheme_id: string; summary: string; with_whom?: string | null }
+        Update: { created_at?: string; created_by?: string; created_by_name?: string | null; follow_up_on?: string | null; id?: string; kind?: string; scheme_id?: string; summary?: string; with_whom?: string | null }
+        Relationships: []
+      }
       loty_buildings: {
-        Row: { color: string | null; cover_path: string | null; scheme_id: string; updated_at: string }
-        Insert: { color?: string | null; cover_path?: string | null; scheme_id: string; updated_at?: string }
-        Update: { color?: string | null; cover_path?: string | null; scheme_id?: string; updated_at?: string }
+        Row: { assigned_to: string | null; color: string | null; cover_path: string | null; cover_pos: string; scheme_id: string; updated_at: string }
+        Insert: { assigned_to?: string | null; color?: string | null; cover_path?: string | null; cover_pos?: string; scheme_id: string; updated_at?: string }
+        Update: { assigned_to?: string | null; color?: string | null; cover_path?: string | null; cover_pos?: string; scheme_id?: string; updated_at?: string }
+        Relationships: []
+      }
+      loty_followups: {
+        Row: { created_at: string; created_by: string; created_by_name: string | null; id: string; levy_id: string; note: string | null; scheme_id: string; stage: string }
+        Insert: { created_at?: string; created_by?: string; created_by_name?: string | null; id?: string; levy_id: string; note?: string | null; scheme_id: string; stage: string }
+        Update: { created_at?: string; created_by?: string; created_by_name?: string | null; id?: string; levy_id?: string; note?: string | null; scheme_id?: string; stage?: string }
         Relationships: []
       }
       loty_notes: {
@@ -2136,6 +2160,7 @@ export type Database = {
       building_finance_summary: { Args: { _scheme: string }; Returns: Json }
       committee_contacts: { Args: { _scheme: string }; Returns: { name: string | null; committee_role: string | null; email: string | null; phone: string | null; company: string | null; member_id: string }[] }
       chat_members: { Args: { _scheme: string }; Returns: { user_id: string; name: string; label: string | null; avatar_url: string | null; role: string; last_read_at: string | null }[] }
+      loty_staff_list: { Args: Record<PropertyKey, never>; Returns: { user_id: string; name: string }[] }
       is_loty_staff: { Args: Record<PropertyKey, never>; Returns: boolean }
       loty_all_buildings: { Args: Record<PropertyKey, never>; Returns: { id: string; name: string; address: string | null; total_lots: number; managed_by_loty: boolean; managed_since: string | null; members: number; created_at: string }[] }
       loty_set_managed: { Args: { _scheme: string; _managed: boolean }; Returns: undefined }

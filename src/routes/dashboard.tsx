@@ -1,4 +1,5 @@
-import { LotyNotesPanel, colorOf, useLotyMeta } from "@/components/loty-notes";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { LOTY_COLORS, LotyNotesPanel, colorOf, saveLotyMeta, useLotyMeta } from "@/components/loty-notes";
 import { BuildingChat, openChat, unreadMentions, useChatMembers, useChatMessages } from "@/components/chat";
 import { OPEN_TAB_KEY, PORTFOLIO_SEEN_KEY } from "@/lib/portfolio";
 import { WhoRunsCard } from "@/components/who-runs";
@@ -482,8 +483,18 @@ function DashboardPage() {
       <span className="font-semibold">Admin view</span><span className="opacity-80">·</span><span className="font-medium">{scheme.data?.name ?? "Building"}</span>
       <span className="hidden opacity-80 sm:inline">· You're working as Loty staff</span>
       <span className="ml-auto flex items-center gap-2">
+        {schemeId && <Popover>
+          <PopoverTrigger asChild><button type="button" aria-label="Building colour" className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 font-medium hover:bg-white/25"><span className="size-3 rounded-full border border-white/70 bg-white/40"/>Colour</button></PopoverTrigger>
+          <PopoverContent align="end" className="w-auto p-2" data-admin-colours>
+            <div className="flex gap-1.5">{LOTY_COLORS.map(x => <button key={x.key} type="button" aria-label={`Colour ${x.label}`} title={x.label}
+              onClick={() => void saveLotyMeta(schemeId, { color: x.key }).then(ok => { if (ok) void queryClient.invalidateQueries({ queryKey: ["loty-meta"] }); })}
+              className={`grid size-7 place-items-center rounded-full ${x.swatch} text-white`}>{lotyMeta.data?.get(schemeId)?.color === x.key && <Check className="size-3.5"/>}</button>)}</div>
+          </PopoverContent>
+        </Popover>}
         <button type="button" onClick={() => setAdminNotes(true)} className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-medium hover:bg-white/25"><StickyNote className="size-3.5"/>Notes</button>
-        <Link to="/portfolio" className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 font-medium text-foreground hover:bg-white/90"><ArrowLeft className="size-3.5"/>Back to Loty dashboard</Link>
+        <Link to="/portfolio" onClick={() => { try { sessionStorage.setItem("loty-admin-tab", "activity"); if (schemeId) sessionStorage.setItem("loty-activity-building", schemeId); } catch { /* storage unavailable */ } }}
+          className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-medium hover:bg-white/25">Activity</Link>
+        <Link to="/portfolio" onClick={() => { try { sessionStorage.setItem("loty-admin-tab", "buildings"); } catch { /* storage unavailable */ } }} className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 font-medium text-foreground hover:bg-white/90"><ArrowLeft className="size-3.5"/>Back to Loty dashboard</Link>
       </span>
     </div>}
     {adminView && adminNotes && schemeId && <LotyNotesPanel schemeId={schemeId} buildingName={scheme.data?.name ?? "Building"} userId={userId} onClose={() => setAdminNotes(false)}/>}

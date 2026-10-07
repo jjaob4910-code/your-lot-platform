@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 
 export type LotyNote = { id: string; scheme_id: string; author_id: string; author_name: string | null; body: string; pinned: boolean; created_at: string };
 export type LotyColor = "blue" | "green" | "amber" | "red" | "purple" | "grey";
-export type LotyMeta = { scheme_id: string; color: LotyColor | null; cover_path: string | null };
+export type LotyMeta = { scheme_id: string; color: LotyColor | null; cover_path: string | null; cover_pos?: string | null; assigned_to?: string | null };
 
 export const LOTY_COLORS: { key: LotyColor; label: string; swatch: string; stripe: string; soft: string; border: string }[] = [
   { key: "blue", label: "Blue", swatch: "bg-sky-500", stripe: "bg-sky-500", soft: "bg-sky-500/10", border: "border-sky-500" },
@@ -28,7 +28,10 @@ export function useLotyMeta(enabled: boolean) {
   return useQuery({
     queryKey: ["loty-meta"], enabled,
     queryFn: async () => {
-      const { data, error } = await supabase.from("loty_buildings").select("scheme_id, color, cover_path");
+      const full = await supabase.from("loty_buildings").select("scheme_id, color, cover_path, cover_pos, assigned_to");
+      // Before the photo-framing and assignment columns are added, fall back to the basics.
+      const res = full.error ? await supabase.from("loty_buildings").select("scheme_id, color, cover_path") : full;
+      const { data, error } = res as { data: unknown[] | null; error: unknown };
       if (error) return new Map<string, LotyMeta>();
       return new Map(((data ?? []) as LotyMeta[]).map(m => [m.scheme_id, m]));
     },
@@ -56,10 +59,22 @@ export function useCoverUrl(path?: string | null) {
   });
 }
 
-const needsSetup = (msg: string) => /loty_buildings|loty_notes|loty-covers|schema cache|does not exist|Bucket not found/i.test(msg);
+const needsSetup = (msg: string) => /loty_buildings|loty_notes|loty_followups|loty-covers|cover_pos|assigned_to|schema cache|does not exist|Bucket not found/i.test(msg);
 const setupHint = "Needs the Loty staff tools set up in Supabase first.";
 
-export async function saveLotyMeta(schemeId: string, patch: Partial<Pick<LotyMeta, "color" | "cover_path">>) {
+/** The Loty team, for assigning buildings. */
+export function useLotyTeam(enabled: boolean) {
+  return useQuery({
+    queryKey: ["loty-team-list"], enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("loty_staff_list");
+      if (error) return [] as { user_id: string; name: string }[];
+      return (Array.isArray(data) ? data : []) as { user_id: string; name: string }[];
+    },
+  });
+}
+
+export async function saveLotyMeta(schemeId: string, patch: Partial<Pick<LotyMeta, "color" | "cover_path" | "assigned_to">> & { cover_pos?: string }) {
   const { error } = await supabase.from("loty_buildings").upsert({ scheme_id: schemeId, ...patch, updated_at: new Date().toISOString() });
   if (error) toast("Couldn't save that", { description: needsSetup(error.message) ? setupHint : error.message });
   return !error;
