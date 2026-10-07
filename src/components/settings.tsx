@@ -1,6 +1,6 @@
 import { startTour } from "./welcome-tour";
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Compass, Pencil, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -67,7 +67,6 @@ function SchemeDialog({ open, onOpenChange, scheme, onSaved }: {
       name: String(form.get("name") ?? "").trim(),
       address: String(form.get("address") ?? "").trim(),
       total_lots: Number(form.get("total_lots")),
-      tier: text("tier"),
       // Left alone while the AGM tab owns the date (the field is disabled and not submitted).
       ...(scheme.next_agm_meeting_id ? {} : { next_agm_date: text("next_agm_date") }),
     };
@@ -82,11 +81,7 @@ function SchemeDialog({ open, onOpenChange, scheme, onSaved }: {
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-2"><Label htmlFor="name">Building name</Label><Input id="name" name="name" defaultValue={scheme.name} required/></div>
         <div className="space-y-2"><Label htmlFor="address">Address</Label><Input id="address" name="address" defaultValue={scheme.address} required/></div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="total_lots">Total lots</Label><Input id="total_lots" name="total_lots" type="number" min="1" defaultValue={scheme.total_lots} required/></div>
-          <div className="space-y-2"><Label htmlFor="tier">Loty plan</Label><Input id="tier" name="tier" defaultValue={scheme.tier ?? ""} placeholder="Tier 3"/>
-            <p className="text-[12px] text-muted-foreground">Your owners corporation's tier (1–5) under Victorian law, set by lot count and annual fees. It decides some reporting and audit duties.</p></div>
-        </div>
+        <div className="space-y-2"><Label htmlFor="total_lots">Total lots</Label><Input id="total_lots" name="total_lots" type="number" min="1" defaultValue={scheme.total_lots} required/></div>
         {/* Once a meeting is scheduled in the AGM tab, that meeting's date is the one used everywhere. */}
         <div className="space-y-2"><Label htmlFor="next_agm_date">Next AGM date</Label>
           <Input id="next_agm_date" name="next_agm_date" type="date" defaultValue={scheme.next_agm_date ?? ""} disabled={!!scheme.next_agm_meeting_id}/>
@@ -108,13 +103,12 @@ function CreateSchemeDialog({ open, onOpenChange, onSaved }: {
       name: String(form.get("name") ?? "").trim(),
       address: String(form.get("address") ?? "").trim(),
       total_lots: Number(form.get("total_lots")),
-      tier: text("tier"),
       next_agm_date: text("next_agm_date"),
     };
     // Creating a building makes you its committee; the extra details are saved straight after.
     const { data: id, error } = await supabase.rpc("create_building", { _name: payload.name, _address: payload.address, _total_lots: payload.total_lots });
     if (error || !id) { toast("Could not create your building", { description: error?.message }); return; }
-    await supabase.from("schemes").update({ tier: payload.tier, next_agm_date: payload.next_agm_date }).eq("id", id);
+    await supabase.from("schemes").update({ next_agm_date: payload.next_agm_date }).eq("id", id);
     try { localStorage.setItem("loty-building", String(id)); } catch { /* storage unavailable */ }
     onOpenChange(false); onSaved(); toast("Building created");
     window.location.reload();
@@ -126,10 +120,7 @@ function CreateSchemeDialog({ open, onOpenChange, onSaved }: {
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-2"><Label htmlFor="new_name">Building name</Label><Input id="new_name" name="name" placeholder="Banksia Court" required/></div>
         <div className="space-y-2"><Label htmlFor="new_address">Address</Label><Input id="new_address" name="address" placeholder="12 Banksia Street, Brunswick VIC 3056" required/></div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="new_total_lots">Total lots</Label><Input id="new_total_lots" name="total_lots" type="number" min="1" defaultValue={1} required/></div>
-          <div className="space-y-2"><Label htmlFor="new_tier">Loty plan</Label><Input id="new_tier" name="tier" placeholder="Tier 3"/></div>
-        </div>
+        <div className="space-y-2"><Label htmlFor="new_total_lots">Total lots</Label><Input id="new_total_lots" name="total_lots" type="number" min="1" defaultValue={1} required/></div>
         <div className="space-y-2"><Label htmlFor="new_next_agm_date">Next AGM date</Label><Input id="new_next_agm_date" name="next_agm_date" type="date"/></div>
         <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="ghost" className="rounded-full" onClick={()=>onOpenChange(false)}>Cancel</Button><Button type="submit" className="rounded-full">Create building</Button></div>
       </form>
@@ -196,16 +187,16 @@ function PaymentDetailsCard({ settings, onSave }: { settings: SchemeSettings | n
     setSaving(false); toast("Payment details saved", { description: "Owners will see them on their Finance page and invoices." });
   };
   return <Card className="mt-6 overflow-hidden">
-    <SectionHeading title="How owners pay" blurb="The building's bank account for levies. Owners see this on their Finance page, invoices and reminders, with their own reference."/>
+    <SectionHeading title="Payment method" blurb="The building's bank account for levies. Owners see this on their Finance page, invoices and reminders, with their own reference."/>
     <form onSubmit={save} className="grid gap-4 p-7 sm:grid-cols-2">
-      <div className="space-y-2"><Label htmlFor="pay_account_name">Account name</Label><Input id="pay_account_name" value={draft.pay_account_name} onChange={set("pay_account_name")} placeholder="Harbour View Owners Corporation"/></div>
+      <div className="space-y-2"><Label htmlFor="pay_account_name">Account name</Label><Input id="pay_account_name" value={draft.pay_account_name} onChange={set("pay_account_name")}/></div>
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2"><Label htmlFor="pay_bsb">BSB</Label><Input id="pay_bsb" value={draft.pay_bsb} onChange={set("pay_bsb")} placeholder="063-000" inputMode="numeric"/></div>
-        <div className="space-y-2"><Label htmlFor="pay_account_number">Account number</Label><Input id="pay_account_number" value={draft.pay_account_number} onChange={set("pay_account_number")} placeholder="1234 5678" inputMode="numeric"/></div>
+        <div className="space-y-2"><Label htmlFor="pay_bsb">BSB</Label><Input id="pay_bsb" value={draft.pay_bsb} onChange={set("pay_bsb")} inputMode="numeric"/></div>
+        <div className="space-y-2"><Label htmlFor="pay_account_number">Account number</Label><Input id="pay_account_number" value={draft.pay_account_number} onChange={set("pay_account_number")} inputMode="numeric"/></div>
       </div>
       <div className="space-y-2"><Label htmlFor="pay_reference">Payment reference</Label><Input id="pay_reference" value={draft.pay_reference} onChange={set("pay_reference")}/>
-        <p className="text-[12px] text-muted-foreground">{"{lot}"} becomes the lot number, so each owner gets their own reference. Lot 1 would use “{preview?.reference ?? draft.pay_reference.replace(/\{lot\}/gi, "1")}”.</p></div>
-      <div className="space-y-2"><Label htmlFor="pay_other">Other ways to pay (optional)</Label><Input id="pay_other" value={draft.pay_other} onChange={set("pay_other")} placeholder="PayID: levies@harbourview.org"/></div>
+        <p className="text-[12px] text-muted-foreground">{"{lot}"} becomes the lot number, so each owner gets their own reference.</p></div>
+      <div className="space-y-2"><Label htmlFor="pay_other">Other ways to pay (optional)</Label><Input id="pay_other" value={draft.pay_other} onChange={set("pay_other")}/></div>
       <div className="flex items-center justify-end gap-2 sm:col-span-2">
         {!preview && <p className="mr-auto text-[12px] text-amber-700 dark:text-amber-300">Owners can't see how to pay until a BSB and account number (or another way to pay) are added.</p>}
         <Button type="submit" className="rounded-full" disabled={saving}>{saving ? "Saving…" : "Save payment details"}</Button>
@@ -218,14 +209,18 @@ function PaymentDetailsCard({ settings, onSave }: { settings: SchemeSettings | n
 function ManagementCard({ schemeId, managed }: { schemeId?: string | undefined; managed: boolean }) {
   const contacts = useBuildingContacts(schemeId);
   const loty = (contacts.data ?? []).find(c => c.name === "Loty" && c.committee_role === "Manager");
+  const chair = (contacts.data ?? []).find(c => c.committee_role === "Chairperson");
   return <div data-management><Card className="mt-6 overflow-hidden">
-    <SectionHeading title="Building management" blurb={managed
-      ? "Loty manages this building for the committee: levies, repairs, insurance, meetings and records. Owners see Loty as their building manager."
-      : "Your committee runs this building itself, led by the Chairperson. Loty can manage it for you; get in touch if you'd like that."}/>
-    {managed && <div className="border-t border-border/70 px-7 py-4 text-[13px]">
-      <p className="font-medium">Managed by Loty</p>
-      <p className="mt-1 text-muted-foreground">{[loty?.email, loty?.phone].filter(Boolean).join(" · ") || "Contact details coming soon"}</p>
-    </div>}
+    <SectionHeading title="Building management" blurb="Who runs the building day to day: levies, repairs, insurance, meetings and records."/>
+    <div className="flex flex-wrap items-center justify-between gap-4 px-7 py-5 text-[13px]">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Run by</p>
+        <p className="mt-1 text-[15px] font-medium">{managed ? "Loty" : `Your committee${chair?.name ? `, led by ${chair.name} (Chairperson)` : ", led by the Chairperson"}`}</p>
+        {managed && <p className="mt-1 text-muted-foreground">{[loty?.email, loty?.phone].filter(Boolean).join(" · ") || "Contact details coming soon"}</p>}
+      </div>
+      {!managed && <p className="text-muted-foreground">Want Loty to run it for you?{" "}
+        <Link to="/pricing" className="font-medium text-primary hover:underline">Get Loty Pro →</Link></p>}
+    </div>
   </Card></div>;
 }
 
@@ -278,7 +273,6 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
             <Field label="Building name" value={scheme.name}/>
             <Field label="Address" value={scheme.address}/>
             {isCommittee && <Field label="Total lots" value={String(scheme.total_lots)}/>}
-            {isCommittee && <Field label="Loty plan" value={scheme.tier ?? "—"}/>}
             <Field label="Next AGM" value={scheme.next_agm_date ? new Date(scheme.next_agm_date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "Not scheduled"}/>
           </div>
         : isCommittee
