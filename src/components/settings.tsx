@@ -171,7 +171,7 @@ function AddRoleDialog({ open, onOpenChange, lots, onSaved }: {
 function PaymentDetailsCard({ settings, onSave }: { settings: SchemeSettings | null; onSave: (patch: Partial<Omit<SchemeSettings, "id" | "scheme_id">>) => Promise<void> }) {
   const [draft, setDraft] = useState({
     pay_account_name: settings?.pay_account_name ?? "", pay_bsb: settings?.pay_bsb ?? "", pay_account_number: settings?.pay_account_number ?? "",
-    pay_reference: settings?.pay_reference ?? "LOT{lot}", pay_other: settings?.pay_other ?? "",
+    pay_reference: settings?.pay_reference && settings.pay_reference !== "LOT{lot}" ? settings.pay_reference : "", pay_other: settings?.pay_other ?? "",
   });
   const [saving, setSaving] = useState(false);
   const set = (k: keyof typeof draft) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft(d => ({ ...d, [k]: e.target.value }));
@@ -194,8 +194,8 @@ function PaymentDetailsCard({ settings, onSave }: { settings: SchemeSettings | n
         <div className="space-y-2"><Label htmlFor="pay_bsb">BSB</Label><Input id="pay_bsb" value={draft.pay_bsb} onChange={set("pay_bsb")} inputMode="numeric"/></div>
         <div className="space-y-2"><Label htmlFor="pay_account_number">Account number</Label><Input id="pay_account_number" value={draft.pay_account_number} onChange={set("pay_account_number")} inputMode="numeric"/></div>
       </div>
-      <div className="space-y-2"><Label htmlFor="pay_reference">Payment reference</Label><Input id="pay_reference" value={draft.pay_reference} onChange={set("pay_reference")}/>
-        <p className="text-[12px] text-muted-foreground">{"{lot}"} becomes the lot number, so each owner gets their own reference.</p></div>
+      <div className="space-y-2"><Label htmlFor="pay_reference">Payment reference</Label><Input id="pay_reference" value={draft.pay_reference} onChange={set("pay_reference")} placeholder="Enter lot number"/>
+        <p className="text-[12px] text-muted-foreground">Leave blank and each owner uses their lot number, like LOT7. To use your own format, type it with {"{lot}"} where the number goes.</p></div>
       <div className="space-y-2"><Label htmlFor="pay_other">Other ways to pay (optional)</Label><Input id="pay_other" value={draft.pay_other} onChange={set("pay_other")}/></div>
       <div className="flex items-center justify-end gap-2 sm:col-span-2">
         {!preview && <p className="mr-auto text-[12px] text-amber-700 dark:text-amber-300">Owners can't see how to pay until a BSB and account number (or another way to pay) are added.</p>}
