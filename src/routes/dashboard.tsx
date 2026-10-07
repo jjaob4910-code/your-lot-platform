@@ -481,7 +481,12 @@ function DashboardPage() {
             {(memberships.data ?? []).map(m => <option key={m.scheme_id} value={m.scheme_id}>{m.schemes?.name ?? "Building"}</option>)}
           </select>}
           <BuildingChat schemeId={schemeId} userId={userId} buildingName={scheme.data?.name} isCommittee={isCommittee}
-            chatName={schemeSettings.data?.chat_name} settingsId={schemeSettings.data?.id} onRenamed={()=>refresh(["scheme-settings"])}
+            chatName={schemeSettings.data?.chat_name} settingsId={schemeSettings.data?.id} onRenamed={()=>refresh(["scheme-settings"])} goTo={goTo}
+            linkTargets={[
+              ...(repairs.data ?? []).filter(o => !o.closed_at).slice(0, 20).map(o => ({ label: o.title, target: "Work orders", kind: "work-order" as const })),
+              ...(agmMeetings.data ?? []).slice(0, 5).map(m => ({ label: m.title, target: "AGM", kind: "meeting" as const })),
+              ...(documents.data ?? []).slice(0, 20).map(d => ({ label: d.name, target: "Documents", kind: "document" as const })),
+            ]}
             myName={(myLot?.owner_name || String(session?.user?.user_metadata?.["display_name"] ?? "") || session?.user?.email?.split("@")[0] || "Me").trim()}/>
           <Button size="icon" variant="ghost" className="rounded-full" aria-label="Settings" onClick={()=>setActive("Settings")}><Settings /></Button>
           <NotificationsBell schemeId={schemeId} userId={userId} isCommittee={isCommittee} myLot={myLot} goTo={goTo} overdrawnFunds={warnOverdrawn ? overdrawnFunds : []}

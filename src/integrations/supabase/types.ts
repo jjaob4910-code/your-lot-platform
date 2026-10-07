@@ -1847,6 +1847,12 @@ export type Database = {
         Update: { author_label?: string | null; author_name?: string; body?: string; mentions?: string[]; created_at?: string; deleted_at?: string | null; edited_at?: string | null; id?: string; scheme_id?: string; user_id?: string }
         Relationships: []
       }
+      chat_reactions: {
+        Row: { created_at: string; emoji: string; message_id: string; scheme_id: string; user_id: string }
+        Insert: { created_at?: string; emoji: string; message_id: string; scheme_id: string; user_id?: string }
+        Update: { created_at?: string; emoji?: string; message_id?: string; scheme_id?: string; user_id?: string }
+        Relationships: []
+      }
       chat_reads: {
         Row: { last_read_at: string; scheme_id: string; user_id: string }
         Insert: { last_read_at?: string; scheme_id: string; user_id?: string }
