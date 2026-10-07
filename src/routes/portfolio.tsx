@@ -1,7 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Building2, LogOut } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, Camera, Check, LogOut, MoreHorizontal, Search, StickyNote, Trash2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { LOTY_COLORS, LotyNotesPanel, colorOf, saveLotyMeta, uploadCover, useCoverUrl, useLotyMeta, useLotyNotes, type LotyMeta, type LotyNote } from "@/components/loty-notes";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +47,77 @@ function actionsFor(r: Row): Action[] {
   return out;
 }
 
+type SortKey = "todo" | "name" | "overdue" | "agm" | "renewal" | "lots";
+const far = "9999-12-31";
+const SORTS: { key: SortKey; label: string; cmp: (a: Row, b: Row) => number }[] = [
+  { key: "todo", label: "Most to do", cmp: (a, b) => actionsFor(b).length - actionsFor(a).length || a.name.localeCompare(b.name) },
+  { key: "name", label: "Name A–Z", cmp: (a, b) => a.name.localeCompare(b.name) },
+  { key: "overdue", label: "Overdue levies", cmp: (a, b) => Number(b.overdue_amount) - Number(a.overdue_amount) || a.name.localeCompare(b.name) },
+  { key: "agm", label: "Next AGM", cmp: (a, b) => (a.next_agm ?? far).localeCompare(b.next_agm ?? far) },
+  { key: "renewal", label: "Next insurance renewal", cmp: (a, b) => (a.next_renewal ?? far).localeCompare(b.next_renewal ?? far) },
+  { key: "lots", label: "Most lots", cmp: (a, b) => b.total_lots - a.total_lots },
+];
+
+function ColorDot({ color }: { color?: string | null | undefined }) {
+  const c = colorOf(color);
+  return c ? <span className={`mr-2 inline-block size-2.5 rounded-full align-middle ${c.swatch}`} aria-label={`${c.label} building`}/> : null;
+}
+
+/** One building: cover photo, colour, key figures, pinned note; staff can recolour, change the photo and open notes. */
+function BuildingCard({ r, meta, notes, staff, onOpen, onNotes, onChanged }: {
+  r: Row; meta?: LotyMeta | undefined; notes: LotyNote[]; staff: boolean; onOpen: () => void; onNotes: () => void; onChanged: () => void;
+}) {
+  const n = actionsFor(r).length;
+  const c = colorOf(meta?.color);
+  const cover = useCoverUrl(meta?.cover_path);
+  const pinned = notes.find(x => x.pinned);
+  const [menu, setMenu] = useState(false);
+  const initials = r.name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join("");
+  return <div data-building={r.name} data-color={meta?.color ?? ""} className="soft-shadow group relative flex flex-col overflow-hidden rounded-3xl border border-border/70 bg-card">
+    {c && <span className={`absolute inset-y-0 left-0 z-10 w-1.5 ${c.stripe}`} aria-hidden/>}
+    <button type="button" onClick={onOpen} className="relative block h-32 w-full overflow-hidden text-left" aria-label={`Open ${r.name}`}>
+      {cover.data ? <img src={cover.data} alt="" className="size-full object-cover transition-transform group-hover:scale-[1.02]" data-cover/>
+        : <span className={`grid size-full place-items-center ${c?.soft ?? "bg-primary/5"}`}><span className="font-display text-3xl font-medium text-primary/40">{initials}</span></span>}
+    </button>
+    {staff && <Popover open={menu} onOpenChange={setMenu}>
+      <PopoverTrigger asChild><button type="button" aria-label={`Options for ${r.name}`} className="absolute right-3 top-3 z-10 grid size-8 place-items-center rounded-full bg-card/90 shadow-sm backdrop-blur hover:bg-card"><MoreHorizontal className="size-4"/></button></PopoverTrigger>
+      <PopoverContent align="end" className="w-60 p-3" data-card-menu>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Colour</p>
+        <div className="mt-2 flex gap-1.5">
+          {LOTY_COLORS.map(x => <button key={x.key} type="button" aria-label={`Colour ${x.label}`} title={x.label} onClick={() => void saveLotyMeta(r.scheme_id, { color: x.key }).then(ok => { if (ok) { onChanged(); setMenu(false); } })}
+            className={`grid size-7 place-items-center rounded-full ${x.swatch} text-white`}>{meta?.color === x.key && <Check className="size-3.5"/>}</button>)}
+        </div>
+        {meta?.color && <button type="button" className="mt-2 text-[12px] text-muted-foreground hover:underline" onClick={() => void saveLotyMeta(r.scheme_id, { color: null }).then(ok => { if (ok) { onChanged(); setMenu(false); } })}>Remove colour</button>}
+        <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Cover photo</p>
+        <label className="mt-2 flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 text-[13px] hover:bg-secondary"><Camera className="size-4"/>{meta?.cover_path ? "Change photo" : "Add a photo"}
+          <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="Cover photo" onChange={e => { const f = e.target.files?.[0]; if (f) void uploadCover(r.scheme_id, f).then(ok => { if (ok) { onChanged(); setMenu(false); toast("Cover photo updated"); } }); }}/></label>
+        {meta?.cover_path && <button type="button" className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] text-destructive hover:bg-secondary" onClick={() => void saveLotyMeta(r.scheme_id, { cover_path: null }).then(ok => { if (ok) { onChanged(); setMenu(false); } })}><Trash2 className="size-4"/>Remove photo</button>}
+      </PopoverContent>
+    </Popover>}
+    <button type="button" onClick={onOpen} className="flex-1 p-5 text-left hover:bg-secondary/30 sm:p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-base font-medium"><Building2 className="size-4 text-muted-foreground"/>{r.name}</p>
+          <p className="mt-1 text-[12px] text-muted-foreground">{r.address ?? ""}{r.address ? " · " : ""}{r.total_lots} lots · {r.role === "Loty" ? "Managed by Loty" : r.role === "Manager" ? "You're the manager" : r.role === "Committee" ? "You're on the committee" : "You're an owner"}</p>
+        </div>
+        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${n ? "bg-amber-500/15 text-amber-800 dark:text-amber-300" : "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400"}`}>{n ? `${n} to do` : "All good"}</span>
+      </div>
+      <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
+        <Stat label="Cash held" value={money(Number(r.cash))}/>
+        <Stat label="Overdue levies" value={r.levies_overdue ? `${r.levies_overdue} · ${money(Number(r.overdue_amount))}` : "None"} warn={r.levies_overdue > 0}/>
+        <Stat label="Open work orders" value={String(r.open_work_orders)}/>
+        <Stat label="Next AGM" value={r.next_agm ? niceDate(r.next_agm) : "Not set"}/>
+        <Stat label="Next renewal" value={r.next_renewal ? niceDate(r.next_renewal) : "None on file"}/>
+        <Stat label="Approvals waiting" value={String(r.approvals_waiting)} warn={r.approvals_waiting > 0}/>
+      </dl>
+    </button>
+    {staff && <div className="flex items-center gap-2 border-t border-border/70 px-5 py-3 text-[12px] sm:px-6">
+      {pinned ? <p className="min-w-0 flex-1 truncate text-muted-foreground" data-pinned-note><span className="font-medium text-foreground">Pinned:</span> {pinned.body}</p> : <span className="flex-1"/>}
+      <button type="button" onClick={onNotes} className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 font-medium text-primary hover:bg-secondary" data-notes-button><StickyNote className="size-3.5"/>Notes{notes.length ? ` (${notes.length})` : ""}</button>
+    </div>}
+  </div>;
+}
+
 function PortfolioPage() {
   const navigate = useNavigate();
   const [ready, setReady] = useState(false);
@@ -75,9 +148,28 @@ function PortfolioPage() {
     window.location.assign("/dashboard");
   };
 
-  const list = rows.data ?? [];
-  const actions = list.flatMap(actionsFor).sort((a, b) => a.urgency - b.urgency);
-  const managed = list.filter(r => r.role === "Manager" || r.role === "Loty").length;
+  const queryClient = useQueryClient();
+  const meta = useLotyMeta(isStaff);
+  const notes = useLotyNotes(isStaff);
+  const [notesFor, setNotesFor] = useState<Row | null>(null);
+  const [userId, setUserId] = useState<string | undefined>();
+  useEffect(() => { void supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id)); }, []);
+  // Search, colour filter and sort, remembered on this device.
+  const [q, setQ] = useState("");
+  const [colorFilter, setColorFilter] = useState<string | null>(() => { try { return localStorage.getItem("loty-portfolio-color"); } catch { return null; } });
+  const [sort, setSort] = useState<SortKey>(() => { try { return (localStorage.getItem("loty-portfolio-sort") as SortKey) || "todo"; } catch { return "todo"; } });
+  useEffect(() => { try { localStorage.setItem("loty-portfolio-sort", sort); if (colorFilter) localStorage.setItem("loty-portfolio-color", colorFilter); else localStorage.removeItem("loty-portfolio-color"); } catch { /* storage unavailable */ } }, [sort, colorFilter]);
+  const metaOf = (id: string) => meta.data?.get(id);
+  const notesOf = (id: string) => (notes.data ?? []).filter(n => n.scheme_id === id);
+  const refreshMeta = () => void queryClient.invalidateQueries({ queryKey: ["loty-meta"] });
+
+  const all = rows.data ?? [];
+  const list = all
+    .filter(r => !q || `${r.name} ${r.address ?? ""}`.toLowerCase().includes(q.toLowerCase()))
+    .filter(r => !colorFilter || metaOf(r.scheme_id)?.color === colorFilter)
+    .sort(SORTS.find(x => x.key === sort)!.cmp);
+  const actions = all.flatMap(actionsFor).sort((a, b) => a.urgency - b.urgency);
+  const managed = all.filter(r => r.role === "Manager" || r.role === "Loty").length;
 
   if (!ready) return null;
   return <div className="min-h-screen bg-background">
@@ -94,7 +186,7 @@ function PortfolioPage() {
         <p className="mt-5 text-[15px] leading-7 text-muted-foreground">
           {isStaff
             ? `${managed} ${managed === 1 ? "building" : "buildings"} managed by Loty. What needs doing is listed first; open any building to work in it as its manager. Only the Loty team can see this page.`
-            : `${list.length} ${list.length === 1 ? "building" : "buildings"}${managed ? `, ${managed} you manage` : ""}. What needs doing is listed first; open any building to work in it.`}
+            : `${all.length} ${all.length === 1 ? "building" : "buildings"}${managed ? `, ${managed} you manage` : ""}. What needs doing is listed first; open any building to work in it.`}
         </p>
       </div>
 
@@ -105,35 +197,36 @@ function PortfolioPage() {
           : <ul className="mt-3 divide-y divide-border/60">
             {actions.map((a, i) => <li key={i}>
               <button type="button" onClick={() => open(a.scheme.scheme_id, a.tab)} className="flex w-full items-center justify-between gap-3 py-3 text-left hover:opacity-80">
-                <span className="min-w-0 text-sm"><span className="font-medium">{a.scheme.name}</span><span className="text-muted-foreground"> · {a.text}</span></span>
+                <span className="min-w-0 text-sm"><ColorDot color={metaOf(a.scheme.scheme_id)?.color}/><span className="font-medium">{a.scheme.name}</span><span className="text-muted-foreground"> · {a.text}</span></span>
                 <ArrowRight className="size-4 shrink-0 text-muted-foreground"/>
               </button>
             </li>)}
           </ul>}
       </section>
 
-      <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {list.map(r => { const n = actionsFor(r).length;
-          return <button key={r.scheme_id} type="button" onClick={() => open(r.scheme_id)} data-building={r.name}
-            className="soft-shadow rounded-3xl border border-border/70 bg-card p-5 text-left transition-colors hover:bg-secondary/30 sm:p-6">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="flex items-center gap-2 text-base font-medium"><Building2 className="size-4 text-muted-foreground"/>{r.name}</p>
-                <p className="mt-1 text-[12px] text-muted-foreground">{r.address ?? ""}{r.address ? " · " : ""}{r.total_lots} lots · {r.role === "Loty" ? "Managed by Loty" : r.role === "Manager" ? "You're the manager" : r.role === "Committee" ? "You're on the committee" : "You're an owner"}</p>
-              </div>
-              <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${n ? "bg-amber-500/15 text-amber-800 dark:text-amber-300" : "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400"}`}>{n ? `${n} to do` : "All good"}</span>
-            </div>
-            <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
-              <Stat label="Cash held" value={money(Number(r.cash))}/>
-              <Stat label="Overdue levies" value={r.levies_overdue ? `${r.levies_overdue} · ${money(Number(r.overdue_amount))}` : "None"} warn={r.levies_overdue > 0}/>
-              <Stat label="Open work orders" value={String(r.open_work_orders)}/>
-              <Stat label="Next AGM" value={r.next_agm ? niceDate(r.next_agm) : "Not set"}/>
-              <Stat label="Next renewal" value={r.next_renewal ? niceDate(r.next_renewal) : "None on file"}/>
-              <Stat label="Approvals waiting" value={String(r.approvals_waiting)} warn={r.approvals_waiting > 0}/>
-            </dl>
-          </button>; })}
+      {/* Toolbar: search, colour filter and sort */}
+      <div className="mt-8 flex flex-wrap items-center gap-3" data-portfolio-toolbar>
+        <label className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"/>
+          <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search buildings" aria-label="Search buildings" className="h-9 rounded-full pl-9"/></label>
+        {isStaff && <div className="flex items-center gap-1.5" role="group" aria-label="Filter by colour">
+          {LOTY_COLORS.map(c => <button key={c.key} type="button" aria-label={`Show ${c.label} buildings`} aria-pressed={colorFilter === c.key} title={c.label}
+            onClick={() => setColorFilter(f => f === c.key ? null : c.key)}
+            className={`size-6 rounded-full ${c.swatch} ring-offset-2 ring-offset-background transition ${colorFilter === c.key ? "ring-2 ring-foreground" : colorFilter ? "opacity-40" : ""}`}/>)}
+          {colorFilter && <button type="button" onClick={() => setColorFilter(null)} className="ml-1 text-[12px] text-muted-foreground hover:underline">Clear</button>}
+        </div>}
+        <label className="ml-auto flex items-center gap-2 text-[13px] text-muted-foreground">Sort
+          <select value={sort} onChange={e => setSort(e.target.value as SortKey)} aria-label="Sort buildings" className="h-9 rounded-full border border-border/70 bg-background px-3 text-[13px] text-foreground">
+            {SORTS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </select></label>
       </div>
-      {list.length === 0 && !rows.isLoading && <p className="mt-6 text-sm text-muted-foreground">{isStaff ? "No buildings yet. Switch on Managed by Loty below for each building Loty runs." : "You're not in any buildings yet."}</p>}
+
+      <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        {list.map(r => <BuildingCard key={r.scheme_id} r={r} meta={metaOf(r.scheme_id)} notes={notesOf(r.scheme_id)} staff={isStaff}
+          onOpen={() => open(r.scheme_id)} onNotes={() => setNotesFor(r)} onChanged={refreshMeta}/>)}
+      </div>
+      {all.length > 0 && list.length === 0 && <p className="mt-6 text-sm text-muted-foreground">No buildings match. <button type="button" className="text-primary hover:underline" onClick={() => { setQ(""); setColorFilter(null); }}>Clear filters</button></p>}
+      {notesFor && <LotyNotesPanel schemeId={notesFor.scheme_id} buildingName={notesFor.name} userId={userId} onClose={() => setNotesFor(null)}/>}
+      {all.length === 0 && !rows.isLoading && <p className="mt-6 text-sm text-muted-foreground">{isStaff ? "No buildings yet. Switch on Managed by Loty below for each building Loty runs." : "You're not in any buildings yet."}</p>}
 
       {isStaff && <AllBuildings onChanged={() => void rows.refetch()}/>}
       {isStaff && <TeamContact/>}

@@ -1859,6 +1859,18 @@ export type Database = {
         Update: { last_read_at?: string; scheme_id?: string; user_id?: string }
         Relationships: []
       }
+      loty_buildings: {
+        Row: { color: string | null; cover_path: string | null; scheme_id: string; updated_at: string }
+        Insert: { color?: string | null; cover_path?: string | null; scheme_id: string; updated_at?: string }
+        Update: { color?: string | null; cover_path?: string | null; scheme_id?: string; updated_at?: string }
+        Relationships: []
+      }
+      loty_notes: {
+        Row: { author_id: string; author_name: string | null; body: string; created_at: string; id: string; pinned: boolean; scheme_id: string }
+        Insert: { author_id?: string; author_name?: string | null; body: string; created_at?: string; id?: string; pinned?: boolean; scheme_id: string }
+        Update: { author_id?: string; author_name?: string | null; body?: string; created_at?: string; id?: string; pinned?: boolean; scheme_id?: string }
+        Relationships: []
+      }
       loty_staff: {
         Row: { created_at: string; user_id: string }
         Insert: { created_at?: string; user_id: string }

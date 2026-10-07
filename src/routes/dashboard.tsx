@@ -1,3 +1,4 @@
+import { LotyNotesPanel, colorOf, useLotyMeta } from "@/components/loty-notes";
 import { BuildingChat, openChat, unreadMentions, useChatMembers, useChatMessages } from "@/components/chat";
 import { OPEN_TAB_KEY, PORTFOLIO_SEEN_KEY } from "@/lib/portfolio";
 import { WhoRunsCard } from "@/components/who-runs";
@@ -6,7 +7,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from "recharts";
-import { Building2, CalendarDays, Check, ChevronRight, Coins, Files, Gavel, History, LayoutDashboard, LogOut, Menu, Paperclip, Pencil, Plus, Settings, ShieldCheck, Trash2, Undo2, WalletCards, Wrench } from "lucide-react";
+import { ArrowLeft, StickyNote, Building2, CalendarDays, Check, ChevronRight, Coins, Files, Gavel, History, LayoutDashboard, LogOut, Menu, Paperclip, Pencil, Plus, Settings, ShieldCheck, Trash2, Undo2, WalletCards, Wrench } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -437,6 +438,11 @@ function DashboardPage() {
     queryFn: async () => { const { data, error } = await supabase.rpc("is_loty_staff"); return !error && data === true; },
   });
   const isLotyStaff = lotyStaff.data === true;
+  // Loty staff inside a managed building see an admin bar in the building's Loty colour.
+  const adminView = membership?.role === "Loty";
+  const lotyMeta = useLotyMeta(adminView);
+  const adminColor = (() => { const c = colorOf(schemeId ? lotyMeta.data?.get(schemeId)?.color : null); return c ? { swatch: c.swatch, border: c.border } : null; })();
+  const [adminNotes, setAdminNotes] = useState(false);
   const multi = isLotyStaff || (memberships.data ?? []).length > 1 || (memberships.data ?? []).some(m => m.role === "Manager" || m.role === "Loty");
   useEffect(() => {
     if (!multi) return;
@@ -470,8 +476,17 @@ function DashboardPage() {
 
   if (!authChecked) return null;
 
-  return <div className="relative isolate min-h-screen bg-background">
+  return <div className={`relative isolate min-h-screen bg-background ${adminView ? `border-x-4 ${adminColor?.border ?? "border-primary"}` : ""}`}>
     <Toaster />
+    {adminView && <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-[13px] text-white sm:px-7 ${adminColor?.swatch ?? "bg-primary"}`} data-admin-bar role="region" aria-label="Admin view">
+      <span className="font-semibold">Admin view</span><span className="opacity-80">·</span><span className="font-medium">{scheme.data?.name ?? "Building"}</span>
+      <span className="hidden opacity-80 sm:inline">· You're working as Loty staff</span>
+      <span className="ml-auto flex items-center gap-2">
+        <button type="button" onClick={() => setAdminNotes(true)} className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-medium hover:bg-white/25"><StickyNote className="size-3.5"/>Notes</button>
+        <Link to="/portfolio" className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 font-medium text-foreground hover:bg-white/90"><ArrowLeft className="size-3.5"/>Back to Loty dashboard</Link>
+      </span>
+    </div>}
+    {adminView && adminNotes && schemeId && <LotyNotesPanel schemeId={schemeId} buildingName={scheme.data?.name ?? "Building"} userId={userId} onClose={() => setAdminNotes(false)}/>}
     <WelcomeTour userId={userId} schemeId={schemeId} isCommittee={isCommittee} isManager={isManager} goTo={goTo}
       ready={!!scheme.data && !memberships.isLoading && !myLotQuery.isLoading}
       building={scheme.data?.name ?? "your building"} lot={myLot ? `Lot ${myLot.lot_number}` : null}
