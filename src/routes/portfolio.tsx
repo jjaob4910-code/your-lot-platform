@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Building2, Camera, Check, LogOut, MoreHorizontal, Move, Search, StickyNote, Trash2 } from "lucide-react";
-import { ArrearsFollowUp, ComplianceCalendar, CoverFramer, JobsResponse, TeamWorkload, type AdminBuilding } from "@/components/loty-admin";
+import { AlertTriangle, ArrowRight, Building2, Camera, Check, FileText, LogOut, MoreHorizontal, Move, Search, StickyNote, Trash2 } from "lucide-react";
+import { ActivityFeed, Agreements, ArrearsFollowUp, BulkActions, ComplianceCalendar, ContactLog, CoverFramer, JobsResponse, Reports, TeamWorkload, type AdminBuilding } from "@/components/loty-admin";
+import { downloadMonthlyReport } from "@/lib/loty-report-pdf";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LOTY_COLORS, LotyNotesPanel, colorOf, saveLotyMeta, uploadCover, useCoverUrl, useLotyMeta, useLotyNotes, useLotyTeam, type LotyMeta, type LotyNote } from "@/components/loty-notes";
 import { supabase } from "@/integrations/supabase/client";
@@ -48,8 +49,9 @@ function actionsFor(r: Row): Action[] {
   return out;
 }
 
-type AdminTab = "buildings" | "calendar" | "arrears" | "jobs" | "team";
-const ADMIN_TABS: [AdminTab, string][] = [["buildings", "Buildings"], ["calendar", "Compliance calendar"], ["arrears", "Arrears"], ["jobs", "Work orders"], ["team", "Team"]];
+type AdminTab = "buildings" | "calendar" | "arrears" | "jobs" | "contacts" | "activity" | "agreements" | "reports" | "bulk" | "team";
+const ADMIN_TABS: [AdminTab, string][] = [["buildings", "Buildings"], ["calendar", "Compliance calendar"], ["arrears", "Arrears"], ["jobs", "Work orders"],
+  ["contacts", "Contacts"], ["activity", "Activity"], ["agreements", "Agreements"], ["reports", "Reports"], ["bulk", "Bulk actions"], ["team", "Team"]];
 
 function Segmented<T extends string>({ label, value, onChange, options }: { label: string; value: T; onChange: (v: T) => void; options: [T, string][] }) {
   return <div role="group" aria-label={label} className="flex rounded-full border border-border/70 bg-background p-0.5">
@@ -101,8 +103,10 @@ function ColorDot({ color }: { color?: string | null | undefined }) {
 
 /** The top of a building card: cover photo (framed where staff placed it) and the staff menu
  *  for colour, photo and who looks after it. */
-function CardMedia({ schemeId, name, meta, staff, team, onOpen, onChanged }: {
+function CardMedia({ schemeId, name, meta, staff, team, onOpen, onChanged, onReport }: {
   schemeId: string; name: string; meta?: LotyMeta | undefined; staff: boolean; team: { user_id: string; name: string }[]; onOpen?: (() => void) | undefined; onChanged: () => void;
+  /** Downloads last month's report (managed buildings only). */
+  onReport?: (() => void) | undefined;
 }) {
   const c = colorOf(meta?.color);
   const cover = useCoverUrl(meta?.cover_path);
@@ -130,6 +134,7 @@ function CardMedia({ schemeId, name, meta, staff, team, onOpen, onChanged }: {
           <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="Cover photo" onChange={e => { const f = e.target.files?.[0]; if (f) void uploadCover(schemeId, f).then(ok => { done(ok); if (ok) { toast("Cover photo updated"); void saveLotyMeta(schemeId, { cover_pos: "50% 50%" }); } }); }}/></label>
         {meta?.cover_path && cover.data && <button type="button" className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] hover:bg-secondary" onClick={() => { setMenu(false); setFraming(true); }}><Move className="size-4"/>Adjust photo</button>}
         {meta?.cover_path && <button type="button" className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] text-destructive hover:bg-secondary" onClick={() => void saveLotyMeta(schemeId, { cover_path: null }).then(done)}><Trash2 className="size-4"/>Remove photo</button>}
+        {onReport && <button type="button" className="mt-3 flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-[13px] hover:bg-secondary" onClick={() => { setMenu(false); onReport(); }}><FileText className="size-4"/>Last month's report (PDF)</button>}
         <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Looked after by</p>
         <select aria-label={`Who looks after ${name}`} value={meta?.assigned_to ?? ""} onChange={e => void saveLotyMeta(schemeId, { assigned_to: e.target.value || null }).then(done)}
           className="mt-2 h-8 w-full rounded-full border border-border/70 bg-background px-3 text-[13px]">
@@ -149,7 +154,9 @@ function BuildingCard({ r, meta, notes, staff, team, onOpen, onNotes, onChanged 
   const pinned = notes.find(x => x.pinned);
   const who = team.find(t => t.user_id === meta?.assigned_to);
   return <div data-building={r.name} data-color={meta?.color ?? ""} className="soft-shadow group relative flex flex-col overflow-hidden rounded-3xl border border-border/70 bg-card">
-    <CardMedia schemeId={r.scheme_id} name={r.name} meta={meta} staff={staff} team={team} onOpen={onOpen} onChanged={onChanged}/>
+    <CardMedia schemeId={r.scheme_id} name={r.name} meta={meta} staff={staff} team={team} onOpen={onOpen} onChanged={onChanged}
+      onReport={r.role === "Loty" ? () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+        void downloadMonthlyReport(r.scheme_id, { name: r.name, address: r.address, cash: Number(r.cash) }, d.toISOString().slice(0, 7)).catch(e => toast("Couldn't make the report", { description: String(e) })); } : undefined}/>
     <button type="button" onClick={onOpen} className="flex-1 p-5 text-left hover:bg-secondary/30 sm:p-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -269,12 +276,17 @@ function PortfolioPage() {
       </div>
 
       {isStaff && <nav className="mt-8 flex gap-1 overflow-x-auto border-b border-border/70" aria-label="Loty tools" data-admin-tabs>
-        {ADMIN_TABS.map(([key, label]) => <button key={key} type="button" onClick={() => setTab(key)} aria-current={tab === key ? "page" : undefined}
+        {ADMIN_TABS.map(([key, label]) => <button key={key} type="button" onClick={() => { setTab(key); try { sessionStorage.removeItem("loty-activity-building"); } catch { /* storage unavailable */ } }} aria-current={tab === key ? "page" : undefined}
           className={`-mb-px shrink-0 border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors ${tab === key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{label}</button>)}
       </nav>}
       {isStaff && tab === "calendar" && <div className="mt-6"><ComplianceCalendar buildings={adminBuildings} onOpen={open}/></div>}
       {isStaff && tab === "arrears" && <div className="mt-6"><ArrearsFollowUp buildings={adminBuildings} onOpen={open}/></div>}
       {isStaff && tab === "jobs" && <div className="mt-6"><JobsResponse buildings={adminBuildings} onOpen={open}/></div>}
+      {isStaff && tab === "contacts" && <div className="mt-6"><ContactLog buildings={adminBuildings} userId={userId}/></div>}
+      {isStaff && tab === "activity" && <div className="mt-6"><ActivityFeed buildings={adminBuildings} initialBuilding={(() => { try { return sessionStorage.getItem("loty-activity-building"); } catch { return null; } })()}/></div>}
+      {isStaff && tab === "agreements" && <div className="mt-6"><Agreements buildings={adminBuildings}/></div>}
+      {isStaff && tab === "reports" && <div className="mt-6"><Reports buildings={adminBuildings} summaries={new Map(all.map(r => [r.scheme_id, { name: r.name, address: r.address, cash: Number(r.cash) }]))}/></div>}
+      {isStaff && tab === "bulk" && <div className="mt-6"><BulkActions buildings={adminBuildings} team={teamList} onChanged={refreshMeta}/></div>}
       {isStaff && tab === "team" && <div className="mt-6 space-y-6"><TeamWorkload buildings={adminBuildings} team={teamList} todo={id => { const r = all.find(x => x.scheme_id === id); return r ? actionsFor(r).length : 0; }} onAssign={refreshMeta}/><TeamContact/></div>}
 
       {(!isStaff || tab === "buildings") && <>

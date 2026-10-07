@@ -492,7 +492,9 @@ function DashboardPage() {
           </PopoverContent>
         </Popover>}
         <button type="button" onClick={() => setAdminNotes(true)} className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-medium hover:bg-white/25"><StickyNote className="size-3.5"/>Notes</button>
-        <Link to="/portfolio" className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 font-medium text-foreground hover:bg-white/90"><ArrowLeft className="size-3.5"/>Back to Loty dashboard</Link>
+        <Link to="/portfolio" onClick={() => { try { sessionStorage.setItem("loty-admin-tab", "activity"); if (schemeId) sessionStorage.setItem("loty-activity-building", schemeId); } catch { /* storage unavailable */ } }}
+          className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1 font-medium hover:bg-white/25">Activity</Link>
+        <Link to="/portfolio" onClick={() => { try { sessionStorage.setItem("loty-admin-tab", "buildings"); } catch { /* storage unavailable */ } }} className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 font-medium text-foreground hover:bg-white/90"><ArrowLeft className="size-3.5"/>Back to Loty dashboard</Link>
       </span>
     </div>}
     {adminView && adminNotes && schemeId && <LotyNotesPanel schemeId={schemeId} buildingName={scheme.data?.name ?? "Building"} userId={userId} onClose={() => setAdminNotes(false)}/>}

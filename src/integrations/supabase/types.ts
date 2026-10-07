@@ -1859,6 +1859,24 @@ export type Database = {
         Update: { last_read_at?: string; scheme_id?: string; user_id?: string }
         Relationships: []
       }
+      loty_activity: {
+        Row: { action: string; actor_id: string | null; actor_name: string | null; created_at: string; id: string; scheme_id: string; summary: string | null; table_name: string }
+        Insert: { action: string; actor_id?: string | null; actor_name?: string | null; created_at?: string; id?: string; scheme_id: string; summary?: string | null; table_name: string }
+        Update: { action?: string; actor_id?: string | null; actor_name?: string | null; created_at?: string; id?: string; scheme_id?: string; summary?: string | null; table_name?: string }
+        Relationships: []
+      }
+      loty_agreements: {
+        Row: { end_date: string | null; fee_amount: number | null; fee_period: string; notice_days: number; scheme_id: string; scope: string | null; start_date: string | null; updated_at: string }
+        Insert: { end_date?: string | null; fee_amount?: number | null; fee_period?: string; notice_days?: number; scheme_id: string; scope?: string | null; start_date?: string | null; updated_at?: string }
+        Update: { end_date?: string | null; fee_amount?: number | null; fee_period?: string; notice_days?: number; scheme_id?: string; scope?: string | null; start_date?: string | null; updated_at?: string }
+        Relationships: []
+      }
+      loty_contacts: {
+        Row: { created_at: string; created_by: string; created_by_name: string | null; follow_up_on: string | null; id: string; kind: string; scheme_id: string; summary: string; with_whom: string | null }
+        Insert: { created_at?: string; created_by?: string; created_by_name?: string | null; follow_up_on?: string | null; id?: string; kind: string; scheme_id: string; summary: string; with_whom?: string | null }
+        Update: { created_at?: string; created_by?: string; created_by_name?: string | null; follow_up_on?: string | null; id?: string; kind?: string; scheme_id?: string; summary?: string; with_whom?: string | null }
+        Relationships: []
+      }
       loty_buildings: {
         Row: { assigned_to: string | null; color: string | null; cover_path: string | null; cover_pos: string; scheme_id: string; updated_at: string }
         Insert: { assigned_to?: string | null; color?: string | null; cover_path?: string | null; cover_pos?: string; scheme_id: string; updated_at?: string }
