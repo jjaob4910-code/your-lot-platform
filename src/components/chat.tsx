@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useBuildingContacts } from "./who-runs";
+import { ChatComposer, type ComposerHandle } from "./chat-composer";
 
 // The building chat: one conversation for everyone in the building. Opens from the speech
 // bubble in the header. Names, labels and photos come from each person's profile and lot;
@@ -124,7 +125,7 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
   const [linkIndex, setLinkIndex] = useState(0);
   const [iconsOpen, setIconsOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<ComposerHandle>(null);
   const atBottom = useRef(true);
   const title = chatName?.trim() || `${buildingName ?? "Building"} chat`;
 
@@ -191,33 +192,21 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
   // ── @mentions ──
   const mentionable = members.filter(m => m.user_id !== userId);
   const matches = mentionQuery === null ? [] : mentionable.filter(m => m.name.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6);
-  const onDraft = (value: string, caret: number) => {
+  const onDraft = (value: string, before: string) => {
     setDraft(value);
-    const before = value.slice(0, caret);
     const at = /(?:^|\s)@([^\s@]{0,30})$/.exec(before);
     setMentionQuery(at ? at[1]! : null); setMentionIndex(0);
     const hash = /(?:^|\s)#([^\s#[]{0,30})$/.exec(before);
     setLinkQuery(hash ? hash[1]! : null); setLinkIndex(0);
   };
-  // Inserts text where the cursor is (or replaces the #query being typed).
-  const insertAtCursor = (text: string, replace?: RegExp) => {
-    const el = inputRef.current; const caret = el?.selectionStart ?? draft.length;
-    let before = draft.slice(0, caret);
-    before = replace && replace.test(before) ? before.replace(replace, text) : `${before}${before && !/\s$/.test(before) ? " " : ""}${text}`;
-    setDraft(before + draft.slice(caret));
-    setTimeout(() => { el?.focus(); el?.setSelectionRange(before.length, before.length); }, 0);
-  };
   const allLinks = [...PAGE_LINKS, ...linkTargets];
   const linkMatches = linkQuery === null ? [] : allLinks.filter(l => l.label.toLowerCase().includes(linkQuery.toLowerCase())).slice(0, 8);
-  const pickLink = (l: ChatLinkTarget) => { insertAtCursor(`#[${l.label.replace(/[\]\n]/g, "")}](${l.target}) `, /#([^\s#[]{0,30})$/); setLinkQuery(null); };
-  const pickIcon = (code: string) => { insertAtCursor(`:${code}: `); setIconsOpen(false); };
-  const pickMention = (m: ChatMember) => {
-    const el = inputRef.current; const caret = el?.selectionStart ?? draft.length;
-    const before = draft.slice(0, caret).replace(/@([^\s@]{0,30})$/, `@${m.name} `);
-    setDraft(before + draft.slice(caret)); setPicked(p => p.some(x => x.user_id === m.user_id) ? p : [...p, m]); setMentionQuery(null);
-    setTimeout(() => { el?.focus(); el?.setSelectionRange(before.length, before.length); }, 0);
-  };
-  const mentionMember = (m: ChatMember) => { setView({ kind: "chat" }); setDraft(d => `${d}${d && !d.endsWith(" ") ? " " : ""}@${m.name} `); setPicked(p => p.some(x => x.user_id === m.user_id) ? p : [...p, m]); };
+  // Picked icons, links and people go into the box as chips; the saved text keeps their codes.
+  const pickLink = (l: ChatLinkTarget) => { inputRef.current?.insertToken(`#[${l.label.replace(/[\]\n]/g, "")}](${l.target})`, /#([^\s#[]{0,30})$/); setLinkQuery(null); };
+  const pickIcon = (code: string) => { inputRef.current?.insertToken(`:${code}:`); setIconsOpen(false); };
+  const addPicked = (m: ChatMember) => setPicked(p => p.some(x => x.user_id === m.user_id) ? p : [...p, m]);
+  const pickMention = (m: ChatMember) => { inputRef.current?.insertToken(`@${m.name}`, /@([^\s@]{0,30})$/); addPicked(m); setMentionQuery(null); };
+  const mentionMember = (m: ChatMember) => { setView({ kind: "chat" }); addPicked(m); setTimeout(() => inputRef.current?.insertToken(`@${m.name}`), 60); };
 
   const send = async () => {
     const body = draft.trim();
@@ -229,9 +218,9 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
       let { error } = await supabase.from("chat_messages").update(patch).eq("id", editing.id);
       if (error && missingMentions(error.message)) ({ error } = await supabase.from("chat_messages").update({ body }).eq("id", editing.id));
       if (error) { toast("Could not save your edit", { description: error.message }); return; }
-      setEditing(null); setDraft(""); setPicked([]);
+      setEditing(null); setDraft(""); setPicked([]); inputRef.current?.clear();
     } else {
-      setDraft(""); setPicked([]); atBottom.current = true;
+      setDraft(""); setPicked([]); inputRef.current?.clear(); atBottom.current = true;
       const temp: ChatMessage = { id: `temp-${Date.now()}`, scheme_id: schemeId, user_id: userId ?? "", author_name: myName, author_label: null, body, created_at: new Date().toISOString(), edited_at: null, deleted_at: null, mentions };
       queryClient.setQueryData<ChatMessage[]>(["chat", schemeId], old => [...(old ?? []), temp]);
       // Mentions are only sent when there are some, and dropped if the database doesn't have them yet,
@@ -241,7 +230,7 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
       if (error && missingMentions(error.message)) ({ error } = await supabase.from("chat_messages").insert(row));
       if (error) {
         queryClient.setQueryData<ChatMessage[]>(["chat", schemeId], old => (old ?? []).filter(m => m.id !== temp.id));
-        setDraft(body); toast("Message not sent", { description: error.message }); return;
+        setDraft(body); inputRef.current?.setText(body); toast("Message not sent", { description: error.message }); return;
       }
     }
     void queryClient.invalidateQueries({ queryKey: ["chat", schemeId] });
@@ -251,7 +240,7 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
     if (error) { toast("Could not delete", { description: error.message }); return; }
     void queryClient.invalidateQueries({ queryKey: ["chat", schemeId] });
   };
-  const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (linkMatches.length && linkQuery !== null) {
       if (e.key === "ArrowDown") { e.preventDefault(); setLinkIndex(i => (i + 1) % linkMatches.length); return; }
       if (e.key === "ArrowUp") { e.preventDefault(); setLinkIndex(i => (i - 1 + linkMatches.length) % linkMatches.length); return; }
@@ -265,7 +254,7 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
       if (e.key === "Escape") { e.stopPropagation(); setMentionQuery(null); return; }
     }
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
-    if (e.key === "Escape" && editing) { e.stopPropagation(); setEditing(null); setDraft(""); }
+    if (e.key === "Escape" && editing) { e.stopPropagation(); setEditing(null); setDraft(""); inputRef.current?.clear(); }
   };
 
   const rename = async (name: string) => {
@@ -434,7 +423,7 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
                     {!mine && label ? <span className="text-muted-foreground"> · {label}</span> : null}</p>}
                   <div className={`flex items-center gap-1 ${mine ? "" : "flex-row-reverse justify-end"}`}>
                     {!m.deleted_at && !m.id.startsWith("temp-") && <ReactPicker onPick={code => void toggleReaction(m, code)}/>}
-                    {mine && !m.deleted_at && !m.id.startsWith("temp-") && <OwnMenu onEdit={() => { setEditing(m); setDraft(m.body); setPicked(members.filter(x => (m.mentions ?? []).includes(x.user_id))); inputRef.current?.focus(); }} onDelete={() => void remove(m)}/>}
+                    {mine && !m.deleted_at && !m.id.startsWith("temp-") && <OwnMenu onEdit={() => { setEditing(m); setDraft(m.body); inputRef.current?.setText(m.body); setPicked(members.filter(x => (m.mentions ?? []).includes(x.user_id))); inputRef.current?.focus(); }} onDelete={() => void remove(m)}/>}
                     <div className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-[14px] leading-5 ${m.deleted_at ? "border border-dashed border-border bg-transparent italic text-muted-foreground"
                       : iconsOnly(m.body) ? "bg-transparent px-0 py-0.5"
                       : mine ? "rounded-br-md bg-primary text-primary-foreground" : mentionsMe ? "rounded-bl-md bg-amber-50 ring-1 ring-amber-300 dark:bg-amber-500/10" : "rounded-bl-md bg-secondary"}`}>{m.deleted_at ? "Message deleted" : renderBody(m, mine)}</div>
@@ -485,15 +474,12 @@ export function BuildingChat({ schemeId, userId, myName, buildingName, chatName,
             </div>)}
           </div>}
           {editing && <div className="mb-2 flex items-center justify-between rounded-xl bg-secondary px-3 py-1.5 text-[12px]"><span>Editing your message</span>
-            <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => { setEditing(null); setDraft(""); }}>Cancel</button></div>}
+            <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => { setEditing(null); setDraft(""); inputRef.current?.clear(); }}>Cancel</button></div>}
           <div className="flex items-end gap-2">
-            <textarea ref={inputRef} value={draft} onChange={e => onDraft(e.target.value, e.target.selectionStart)} onKeyDown={onKey} rows={1} maxLength={4000}
-              placeholder="Message" aria-label="Message"
-              className="max-h-32 min-h-[40px] flex-1 resize-none rounded-2xl border border-border/70 bg-background px-3.5 py-2.5 text-[14px] leading-5 outline-none focus:border-primary/50"
-              style={{ height: `${Math.min(128, 40 + (draft.split("\n").length - 1) * 20)}px` }}/>
+            <ChatComposer ref={inputRef} onChange={onDraft} onKeyDown={onKey}/>
             <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full" aria-label="Loty icons" aria-expanded={iconsOpen} onClick={() => { setIconsOpen(o => !o); setLinkQuery(null); setMentionQuery(null); }}><SmilePlus className="size-4"/></Button>
-            <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full max-sm:hidden" aria-label="Link to a page" onClick={() => { setIconsOpen(false); insertAtCursor("#"); setLinkQuery(""); }}><Link2 className="size-4"/></Button>
-            <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full max-sm:hidden" aria-label="Mention someone" onClick={() => { const el = inputRef.current; const v = `${draft}${draft && !draft.endsWith(" ") ? " " : ""}@`; setDraft(v); setMentionQuery(""); el?.focus(); }}><AtSign className="size-4"/></Button>
+            <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full max-sm:hidden" aria-label="Link to a page" onClick={() => { setIconsOpen(false); inputRef.current?.insertText("#"); }}><Link2 className="size-4"/></Button>
+            <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full max-sm:hidden" aria-label="Mention someone" onClick={() => { setIconsOpen(false); inputRef.current?.insertText("@"); }}><AtSign className="size-4"/></Button>
             <Button size="icon" className="size-10 shrink-0 rounded-full" aria-label={editing ? "Save edit" : "Send"} disabled={!draft.trim()} onClick={() => void send()}><Send className="size-4"/></Button>
           </div>
           <p className="mt-1.5 px-1 text-[10px] text-muted-foreground">Enter to send · Shift + Enter for a new line · @ to mention · # to link a page</p>
