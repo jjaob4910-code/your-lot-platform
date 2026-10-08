@@ -572,7 +572,7 @@ function DashboardPage() {
         claims={claims.data ?? []} lots={lots.data ?? []} orders={repairs.data ?? []} funds={budgetFunds.data ?? []}
         onClaimsChanged={()=>refresh(["insurance-claims","documents","document-folders","finance"])}/>}
       {active === "Calendar" && <CalendarSection scheme={schemeWithAgm} tasks={tasks.data ?? []} widgets={complianceWidgets.data ?? []} levies={levies.data ?? []}
-        orders={repairs.data ?? []} goTo={goTo} canEdit={isCommittee}/>}
+        orders={repairs.data ?? []} goTo={goTo} canEdit={isCommittee} ownLotId={isCommittee ? undefined : (myLotQuery.data?.id ?? null)}/>}
       {active === "Documents" && <DocumentsSection documents={documents.data ?? []} isCommittee={isCommittee} schemeId={schemeId} onChanged={()=>refresh(["documents"])}/>}
 
       {active === "Settings" && <SettingsSection scheme={schemeWithAgm} lots={lots.data ?? []}

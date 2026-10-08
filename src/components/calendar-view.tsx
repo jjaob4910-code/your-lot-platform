@@ -1,5 +1,5 @@
 import { useMemo, useState, type DragEvent, type FormEvent, type ReactNode } from "react";
-import { daysUntil, weekdayDate as niceDate } from "@/lib/format";
+import { daysUntil, weekdayDate as niceDate, money } from "@/lib/format";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, ChevronLeft, ChevronRight, List, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,7 +16,7 @@ type Renewal = { id: string; label: string; date: string };
 export type CalendarScheme = { id: string; next_agm_date: string | null; next_agm_meeting_id?: string | null; agm_notice_due?: string | null; renewals?: Renewal[] } | null;
 type AgmDateSource = { next_agm_date: string | null; agm_notice_due?: string | null; renewals?: Renewal[] } | null;
 export type CalendarTask = { id: string; task_name: string; detail: string | null; due_date: string; status: string; widget_id: string | null };
-export type CalendarLevy = { id: string; due_date: string; status: string; amount: number };
+export type CalendarLevy = { id: string; due_date: string; status: string; amount: number; lot_id?: string | null };
 export type CalendarOrder = { id: string; title: string; status: string; target_date: string | null };
 
 type EventRow = { id: string; title: string; notes: string | null; event_date: string; kind: string };
@@ -52,7 +52,7 @@ const toneClass: Record<Item["tone"], string> = {
 // Everything that lands on the calendar, from every part of the app. Shared by the
 // Calendar tab and the dashboard's Upcoming widget so they always agree.
 export function buildCalendarItems(scheme: AgmDateSource, tasks: CalendarTask[], widgets: ComplianceWidget[],
-  levies: CalendarLevy[], orders: CalendarOrder[], events: EventRow[]): Item[] {
+  levies: CalendarLevy[], orders: CalendarOrder[], events: EventRow[], ownLotId?: string | null): Item[] {
   const list: Item[] = [];
   if (scheme?.next_agm_date) list.push({
     key: `agm`, date: scheme.next_agm_date, title: "Annual general meeting", detail: "Your yearly owners meeting.",
@@ -79,9 +79,17 @@ export function buildCalendarItems(scheme: AgmDateSource, tasks: CalendarTask[],
       tone: "compliance", movable: true, goTo: tab, source: tab,
     });
   }
-  const dueDates = [...new Set(levies.filter(l => l.status !== "Paid").map(l => l.due_date))];
+  // An owner only sees their own levy, never how many neighbours still owe.
+  if (ownLotId !== undefined) {
+    for (const l of levies) if (l.lot_id === ownLotId && String(l.status) !== "Void") list.push({
+      key: `levy-${l.id}`, date: l.due_date, title: l.status === "Paid" ? "Your levy (paid)" : "Your levy is due",
+      detail: `${money(Number(l.amount))}${l.status === "Paid" ? " · Paid" : ""}`,
+      tone: "levy", movable: false, goTo: "Finance", source: "Levies",
+    });
+  }
+  const dueDates = ownLotId !== undefined ? [] : [...new Set(levies.filter(l => l.status !== "Paid" && String(l.status) !== "Void").map(l => l.due_date))];
   for (const date of dueDates) {
-    const owing = levies.filter(l => l.due_date === date && l.status !== "Paid");
+    const owing = levies.filter(l => l.due_date === date && l.status !== "Paid" && String(l.status) !== "Void");
     list.push({
       key: `levy-${date}`, date, title: "Levies due",
       detail: `${owing.length} lot${owing.length === 1 ? "" : "s"} still to pay for this instalment.`,
@@ -111,12 +119,12 @@ export const useCalendarEvents = () => useQuery({
 });
 
 /** Dashboard widget: the next two weeks, soonest first. Tapping an item opens where it lives. */
-export function UpcomingWidgetBody({ scheme, tasks, widgets, levies, orders, goTo }: {
+export function UpcomingWidgetBody({ scheme, tasks, widgets, levies, orders, goTo, ownLotId }: {
   scheme: AgmDateSource; tasks: CalendarTask[]; widgets: ComplianceWidget[]; levies: CalendarLevy[]; orders: CalendarOrder[];
-  goTo: (section: string) => void;
+  goTo: (section: string) => void; ownLotId?: string | null | undefined;
 }) {
   const events = useCalendarEvents();
-  const items = buildCalendarItems(scheme, tasks, widgets, levies, orders, events.data ?? [])
+  const items = buildCalendarItems(scheme, tasks, widgets, levies, orders, events.data ?? [], ownLotId)
     .filter(i => i.key !== "agm" && (() => { const d = daysUntil(i.date); return d >= 0 && d <= 14; })()).slice(0, 6);
   // The AGM countdown always leads, however far off; then dates in the next two weeks.
   const agmDays = scheme?.next_agm_date ? daysUntil(scheme.next_agm_date) : null;
@@ -219,11 +227,11 @@ function PhoneCalendar({ className, cursor, setCursor, days, items, todayISO, on
   </div>;
 }
 
-export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo, canEdit = true }: {
+export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo, canEdit = true, ownLotId }: {
   scheme: CalendarScheme; tasks: CalendarTask[]; widgets: ComplianceWidget[]; levies: CalendarLevy[]; orders: CalendarOrder[];
   goTo: (section: string) => void;
   /** Only the committee can add or move things; owners get a read-only calendar. */
-  canEdit?: boolean;
+  canEdit?: boolean; ownLotId?: string | null | undefined;
 }) {
   const queryClient = useQueryClient();
   const [view, setView] = useState<"calendar" | "list">("calendar");
@@ -246,7 +254,7 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo, 
     queryClient.invalidateQueries({ predicate: q => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("notif-") });
   };
 
-  const items = useMemo<Item[]>(() => buildCalendarItems(scheme, tasks, widgets, levies, orders, events.data ?? []),
+  const items = useMemo<Item[]>(() => buildCalendarItems(scheme, tasks, widgets, levies, orders, events.data ?? [], ownLotId),
     [scheme, tasks, widgets, levies, orders, events.data]);
 
   const move = async (item: Item, date: string) => {

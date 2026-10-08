@@ -559,6 +559,18 @@ export function LineItemsEditor({ lines, setLines, funds, startYear, spentByLine
   </div>;
 }
 
+/** Entitlement shares must add up to 100%, or some (or all) of the budget is never billed. */
+export const entitlementTotal = (lots: FinLot[]) => Math.round(lots.reduce((t, l) => t + Number(l.entitlement_percent || 0), 0) * 100) / 100;
+export const entitlementBlocked = (lots: FinLot[], method: string) => method !== "Equal" && entitlementTotal(lots) <= 0;
+function EntitlementCheck({ lots, method, onEqual }: { lots: FinLot[]; method: string; onEqual: () => void }) {
+  const sum = entitlementTotal(lots);
+  if (method === "Equal" || lots.length === 0 || Math.abs(sum - 100) < 0.01) return null;
+  return <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-500/10 px-4 py-3 text-[13px] text-amber-900 dark:text-amber-200">
+    <span>{sum <= 0 ? "No lot has an entitlement yet, so every lot would be billed $0." : `Lot entitlements add up to ${sum}%, not 100%. ${sum < 100 ? "Part of the budget won't be billed." : "Lots would be billed more than the budget."}`}</span>
+    <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={onEqual}>Split equally instead</Button>
+  </div>;
+}
+
 export function InvoicePreview({ lots, method, total }: { lots: FinLot[]; method: string; total: number }) {
   if (lots.length === 0) return <p className="text-[12px] text-muted-foreground">Add your lots first and this will show what each one will be billed.</p>;
   return <div className="divide-y divide-border/60 rounded-2xl border border-border/70">
@@ -831,7 +843,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
     }
   };
 
-  return <form onSubmit={submit} className="space-y-4">
+  return <form onSubmit={submit} className="min-w-0 space-y-4">
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-2"><Label htmlFor="financial_year">Financial year</Label><FinancialYearSelect value={financialYear} onChange={setFinancialYear} /></div>
       <div className="space-y-2"><Label htmlFor="levy_due_date">Levy due date</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
@@ -850,13 +862,14 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
     </div>
     {lots.length > 0 && totals.total > 0 && <div className="space-y-2">
       <Label>Preview — what each lot will be billed</Label>
+      <EntitlementCheck lots={lots} method={method} onEqual={() => setMethod("Equal")} />
       <InvoicePreview lots={lots} method={method} total={totals.total} />
     </div>}
     {/* Levies go to each lot when the budget is locked in, so there must be lots to bill. */}
     {lots.length === 0 && <p className="rounded-2xl bg-amber-500/10 px-4 py-3 text-[13px] text-amber-800 dark:text-amber-300">Add your lots first. Levies are issued to each lot when you lock in the budget, so with no lots nobody would be billed.</p>}
     <div className="flex justify-end gap-2 pt-2">
       {onCancel && <Button type="button" variant="ghost" className="rounded-full" onClick={onCancel}>Cancel</Button>}
-      <Button type="submit" className="rounded-full" disabled={submitting || lots.length === 0}>{submitting ? "Locking in…" : (submitLabel ?? "Lock in budget and issue levies")}</Button>
+      <Button type="submit" className="rounded-full" disabled={submitting || lots.length === 0 || entitlementBlocked(lots, method)}>{submitting ? "Locking in…" : (submitLabel ?? "Lock in budget and issue levies")}</Button>
     </div>
   </form>;
 }
@@ -866,7 +879,7 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, funds, 
   initialLines?: DraftLine[] | undefined;
 }) {
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[640px]">
+    <DialogContent className="max-h-[88vh] overflow-y-auto overflow-x-hidden sm:max-w-5xl">
       <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Create a budget</DialogTitle><DialogDescription>Break the year into line items, and Loty issues a notice to every lot from the totals.</DialogDescription></DialogHeader>
       <BudgetBuilderForm schemeId={schemeId} lots={lots} funds={funds} initialLines={initialLines} onCancel={() => onOpenChange(false)}
         onCreated={() => { onOpenChange(false); onCreated(); }} submitLabel="Create and issue notices" />
@@ -1081,7 +1094,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     </div>;
   }
 
-  return <form onSubmit={submit} className="space-y-4">
+  return <form onSubmit={submit} className="min-w-0 space-y-4">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="max-w-2xl">
         <h2 className="font-display text-xl tracking-[-0.02em]">{isEdit ? `Budget for ${budget!.financial_year}` : `Build your ${financialYearHint} budget`}</h2>
@@ -1123,6 +1136,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     </div>}
     {lots.length > 0 && totals.total > 0 && <div className="space-y-2">
       <Label>{isEdit ? "Preview if recalculated — what each lot would be billed" : "Preview — what each lot will be billed"}</Label>
+      <EntitlementCheck lots={lots} method={method} onEqual={() => setMethod("Equal")} />
       <InvoicePreview lots={lots} method={method} total={totals.total} />
     </div>}
     {isEdit && <div className="space-y-2">
@@ -1148,7 +1162,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     </div>}
     <div className="flex justify-end gap-2 pt-2">
       {!isEdit && lots.length === 0 && <p className="mr-auto self-center text-[13px] text-amber-700 dark:text-amber-300">Add your lots first so the levies have someone to go to.</p>}
-      <Button type="submit" className="rounded-full" disabled={submitting || (!isEdit && lots.length === 0)}>{submitting ? "Saving…" : (isEdit ? "Save changes" : "Lock in budget and issue levies")}</Button>
+      <Button type="submit" className="rounded-full" disabled={submitting || (!isEdit && (lots.length === 0 || entitlementBlocked(lots, method)))}>{submitting ? "Saving…" : (isEdit ? "Save changes" : "Lock in budget and issue levies")}</Button>
     </div>
   </form>;
 }
