@@ -307,7 +307,7 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo, 
       <div className="max-w-2xl">
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Your property</p>
         <h1 className="mt-4 text-4xl font-medium tracking-[-0.035em] sm:text-5xl">Calendar</h1>
-        <p className="mt-5 text-[15px] leading-7 text-muted-foreground">{canEdit ? "Meetings, renewals, levies and repairs in one place. Drag anything to a new day, open it for the detail, and add your own events and reminders." : "Meetings, insurance renewals, levy due dates and repairs for your building. Open anything for the detail."}</p>
+        <p className="mt-5 text-[15px] leading-7 text-muted-foreground">{canEdit ? "Meetings, renewals, levies and repairs in one place. Drag anything to a new day, open it for the detail, and add your own events and reminders." : "What's coming up for your building."}</p>
       </div>
       <div className="flex items-center gap-2">
         <div className="hidden rounded-full border border-border/70 p-1 sm:flex">

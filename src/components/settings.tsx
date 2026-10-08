@@ -299,7 +299,7 @@ export function SettingsSection({ scheme, lots, committeeRoles, settings, isComm
           <div><p className="text-sm font-medium">Lot {lot.lot_number}{lot.owner_name ? ` · ${lot.owner_name}` : ""}</p><p className="mt-1 text-[12px] text-muted-foreground">{lot.owner_email ?? "No email on file"}{lot.owner_phone ? ` · ${lot.owner_phone}` : ""}</p></div>
           <span className="text-[12px] text-muted-foreground">{lot.entitlement_percent}% entitlement</span>
         </div>)}
-        {lots.length === 0 && <p className="px-7 py-8 text-center text-sm text-muted-foreground">No lots yet — add lots first, then assign committee roles.</p>}
+        {lots.length === 0 && <p className="px-7 py-8 text-center text-sm text-muted-foreground">No lots yet. Add lots first, then assign committee roles.</p>}
       </div>
       <div className="border-t border-border/70 p-7 pt-5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Committee roles</p>

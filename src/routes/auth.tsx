@@ -93,7 +93,7 @@ function AuthPage() {
     ? "Enter your email and we'll send you a link to choose a new password."
     : mode === "signin"
       ? invite ? "Sign in to join the building you've been invited to." : "Sign in to see your levies, repairs and deadlines."
-      : invite ? "Create your account to join your building on Loty." : "Owners: use the email your committee has on file for your lot, or the invite link they sent you. Setting up a new building? Create an account and we'll walk you through it.";
+      : invite ? "Create your account to join your building on Loty." : "Owners: sign up with the email your committee has for you. New building? Create an account.";
 
   return (
     <div className="relative isolate flex min-h-screen flex-col bg-background">

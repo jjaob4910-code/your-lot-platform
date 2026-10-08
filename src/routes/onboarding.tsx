@@ -333,7 +333,7 @@ function OnboardingPage() {
 
   const defaultFundId = funds.data?.[0]?.id ?? "";
   const insuranceLines: DraftLine[] = (policies.data ?? []).map(p => ({
-    id: p.id, fundId: defaultFundId, occurrence: "Annually", costType: "Fixed", description: `${p.policy_type} insurance${p.insurer ? ` — ${p.insurer}` : ""}`,
+    id: p.id, fundId: defaultFundId, occurrence: "Annually", costType: "Fixed", description: `${p.policy_type} insurance${p.insurer ? ` (${p.insurer})` : ""}`,
     amount: p.premium != null ? String(p.premium) : "", month: "", file: null,
   }));
 
@@ -341,33 +341,33 @@ function OnboardingPage() {
     <Toaster/>
     <ProgressDots index={step}/>
 
-    {step === 0 && <StepShell index={0} title="Let's set up your building." blurb="This only takes a couple of minutes. You can skip anything and come back to it later from the normal dashboard."
+    {step === 0 && <StepShell index={0} title="Set up your building." blurb="Start with the basics. You can fill in the rest later."
       footer={<><span/><Button type="submit" form="building-form" className="rounded-full">Continue</Button></>}>
       <BuildingStep onCreated={(created)=>{ setScheme(created); queryClient.invalidateQueries({ queryKey: ["onboarding-scheme"] }); next(); }}/>
     </StepShell>}
 
-    {step === 1 && schemeId && <StepShell index={1} title="Who are the lot owners?" blurb="Add as many as you know now — you can add the rest anytime from the Lots tab. An owner's email lets them sign up and see just their own lot."
+    {step === 1 && schemeId && <StepShell index={1} title="Who are the lot owners?" blurb="Add the lots you know. With an owner's email, they can sign up and see their lot."
       footer={<><BackButton index={1}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
       <LotsStep schemeId={schemeId} lots={lots.data ?? []} onAdded={()=>added(["onboarding-lots", schemeId])}/>
     </StepShell>}
 
-    {step === 2 && schemeId && <StepShell index={2} title="What's insured?" blurb="Building insurance is usually compulsory for an owners corporation. Add what you have on file — the renewal date goes into your calendar with a reminder 60 days out, and the premium is carried into your budget."
+    {step === 2 && schemeId && <StepShell index={2} title="What's insured?" blurb="Add your building policy. We'll remind you 60 days before it renews."
       footer={<><BackButton index={2}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
       <InsuranceStep schemeId={schemeId} policies={policies.data ?? []} onAdded={()=>added(["onboarding-insurance", schemeId])}/>
     </StepShell>}
 
-    {step === 3 && schemeId && <StepShell index={3} title="Any maintenance to log?" blurb="If there's a repair already on your mind — a leak, a broken gate — add it now. Most new buildings have nothing here yet, and that's fine."
+    {step === 3 && schemeId && <StepShell index={3} title="Any maintenance to log?" blurb="Any repairs already waiting? Add them here."
       footer={<><BackButton index={3}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Nothing to log yet</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
       <MaintenanceStep schemeId={schemeId} requests={requests.data ?? []} onAdded={()=>added(["onboarding-maintenance", schemeId])}/>
     </StepShell>}
 
-    {step === 4 && schemeId && <StepShell index={4} title="Work out this year's budget." blurb="This is the important one: add up what the building expects to spend and Loty works out what each lot owes, then issues the levies automatically."
+    {step === 4 && schemeId && <StepShell index={4} title="Work out this year's budget." blurb="List this year's expected costs. Each lot is billed its share."
       footer={<><BackButton index={4}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={next}>{budgetCreated ? "Continue" : "Continue without a budget"}</Button></div></>}>
       <div className="space-y-5">
         <div className="rounded-2xl border border-border/70 bg-secondary/40 p-4 text-[13px] leading-6">
           <p className="font-medium">A budget usually has two parts:</p>
-          <p className="mt-2"><span className="font-medium">Admin fund</span> — the day-to-day running costs: insurance, cleaning, common-area electricity, management fees.</p>
-          <p className="mt-1"><span className="font-medium">Maintenance fund</span> — bigger, less frequent repairs and capital works: roof repairs, repainting, lift servicing.</p>
+          <p className="mt-2"><span className="font-medium">Admin fund</span>: day-to-day costs like insurance, cleaning, common-area power and management fees.</p>
+          <p className="mt-1"><span className="font-medium">Maintenance fund</span>: bigger, less frequent work like roof repairs, repainting and lift servicing.</p>
         </div>
         {insuranceLines.length > 0 && !budgetCreated && <p className="text-sm text-muted-foreground">The {insuranceLines.length === 1 ? "insurance policy" : `${insuranceLines.length} insurance policies`} you added earlier will be pre-filled as a line item — adjust the amount if needed.</p>}
         {budgetCreated

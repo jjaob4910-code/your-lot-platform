@@ -343,7 +343,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
       const docId = await fileAgmPdf(schemeId, blob, fileName("Minutes of AGM"), "AGM minutes");
       const { error } = await supabase.from("agm_meetings").update({ stage: "Published", status: "Published", published_at: new Date().toISOString(), minutes_document_id: docId }).eq("id", meeting.id);
       if (error) throw error;
-      await supabase.from("notices").insert({ scheme_id: schemeId, pinned: false, lot_id: null, title: `Minutes published — ${d.title.trim()}`, message: "The minutes of the AGM are now in Documents." });
+      await supabase.from("notices").insert({ scheme_id: schemeId, pinned: false, lot_id: null, title: `Minutes published: ${d.title.trim()}`, message: "The minutes of the AGM are now in Documents." });
       setConfirmPublish(false); onChanged(); toast("Minutes published", { description: "Filed in Documents and shared with owners." });
     } catch (err) {
       toast("Could not publish the minutes", { description: (err as Error).message });
@@ -532,7 +532,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
     <Dialog open={confirmNotice} onOpenChange={setConfirmNotice}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Send the notice?</DialogTitle>
-          <DialogDescription>This makes the notice PDF, files it in Documents for every owner, pins it on the dashboard, downloads a copy for you and opens your email app addressed to all owners, with the meeting details and agenda already written in.</DialogDescription></DialogHeader>
+          <DialogDescription>Creates the notice, shares it with owners and opens a ready-to-send email.</DialogDescription></DialogHeader>
         {shortNotice && <p className="rounded-2xl bg-amber-500/10 px-4 py-3 text-[12px] leading-5 text-amber-800 dark:text-amber-300">
           {d.meeting_date ? `The meeting is ${Math.max(0, daysUntil(d.meeting_date))} days away.` : "No meeting date is set yet."} Owners usually need at least 14 days' notice. You can still send it.</p>}
         <p className="text-[12px] text-muted-foreground">After this, the agenda is locked. Owner suggestions close too.</p>
@@ -666,7 +666,7 @@ export function AgmSection({ schemeId, isCommittee, meetings, lots, myLot = null
 
   return <div>
     <PageHead eyebrow="Your property" title="Annual General Meeting"
-      blurb={isCommittee ? "Build the agenda, send the notice, then take the minutes on the day. Owners can suggest items while the agenda is being drafted." : "Read the agenda, suggest an item before the notice goes out, and read the minutes afterwards."}
+      blurb={isCommittee ? "Build the agenda, send the notice, then take the minutes on the day. Owners can suggest items while the agenda is being drafted." : "Agenda, minutes, and how to take part."}
       action={isCommittee && !open ? <Button className="rounded-full" onClick={() => meetings.length ? setChoosing(true) : void create()} disabled={!schemeId}><Plus/> New AGM</Button> : undefined}/>
 
     <HowItWorks page="agm" committee={isCommittee}/>

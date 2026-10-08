@@ -65,7 +65,7 @@ const DEFAULT_TASK_STEPS = ["Plan", "Do", "Close out"];
 const niceStamp = (value: string) => new Date(value).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const todayIso = () => new Date().toLocaleDateString("en-CA");
 const safeName = (name: string) => name.replace(/[^\w.-]/g, "_");
-const kindLabel = (kind: string) => (kind === "Repair" ? "Works" : "Task");
+const kindLabel = (kind: string) => (kind === "Repair" ? "Repair" : "Task");
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <section className={`soft-shadow rounded-3xl border border-border/70 bg-card ${className}`}>{children}</section>;
@@ -225,7 +225,7 @@ export function WorkOrderTable({ orders, lots = [], onOpen, isCommittee = false 
           {lotsLabel(order, lots)} · Logged {niceDate(order.created_at)}
           {order.priority !== "Normal" ? ` · ${order.priority} priority` : ""}
         </p>
-        <div className="mt-3 max-w-xs">{steps.length > 0 ? <StepProgress steps={steps}/> : <p className="text-[12px] text-muted-foreground">{isCommittee ? "Open to add the steps for this job" : "The committee has this and will add the next steps"}</p>}</div>
+        <div className="mt-3 max-w-xs">{steps.length > 0 ? <StepProgress steps={steps}/> : <p className="text-[12px] text-muted-foreground">{isCommittee ? "No steps yet" : "The committee has this and will add the next steps"}</p>}</div>
       </div>
       <div className="flex items-center gap-3">
         {complete ? <WorkOrderPill status="Complete"/> : next ? <span className="text-[12px] font-medium">Next: {next.label}</span> : <WorkOrderPill status={order.status}/>}
@@ -406,8 +406,8 @@ function NewWorkOrderDialog({ open, onOpenChange, lots, isCommittee, myLot, sche
           {isCommittee && <div className="space-y-2"><Label>Type</Label>
             <Select value={kind} onValueChange={v => setKind(v as "Repair" | "Request")}><SelectTrigger><SelectValue/></SelectTrigger>
               <SelectContent>
-                <SelectItem value="Repair">Works — quotes and payment</SelectItem>
-                <SelectItem value="Request">Task — your own steps</SelectItem>
+                <SelectItem value="Repair">Repair: quotes and payment</SelectItem>
+                <SelectItem value="Request">Task: your own steps</SelectItem>
               </SelectContent></Select></div>}
           <div className="space-y-2"><Label>Priority</Label>
             <Select value={priority} onValueChange={setPriority}><SelectTrigger><SelectValue/></SelectTrigger>
@@ -594,7 +594,7 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
   const completed = orders.filter(isDone);
 
   return <div>
-    <PageHead eyebrow="Your property" title="Work orders" blurb={isCommittee ? "Log a repair, collect quotes, get owners' approval if it's needed, then pay it. Payments are recorded in Finance for you. For anything else the committee needs to see through, log a task with your own steps." : "Report a problem in your lot or the common areas, and follow repairs the committee is handling."}
+    <PageHead eyebrow="Your property" title="Work orders" blurb={isCommittee ? "Repairs from report to payment. Use a task for anything else." : "Report a problem in your lot or the common areas, and follow repairs the committee is handling."}
       action={<Button className="rounded-full" onClick={() => setOpen(true)}><Plus/> {isCommittee ? "New work order" : "Report a problem"}</Button>}/>
 
     <HowItWorks page="workOrders" committee={isCommittee}/>

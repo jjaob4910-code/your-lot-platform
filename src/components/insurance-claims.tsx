@@ -528,7 +528,7 @@ export function ClaimsSection({ claims, policies, lots, orders, funds, documents
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Claims</p>
         <h2 className="mt-2 font-display text-2xl tracking-[-0.02em]">Insurance claims</h2>
-        <p className="mt-2 max-w-xl text-[13px] text-muted-foreground">Follow each claim from lodgement to payout: who's handling it, the insurer's rep, what's claimed and what the building carries.</p>
+        <p className="mt-2 max-w-xl text-[13px] text-muted-foreground">Claims in progress and where each is up to.</p>
       </div>
       {isCommittee && <Button className="rounded-full" onClick={() => { setEditing(null); setFormOpen(true); }} disabled={!schemeId}><Plus/> Log a claim</Button>}
     </div>

@@ -408,7 +408,7 @@ function DashboardPage() {
       if (shares.length === 0) return;
       const { error: txError } = await supabase.from("finance_transactions").insert(shares.map(s => ({
         scheme_id: schemeId!, direction: "in", fund_id: s.fund_id, amount: s.amount, occurred_on: paidAt, status: "Paid",
-        category: "Levy contribution", description: `Levy — Lot ${levy.lots?.lot_number ?? "?"} (${levy.budgets?.financial_year ?? ""})`,
+        category: "Levy contribution", description: `Levy: Lot ${levy.lots?.lot_number ?? "?"} (${levy.budgets?.financial_year ?? ""})`,
         levy_id: levy.id,
       })));
       if (txError) throw Object.assign(txError, { levyMarked: true });
