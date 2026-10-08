@@ -1,5 +1,6 @@
 import { HowItWorks } from "./how-it-works";
 import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Help } from "@/components/help";
 import type { GlossaryKey } from "@/lib/glossary";
 import { niceDate, daysUntil } from "@/lib/format";
@@ -213,6 +214,54 @@ function AttendancePanel({ lots, attendance, editable, confirmedAt, onChange, on
   </div>;
 }
 
+type Rsvp = { id: string; meeting_id: string; lot_id: string; status: string; proxy_name: string | null };
+/** Owners say whether they're coming; the committee sees the replies so far. */
+function RsvpCard({ meetingId, myLot, isCommittee, lots }: { meetingId: string; myLot: AgmLot | null; isCommittee: boolean; lots: AgmLot[] }) {
+  const replies = useQuery({
+    queryKey: ["agm-rsvps", meetingId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("agm_rsvps").select("id, meeting_id, lot_id, status, proxy_name").eq("meeting_id", meetingId);
+      if (error) return [] as Rsvp[];
+      return (data ?? []) as Rsvp[];
+    },
+  });
+  const [proxyOpen, setProxyOpen] = useState(false);
+  const [proxyName, setProxyName] = useState("");
+  const mine = myLot ? (replies.data ?? []).find(r => r.lot_id === myLot.id) : undefined;
+  const reply = async (status: "Attending" | "Apologies" | "Proxy", proxy?: string) => {
+    if (!myLot) return;
+    const { error } = await supabase.from("agm_rsvps").upsert({ meeting_id: meetingId, lot_id: myLot.id, status, proxy_name: status === "Proxy" ? proxy ?? null : null, updated_at: new Date().toISOString() }, { onConflict: "meeting_id,lot_id" });
+    if (error) { toast("Couldn't save your reply", { description: error.message }); return; }
+    setProxyOpen(false); void replies.refetch();
+    toast(status === "Attending" ? "See you there" : status === "Apologies" ? "Apologies sent" : "Proxy saved");
+  };
+  if (isCommittee) {
+    const list = replies.data ?? [];
+    if (!list.length) return null;
+    const count = (s: string) => list.filter(r => r.status === s).length;
+    return <Card className="p-4 text-[13px] sm:p-5">
+      <p className="font-medium">Replies from owners</p>
+      <p className="mt-1 text-muted-foreground">{count("Attending")} attending · {count("Apologies")} apologies · {count("Proxy")} by proxy</p>
+      {count("Proxy") > 0 && <ul className="mt-2 space-y-0.5 text-muted-foreground">{list.filter(r => r.status === "Proxy").map(r => <li key={r.id}>Lot {lots.find(l => l.id === r.lot_id)?.lot_number ?? "?"}: proxy is {r.proxy_name}</li>)}</ul>}
+    </Card>;
+  }
+  if (!myLot) return null;
+  return <Card className="p-4 sm:p-5" data-rsvp>
+    <p className="text-sm font-medium">Are you coming?</p>
+    {mine && <p className="mt-1 text-[13px] text-muted-foreground">{mine.status === "Attending" ? "You said you'll be there." : mine.status === "Apologies" ? "You sent your apologies." : `${mine.proxy_name} will vote for you as your proxy.`}</p>}
+    <div className="mt-3 flex flex-wrap gap-2">
+      <Button size="sm" variant={mine?.status === "Attending" ? "default" : "outline"} className="rounded-full" onClick={() => void reply("Attending")}>I'll be there</Button>
+      <Button size="sm" variant={mine?.status === "Apologies" ? "default" : "outline"} className="rounded-full" onClick={() => void reply("Apologies")}>Send apologies</Button>
+      <Button size="sm" variant={mine?.status === "Proxy" ? "default" : "outline"} className="rounded-full" onClick={() => { setProxyName(mine?.proxy_name ?? ""); setProxyOpen(true); }}>Appoint a proxy</Button>
+    </div>
+    {proxyOpen && <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={e => { e.preventDefault(); if (proxyName.trim()) void reply("Proxy", proxyName.trim()); }}>
+      <div className="grid min-w-0 flex-1 gap-1"><Label htmlFor="proxy_name" className="text-[12px]">Who will vote for you?</Label>
+        <Input id="proxy_name" value={proxyName} onChange={e => setProxyName(e.target.value)} placeholder="Their full name" maxLength={200} autoFocus/></div>
+      <Button type="submit" size="sm" className="rounded-full" disabled={!proxyName.trim()}>Save proxy</Button>
+    </form>}
+  </Card>;
+}
+
 function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents, isCommittee, schemeId, onBack, onChanged, ctx, attachments }: {
   meeting: AgmMeeting; scheme: { name: string; address: string | null } | null; lots: AgmLot[]; myLot: AgmLot | null;
   suggestions: AgmSuggestion[]; documents: DocFile[]; isCommittee: boolean; schemeId?: string | undefined;
@@ -406,6 +455,8 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
       </div>
       {stage === "Notice sent" && meeting.notice_sent_at && <p className="mt-3 text-[12px] text-muted-foreground">Notice sent {niceDate(meeting.notice_sent_at)}. On the day, start the minutes to record what's discussed and decided.</p>}
     </Card>
+
+    {(stage === "Draft" || stage === "Notice sent") && <RsvpCard meetingId={meeting.id} myLot={myLot} isCommittee={isCommittee} lots={lots}/>}
 
     {/* The notebook: one sheet — title, details, then numbered sections — read like a document. */}
     <Card className="overflow-hidden">

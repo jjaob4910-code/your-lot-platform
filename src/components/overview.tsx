@@ -299,21 +299,22 @@ function yearGlance({ budgets, levies, meetings, policies, scheme }: { budgets: 
   ];
 }
 
-type SetupLot = { id: string; entitlement_percent: number; owner_user_id: string | null };
+type SetupLot = { id: string; entitlement_percent: number; owner_user_id: string | null; invited_at?: string | null };
 
 // A short checklist for a new committee. It ticks itself off from what's been recorded and
 // disappears once everything is done. Hiding it folds it to a small button that brings it back.
-function GettingStarted({ lots, policies, budgets, scheme, goTo, hasPayment }: { lots: SetupLot[]; policies: OvPolicy[]; budgets: OvBudget[]; scheme: OvScheme | null; goTo: (s: string) => void; hasPayment: boolean }) {
+function GettingStarted({ lots, policies, budgets, scheme, goTo, hasPayment, noticeCount }: { lots: SetupLot[]; policies: OvPolicy[]; budgets: OvBudget[]; scheme: OvScheme | null; goTo: (s: string) => void; hasPayment: boolean; noticeCount: number }) {
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("loty-setup-dismissed") === "1"; } catch { return false; } });
   const fy = currentFinancialYearStart();
   const total = lots.reduce((t, l) => t + Number(l.entitlement_percent || 0), 0);
   const steps = [
     { label: "Add your lots", done: lots.length > 0, tab: "Lots" },
     { label: "Check entitlements add up to 100%", done: lots.length > 0 && Math.abs(total - 100) < 0.01, tab: "Lots" },
-    { label: "Invite your owners", done: lots.some(l => l.owner_user_id), tab: "Lots" },
+    { label: "Invite your owners", done: lots.some(l => l.owner_user_id || l.invited_at), tab: "Lots" },
     { label: "Add the building insurance policy", done: policies.length > 0, tab: "Insurance" },
     { label: `Set the ${fyLabel(fy)} budget`, done: budgets.some(b => budgetStartYear(b.financial_year) === fy), tab: "Finance/Budget" },
     { label: "Add how owners pay their levies", done: hasPayment, tab: "Settings" },
+    { label: "Post a first notice to owners", done: noticeCount > 0, tab: "Dashboard" },
     { label: "Schedule the AGM", done: !!scheme?.next_agm_date, tab: "AGM" },
   ];
   const doneCount = steps.filter(x => x.done).length;
@@ -608,7 +609,7 @@ export function OverviewSection({ firstName, lots = [], hasPayment = false, sche
       <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">{firstName ? `Hi ${firstName}, here's` : "Here's"} what's happening.</h1>
     </div>
 
-    {isCommittee && <GettingStarted lots={lots} policies={policies} budgets={budgets} scheme={scheme} goTo={goTo} hasPayment={hasPayment}/>}
+    {isCommittee && <GettingStarted lots={lots} policies={policies} budgets={budgets} scheme={scheme} goTo={goTo} hasPayment={hasPayment} noticeCount={notices.length}/>}
 
     {canCustomise && <div className="mt-6 flex flex-wrap items-center gap-2">
       {!customising

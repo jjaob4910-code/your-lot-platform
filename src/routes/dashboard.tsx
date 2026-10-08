@@ -63,7 +63,7 @@ export type Scheme = { id: string; name: string; address: string; total_lots: nu
 export type Lot = {
   id: string; lot_number: number; owner_name: string | null; owner_email: string | null;
   owner_phone: string | null; street_address: string | null;
-  owner_user_id: string | null; entitlement_percent: number; occupied_status: string
+  owner_user_id: string | null; entitlement_percent: number; occupied_status: string; invited_at?: string | null
 };
 type Repair = WorkOrder;
 type Doc = DocFile;
@@ -74,7 +74,7 @@ const sections = [
   ["Documents", Files],
 ] as const;
 
-import { money } from "@/lib/format";
+import { money, niceDate } from "@/lib/format";
 export { money };
 
 function DashboardPage() {
@@ -729,8 +729,8 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
           <div className="flex items-center gap-2">
             {isCommittee && (lot.owner_user_id
               ? <span className="rounded-full bg-emerald-600/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Joined</span>
-              : <><span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">Not joined yet</span>
-                  <Button type="button" size="sm" variant="outline" className="h-8 rounded-full" onClick={() => setInviting(lot)}>Invite</Button></>)}
+              : <><span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">{lot.invited_at ? `Invited ${niceDate(lot.invited_at)}` : "Not joined yet"}</span>
+                  <Button type="button" size="sm" variant="outline" className="h-8 rounded-full" onClick={() => setInviting(lot)}>{lot.invited_at ? "Invite again" : "Invite"}</Button></>)}
             {(isCommittee || lot.id === myLot?.id) && <Button type="button" size="sm" variant="ghost" className="h-8 rounded-full" onClick={()=>setViewing(lot)}>Details</Button>}
           </div>
         </div>)}
@@ -768,7 +768,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
       </DialogContent>
     </Dialog>
     {open && <LotDialog open={open} onOpenChange={setOpen} schemeId={schemeId} lot={editing} onSaved={onChanged} budget={budget} lotCount={lots.length} key={editing?.id ?? "new"}/>}
-    <InviteDialog open={!!inviting} onOpenChange={o => { if (!o) setInviting(null); }} schemeId={schemeId} role="Owner" lot={inviting} buildingName={buildingName}/>
+    <InviteDialog open={!!inviting} onOpenChange={o => { if (!o) setInviting(null); }} schemeId={schemeId} role="Owner" lot={inviting} buildingName={buildingName} onInvited={onChanged}/>
   </div>;
 }
 

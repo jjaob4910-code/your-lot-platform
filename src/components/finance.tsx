@@ -113,7 +113,7 @@ export type BudgetLineItem = {
 };
 export type FinanceBudget = {
   id: string; financial_year: string; total_amount: number; budget_fund_totals: { fund_id: string; total: number }[];
-  allocation_method: string | null; levy_due_date: string;
+  allocation_method: string | null; levy_due_date: string; instalments?: number | null;
 };
 export type BudgetRevision = {
   id: string; budget_id: string; scheme_id: string; reason: string;
@@ -801,6 +801,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
 }) {
   const [lines, setLines] = useState<DraftLine[]>(initialLines && initialLines.length > 0 ? initialLines : [emptyDraftLine(funds[0]?.id)]);
   const [method, setMethod] = useState("Entitlement");
+  const [instalments, setInstalments] = useState(1);
   const [financialYear, setFinancialYear] = useState(() => fyLabel(currentFinancialYearStart()));
   const [dueDate, setDueDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -815,6 +816,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
     setSubmitting(true);
     const { data: budget, error } = await supabase.from("budgets").insert({
       scheme_id: schemeId, financial_year: financialYear, total_amount: totals.total, allocation_method: method, levy_due_date: dueDate,
+      ...(instalments > 1 ? { instalments } : {}),
     }).select().single();
     if (error || !budget) { toast("Could not create the budget", { description: error?.message }); setSubmitting(false); return; }
     const failures: string[] = [];
@@ -846,7 +848,14 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
   return <form onSubmit={submit} className="min-w-0 space-y-4">
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-2"><Label htmlFor="financial_year">Financial year</Label><FinancialYearSelect value={financialYear} onChange={setFinancialYear} /></div>
-      <div className="space-y-2"><Label htmlFor="levy_due_date">Levy due date</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
+      <div className="space-y-2"><Label htmlFor="levy_due_date">{instalments > 1 ? "First levy due" : "Levy due date"}</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
+    </div>
+    <div className="space-y-2">
+      <Label>How often owners pay</Label>
+      <Select value={String(instalments)} onValueChange={v => setInstalments(Number(v))}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent><SelectItem value="1">Once a year</SelectItem><SelectItem value="4">Quarterly (4 instalments, 3 months apart)</SelectItem></SelectContent>
+      </Select>
     </div>
     <div className="space-y-2">
       <Label>How it is split</Label>
@@ -907,6 +916,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
   const [method, setMethod] = useState(revertFrom ? revertFrom.previous_allocation_method : (budget?.allocation_method ?? "Entitlement"));
   const [financialYear, setFinancialYear] = useState(budget?.financial_year ?? financialYearHint);
   const [dueDate, setDueDate] = useState(revertFrom ? revertFrom.previous_levy_due_date : (budget?.levy_due_date ?? ""));
+  const [instalments, setInstalments] = useState(budget?.instalments ?? 1);
   const [reason, setReason] = useState(revertFrom ? `Reverted to the version from ${niceDate(revertFrom.created_at)}` : "");
   // What happens to levies when an issued budget changes. Once every levy is paid, an added
   // cost is best issued as its own levy rather than reworking what owners already paid.
@@ -932,6 +942,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     setSubmitting(true);
     const { data: newBudget, error } = await supabase.from("budgets").insert({
       scheme_id: schemeId, financial_year: financialYear, total_amount: totals.total, allocation_method: method, levy_due_date: dueDate,
+      ...(instalments > 1 ? { instalments } : {}),
     }).select().single();
     if (error || !newBudget) { toast("Could not create the budget", { description: error?.message }); setSubmitting(false); return; }
     const failures: string[] = [];
@@ -1039,15 +1050,21 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
       }
     }
     if (recalculate) {
-      const budgetLevies = levies.filter(l => l.budget_id === budget.id && !l.label);
+      // The budget's own levies: one per lot, or one per lot per quarterly instalment.
+      const parts = budget.instalments ?? 1;
+      const budgetLevies = levies.filter(l => l.budget_id === budget.id && (!l.label || /^Instalment \d+ of \d+$/.test(l.label)));
+      const lotCount = new Set(budgetLevies.map(l => l.lot_id)).size;
       for (const levy of budgetLevies) {
         const entitlement = Number(levy.lots?.entitlement_percent ?? 0);
-        const newAmount = shareAmount(method, entitlement, budgetLevies.length, totals.total);
+        const share = shareAmount(method, entitlement, lotCount, totals.total);
+        const part = Number(levy.label?.match(/^Instalment (\d+)/)?.[1] ?? 1);
+        const each = Math.round((share / parts) * 100) / 100;
+        const newAmount = parts > 1 && part === parts ? Math.round((share - each * (parts - 1)) * 100) / 100 : parts > 1 ? each : share;
         if (levy.status === "Paid") {
           const diff = Math.round((newAmount - Number(levy.amount)) * 100) / 100;
           if (diff !== 0) adjustments.push({ levy, oldAmount: Number(levy.amount), newAmount, diff });
         } else {
-          const { error } = await supabase.from("levies").update({ amount: newAmount, due_date: dueDate }).eq("id", levy.id);
+          const { error } = await supabase.from("levies").update(parts > 1 ? { amount: newAmount } : { amount: newAmount, due_date: dueDate }).eq("id", levy.id);
           if (error) failures.push(`Levy for Lot ${levy.lots?.lot_number ?? ""}`);
         }
       }
@@ -1114,8 +1131,17 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
 
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-2"><Label htmlFor="financial_year">Financial year</Label><FinancialYearSelect value={financialYear} onChange={setFinancialYear} disabled={isEdit} /></div>
-      <div className="space-y-2"><Label htmlFor="levy_due_date">Levy due date</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
+      <div className="space-y-2"><Label htmlFor="levy_due_date">{instalments > 1 ? "First levy due" : "Levy due date"}</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
     </div>
+    {!isEdit && <>
+    <div className="space-y-2">
+      <Label>How often owners pay</Label>
+      <Select value={String(instalments)} onValueChange={v => setInstalments(Number(v))}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent><SelectItem value="1">Once a year</SelectItem><SelectItem value="4">Quarterly (4 instalments, 3 months apart)</SelectItem></SelectContent>
+      </Select>
+    </div>
+    </>}
     <div className="space-y-2">
       <Label>How it is split</Label>
       <Select value={method} onValueChange={setMethod}>
