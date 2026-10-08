@@ -5,14 +5,14 @@ import { AlertTriangle, ArrowRight, Building2, Camera, Check, FileText, LogOut, 
 import { ActivityFeed, Agreements, ArrearsFollowUp, BulkActions, ComplianceCalendar, ContactLog, CoverFramer, JobsResponse, Reports, type AdminBuilding } from "@/components/loty-admin";
 import { downloadMonthlyReport } from "@/lib/loty-report-pdf";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { LOTY_COLORS, LotyNotesPanel, colorOf, saveLotyMeta, uploadCover, useCoverUrl, useLotyMeta, useLotyNotes, useLotyTeam, type LotyMeta, type LotyNote } from "@/components/loty-notes";
+import { LOTY_COLORS, LotyNotesPanel, colorOf, saveLotyMeta, uploadCover, useCoverUrl, useLotyMeta, useLotyNotes, type LotyMeta, type LotyNote } from "@/components/loty-notes";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
-import { daysUntil, money, niceDate } from "@/lib/format";
+import { daysUntil, money, niceDate, localISO } from "@/lib/format";
 import { OPEN_TAB_KEY, PORTFOLIO_SEEN_KEY } from "@/lib/portfolio";
 
 export const Route = createFileRoute("/portfolio")({
@@ -61,12 +61,12 @@ function Segmented<T extends string>({ label, value, onChange, options }: { labe
 }
 
 /** A building Loty doesn't manage: staff can tag it and keep notes, and take it on. */
-function SelfManagedCard({ b, meta, notes, team, onNotes, onChanged, onTakeOn }: {
-  b: Building; meta?: LotyMeta | undefined; notes: LotyNote[]; team: { user_id: string; name: string }[]; onNotes: () => void; onChanged: () => void; onTakeOn: () => void;
+function SelfManagedCard({ b, meta, notes, onNotes, onChanged, onTakeOn }: {
+  b: Building; meta?: LotyMeta | undefined; notes: LotyNote[]; onNotes: () => void; onChanged: () => void; onTakeOn: () => void;
 }) {
   const pinned = notes.find(x => x.pinned);
   return <div data-building={b.name} data-self-managed data-color={meta?.color ?? ""} className="soft-shadow group relative flex flex-col overflow-hidden rounded-3xl border border-dashed border-border bg-card">
-    <CardMedia schemeId={b.id} name={b.name} meta={meta} staff team={team} onChanged={onChanged}/>
+    <CardMedia schemeId={b.id} name={b.name} meta={meta} staff onChanged={onChanged}/>
     <div className="flex-1 p-5 sm:p-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0"><p className="flex items-center gap-2 text-base font-medium"><Building2 className="size-4 text-muted-foreground"/>{b.name}</p>
@@ -101,8 +101,8 @@ function ColorDot({ color }: { color?: string | null | undefined }) {
 
 /** The top of a building card: cover photo (framed where staff placed it) and the staff menu
  *  for colour, photo and who looks after it. */
-function CardMedia({ schemeId, name, meta, staff, team, onOpen, onChanged, onReport }: {
-  schemeId: string; name: string; meta?: LotyMeta | undefined; staff: boolean; team: { user_id: string; name: string }[]; onOpen?: (() => void) | undefined; onChanged: () => void;
+function CardMedia({ schemeId, name, meta, staff, onOpen, onChanged, onReport }: {
+  schemeId: string; name: string; meta?: LotyMeta | undefined; staff: boolean; onOpen?: (() => void) | undefined; onChanged: () => void;
   /** Downloads last month's report (managed buildings only). */
   onReport?: (() => void) | undefined;
 }) {
@@ -140,15 +140,15 @@ function CardMedia({ schemeId, name, meta, staff, team, onOpen, onChanged, onRep
 }
 
 /** One building: cover photo, colour, key figures, pinned note; staff can recolour, change the photo and open notes. */
-function BuildingCard({ r, meta, notes, staff, team, onOpen, onNotes, onChanged }: {
-  r: Row; meta?: LotyMeta | undefined; notes: LotyNote[]; staff: boolean; team: { user_id: string; name: string }[]; onOpen: () => void; onNotes: () => void; onChanged: () => void;
+function BuildingCard({ r, meta, notes, staff, onOpen, onNotes, onChanged }: {
+  r: Row; meta?: LotyMeta | undefined; notes: LotyNote[]; staff: boolean; onOpen: () => void; onNotes: () => void; onChanged: () => void;
 }) {
   const n = actionsFor(r).length;
   const pinned = notes.find(x => x.pinned);
   return <div data-building={r.name} data-color={meta?.color ?? ""} className="soft-shadow group relative flex flex-col overflow-hidden rounded-3xl border border-border/70 bg-card">
-    <CardMedia schemeId={r.scheme_id} name={r.name} meta={meta} staff={staff} team={team} onOpen={onOpen} onChanged={onChanged}
+    <CardMedia schemeId={r.scheme_id} name={r.name} meta={meta} staff={staff} onOpen={onOpen} onChanged={onChanged}
       onReport={r.role === "Loty" ? () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
-        void downloadMonthlyReport(r.scheme_id, { name: r.name, address: r.address, cash: Number(r.cash) }, d.toISOString().slice(0, 7)).catch(e => toast("Couldn't make the report", { description: String(e) })); } : undefined}/>
+        void downloadMonthlyReport(r.scheme_id, { name: r.name, address: r.address, cash: Number(r.cash) }, localISO(d).slice(0, 7)).catch(e => toast("Couldn't make the report", { description: String(e) })); } : undefined}/>
     <button type="button" onClick={onOpen} className="flex-1 p-5 text-left hover:bg-secondary/30 sm:p-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -217,8 +217,6 @@ function PortfolioPage() {
   const metaOf = (id: string) => meta.data?.get(id);
   const notesOf = (id: string) => (notes.data ?? []).filter(n => n.scheme_id === id);
   const refreshMeta = () => void queryClient.invalidateQueries({ queryKey: ["loty-meta"] });
-  const team = useLotyTeam(isStaff);
-  const teamList = team.data ?? [];
   // Staff: which tool, which buildings (Loty-managed, self-managed or all) and whose.
   const [tab, setTab] = useState<AdminTab>(() => { try { return (sessionStorage.getItem("loty-admin-tab") as AdminTab) || "buildings"; } catch { return "buildings"; } });
   useEffect(() => { try { sessionStorage.setItem("loty-admin-tab", tab); } catch { /* storage unavailable */ } }, [tab]);
@@ -239,7 +237,7 @@ function PortfolioPage() {
     .sort(SORTS.find(x => x.key === sort)!.cmp);
   const actions = all.flatMap(actionsFor).sort((a, b) => a.urgency - b.urgency);
   const managed = all.filter(r => r.role === "Manager" || r.role === "Loty").length;
-  const adminBuildings: AdminBuilding[] = all.filter(r => r.role === "Loty").map(r => ({ id: r.scheme_id, name: r.name, color: metaOf(r.scheme_id)?.color, assignedTo: metaOf(r.scheme_id)?.assigned_to }));
+  const adminBuildings: AdminBuilding[] = all.filter(r => r.role === "Loty").map(r => ({ id: r.scheme_id, name: r.name, color: metaOf(r.scheme_id)?.color }));
   const showManaged = !isStaff || scope !== "self";
   const showSelf = isStaff && scope !== "managed";
 
@@ -308,14 +306,14 @@ function PortfolioPage() {
       </div>
 
       {showManaged && <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {list.map(r => <BuildingCard key={r.scheme_id} r={r} meta={metaOf(r.scheme_id)} notes={notesOf(r.scheme_id)} staff={isStaff} team={teamList}
+        {list.map(r => <BuildingCard key={r.scheme_id} r={r} meta={metaOf(r.scheme_id)} notes={notesOf(r.scheme_id)} staff={isStaff}
           onOpen={() => open(r.scheme_id)} onNotes={() => setNotesFor(r)} onChanged={refreshMeta}/>)}
       </div>}
       {showSelf && <>
         <p className="mt-8 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground" data-self-heading>Self-managed · {selfManaged.length}</p>
-        <p className="mt-1 text-[13px] text-muted-foreground">Run by their own committees. Loty can't open them until you switch on Managed by Loty, but you can colour, photograph, assign and keep notes on them.</p>
+        <p className="mt-1 text-[13px] text-muted-foreground">Run by their own committees. Loty can't open them until you switch on Managed by Loty, but you can colour, photograph and keep notes on them.</p>
         <div className="mt-4 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {selfManaged.map(b => <SelfManagedCard key={b.id} b={b} meta={metaOf(b.id)} notes={notesOf(b.id)} team={teamList}
+          {selfManaged.map(b => <SelfManagedCard key={b.id} b={b} meta={metaOf(b.id)} notes={notesOf(b.id)}
             onNotes={() => setNotesFor({ scheme_id: b.id, name: b.name } as Row)} onChanged={refreshMeta}
             onTakeOn={async () => { const { error } = await supabase.rpc("loty_set_managed", { _scheme: b.id, _managed: true }); if (error) { toast("Could not change that", { description: error.message }); return; } toast(`Loty now manages ${b.name}`); void everyBuilding.refetch(); void rows.refetch(); }}/>)}
           {everyBuilding.isSuccess && selfManaged.length === 0 && <p className="text-sm text-muted-foreground">No self-managed buildings match.</p>}

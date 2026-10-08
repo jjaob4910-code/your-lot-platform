@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Check, FileCheck2, ShieldCheck, WalletCards, Wrench } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
@@ -115,7 +115,7 @@ function LotsStep({ schemeId, lots, onAdded }: { schemeId: string; lots: Lot[]; 
         <span className="text-muted-foreground">{l.entitlement_percent}% · {l.owner_email ?? "No email yet"}</span>
       </div>)}
     </div>}
-    <form onSubmit={submit} className="space-y-4">
+    <form id="step-form" onSubmit={submit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input id="lot_number" name="lot_number" type="number" min="1" required/></div>
         <div className="space-y-2"><Label htmlFor="entitlement_percent">Lot entitlement (%)</Label><Input id="entitlement_percent" name="entitlement_percent" type="number" min="0" step="0.001" placeholder="e.g. 12.5"/></div>
@@ -155,7 +155,7 @@ function InsuranceStep({ schemeId, policies, onAdded }: { schemeId: string; poli
     {policies.length > 0 && <div className="divide-y divide-border/70 rounded-2xl border border-border/70">
       {policies.map(p => <div key={p.id} className="flex items-center justify-between px-4 py-2.5 text-[13px]"><span>{p.policy_type}</span><span className="text-muted-foreground">{p.insurer ?? "Provider not recorded"}</span></div>)}
     </div>}
-    <form onSubmit={submit} className="space-y-4">
+    <form id="step-form" onSubmit={submit} className="space-y-4">
       <div className="space-y-2">
         <Label>Cover type</Label>
         <Select value={type} onValueChange={setType}>
@@ -196,7 +196,7 @@ function MaintenanceStep({ schemeId, requests, onAdded }: { schemeId: string; re
     {requests.length > 0 && <div className="divide-y divide-border/70 rounded-2xl border border-border/70">
       {requests.map(r => <div key={r.id} className="flex items-center justify-between px-4 py-2.5 text-[13px]"><span>{r.title}</span><span className="text-muted-foreground">{r.kind}</span></div>)}
     </div>}
-    <form onSubmit={submit} className="space-y-4">
+    <form id="step-form" onSubmit={submit} className="space-y-4">
       <div className="space-y-2"><Label htmlFor="title">What needs doing</Label><Input id="title" name="title" placeholder="Leaking gutter above carport"/></div>
       <div className="space-y-2">
         <Label>Type</Label>
@@ -220,6 +220,19 @@ function OnboardingPage() {
   const [scheme, setScheme] = useState<Scheme | null>(null);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [budgetCreated, setBudgetCreated] = useState(false);
+  // Continue saves anything typed into the step's form before moving on, so it isn't lost.
+  const continueAt = useRef(0);
+  const continueStep = () => {
+    const form = document.getElementById("step-form") as HTMLFormElement | null;
+    const filled = !!form && [...form.querySelectorAll("input")].some(i => i.type !== "hidden" && i.value.trim() !== "");
+    if (!filled) { next(); return; }
+    continueAt.current = Date.now();
+    form.requestSubmit();
+  };
+  const added = (key: string[]) => {
+    void queryClient.invalidateQueries({ queryKey: key });
+    if (Date.now() - continueAt.current < 15000) { continueAt.current = 0; next(); }
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -334,18 +347,18 @@ function OnboardingPage() {
     </StepShell>}
 
     {step === 1 && schemeId && <StepShell index={1} title="Who are the lot owners?" blurb="Add as many as you know now — you can add the rest anytime from the Lots tab. An owner's email lets them sign up and see just their own lot."
-      footer={<><BackButton index={1}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={next}>Continue</Button></div></>}>
-      <LotsStep schemeId={schemeId} lots={lots.data ?? []} onAdded={()=>queryClient.invalidateQueries({ queryKey: ["onboarding-lots", schemeId] })}/>
+      footer={<><BackButton index={1}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
+      <LotsStep schemeId={schemeId} lots={lots.data ?? []} onAdded={()=>added(["onboarding-lots", schemeId])}/>
     </StepShell>}
 
     {step === 2 && schemeId && <StepShell index={2} title="What's insured?" blurb="Building insurance is usually compulsory for an owners corporation. Add what you have on file — the renewal date goes into your calendar with a reminder 60 days out, and the premium is carried into your budget."
-      footer={<><BackButton index={2}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={next}>Continue</Button></div></>}>
-      <InsuranceStep schemeId={schemeId} policies={policies.data ?? []} onAdded={()=>queryClient.invalidateQueries({ queryKey: ["onboarding-insurance", schemeId] })}/>
+      footer={<><BackButton index={2}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
+      <InsuranceStep schemeId={schemeId} policies={policies.data ?? []} onAdded={()=>added(["onboarding-insurance", schemeId])}/>
     </StepShell>}
 
     {step === 3 && schemeId && <StepShell index={3} title="Any maintenance to log?" blurb="If there's a repair already on your mind — a leak, a broken gate — add it now. Most new buildings have nothing here yet, and that's fine."
-      footer={<><BackButton index={3}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Nothing to log yet</Button><Button className="rounded-full" onClick={next}>Continue</Button></div></>}>
-      <MaintenanceStep schemeId={schemeId} requests={requests.data ?? []} onAdded={()=>queryClient.invalidateQueries({ queryKey: ["onboarding-maintenance", schemeId] })}/>
+      footer={<><BackButton index={3}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Nothing to log yet</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
+      <MaintenanceStep schemeId={schemeId} requests={requests.data ?? []} onAdded={()=>added(["onboarding-maintenance", schemeId])}/>
     </StepShell>}
 
     {step === 4 && schemeId && <StepShell index={4} title="Work out this year's budget." blurb="This is the important one: add up what the building expects to spend and Loty works out what each lot owes, then issues the levies automatically."

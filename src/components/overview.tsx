@@ -2,7 +2,7 @@ import { ResponsibilitiesCard, WhoRunsCard } from "./who-runs";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Help } from "@/components/help";
 import { useQuery } from "@tanstack/react-query";
-import { money, niceDate, daysUntil } from "@/lib/format";
+import { money, niceDate, daysUntil, localISO } from "@/lib/format";
 import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -283,7 +283,7 @@ function yearGlance({ budgets, levies, meetings, policies, scheme }: { budgets: 
   const noticeDue = scheme?.agm_notice_due ?? null;
   const agmLeft = noticeDue ? daysUntil(noticeDue) : null;
   const dueNote = (left: number | null, fallback: string) => left === null ? fallback : left < 0 ? `${-left} days overdue` : `${left} days left`;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISO();
   const current = policies.filter(p => p.renewal_date && p.renewal_date >= today).sort((a, b) => (a.renewal_date ?? "").localeCompare(b.renewal_date ?? ""));
   const nextRenewal = current[0]?.renewal_date ?? null;
   const renewLeft = nextRenewal ? daysUntil(nextRenewal) : null;
@@ -343,7 +343,7 @@ function ownerGlance({ myLevies, meetings, policies, scheme }: { myLevies: Levy[
   const mine = fyLevies(myLevies, fy);
   const owing = mine.filter(l => l.status !== "Paid");
   const overdue = owing.filter(l => daysUntil(l.due_date) < 0);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localISO();
   const insured = policies.some(p => p.renewal_date && p.renewal_date >= today);
   const lastMeeting = meetings.filter(m => m.stage === "Published").sort((a, b) => (b.published_at ?? b.created_at).localeCompare(a.published_at ?? a.created_at))[0];
   return [
@@ -590,7 +590,7 @@ export function OverviewSection({ firstName, lots = [], hasPayment = false, sche
       case "levies": return <WidgetCard {...shell} title={isCommittee ? "Levies" : "Your levies"} icon={Landmark} action={linkBtn(isCommittee ? "Levies" : "How to pay", "Finance/Levies")}><LeviesWidgetBody levies={myLevies} mine={!isCommittee} goTo={goTo} /></WidgetCard>;
       case "budget": return <WidgetCard {...shell} title="Budget" icon={PiggyBank} action={linkBtn("Budget", "Finance/Budget")}><BudgetWidgetBody budgets={budgets} funds={funds} transactions={transactions} goTo={goTo} spentOverride={isCommittee ? undefined : ownerSpent} /></WidgetCard>;
       case "year_glance": return <WidgetCard {...shell} title={isCommittee ? "Year at a glance" : "Your year"} icon={FileCheck2} action={<span className="font-display text-lg text-primary-foreground">{glance.filter(g => g.done).length}/{glance.length}</span>}><YearGlanceWidgetBody items={glance} goTo={goTo} /></WidgetCard>;
-      case "upcoming": return <WidgetCard {...shell} title="Upcoming" icon={CalendarDays} action={linkBtn("Calendar", "Calendar")}><UpcomingWidgetBody scheme={scheme} tasks={tasks} widgets={complianceWidgets} levies={levies} orders={repairs} goTo={goTo} /></WidgetCard>;
+      case "upcoming": return <WidgetCard {...shell} title="Upcoming" icon={CalendarDays} action={linkBtn("Calendar", "Calendar")}><UpcomingWidgetBody scheme={scheme} tasks={tasks} widgets={complianceWidgets} levies={levies} orders={repairs} goTo={goTo} ownLotId={isCommittee ? undefined : (myLot?.id ?? null)} /></WidgetCard>;
       case "notices": return <WidgetCard {...shell} title="Notice board" icon={MessageSquare}><NoticesWidgetBody notices={visibleNotices} noticeComments={noticeComments} schemeId={schemeId} isCommittee={isCommittee} onChanged={onChanged} /></WidgetCard>;
       case "work_orders": return <WidgetCard {...shell} title="Work orders" icon={Wrench} action={linkBtn("Open", "Work orders")}><WorkOrdersWidgetBody repairs={repairs} goTo={goTo} /></WidgetCard>;
       case "notes": return <WidgetCard {...shell} title="Note" icon={StickyNote}><NotesWidgetBody widget={s.row} onSave={config => void saveConfig(s, config)} /></WidgetCard>;

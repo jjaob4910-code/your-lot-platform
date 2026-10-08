@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { daysUntil, money, niceDate } from "@/lib/format";
+import { daysUntil, money, niceDate, localISO } from "@/lib/format";
 import { LOTY_COLORS, colorOf, saveLotyMeta, type LotyColor } from "@/components/loty-notes";
 import { downloadMonthlyReport } from "@/lib/loty-report-pdf";
 
@@ -78,6 +78,8 @@ export function ComplianceCalendar({ buildings, onOpen }: { buildings: AdminBuil
       supabase.from("compliance_tasks").select("id, scheme_id, task_name, due_date, status").in("scheme_id", ids),
       supabase.from("lots").select("id, scheme_id").in("scheme_id", ids),
     ]);
+    const firstError = agm.error ?? ins.error ?? tasks.error ?? lots.error;
+    if (firstError) throw firstError;
     const lotScheme = new Map((lots.data ?? []).map(l => [l.id as string, l.scheme_id as string]));
     const lev = lotScheme.size ? await supabase.from("levies").select("id, lot_id, due_date, status").in("lot_id", [...lotScheme.keys()]) : { data: [] };
     const out: Deadline[] = [];
@@ -85,13 +87,13 @@ export function ComplianceCalendar({ buildings, onOpen }: { buildings: AdminBuil
       if (!m.meeting_date) continue;
       const notice = new Date(new Date(m.meeting_date).getTime() - 14 * 86400000).toISOString().slice(0, 10);
       out.push({ id: `n-${m.id}`, schemeId: m.scheme_id, date: notice, title: `AGM notice due (${m.title})`, kind: "AGM notice", tab: "AGM", done: !!m.notice_sent_at });
-      out.push({ id: `m-${m.id}`, schemeId: m.scheme_id, date: m.meeting_date.slice(0, 10), title: m.title, kind: "AGM", tab: "AGM" });
+      out.push({ id: `m-${m.id}`, schemeId: m.scheme_id, date: m.meeting_date.slice(0, 10), title: m.title, kind: "AGM", tab: "AGM", done: daysUntil(m.meeting_date.slice(0, 10)) < 0 });
     }
     for (const p of ins.data ?? []) if (p.renewal_date) out.push({ id: `i-${p.id}`, schemeId: p.scheme_id, date: p.renewal_date.slice(0, 10), title: `${p.policy_type} insurance renews`, kind: "Insurance", tab: "Insurance" });
     for (const t of tasks.data ?? []) if (t.due_date) out.push({ id: `t-${t.id}`, schemeId: t.scheme_id, date: t.due_date.slice(0, 10), title: t.task_name, kind: "Compliance", tab: "Calendar", done: /done|complete/i.test(String(t.status ?? "")) });
     // One entry per building and due date for levies.
     const levyDates = new Map<string, number>();
-    for (const v of lev.data ?? []) { const sid = lotScheme.get(v.lot_id as string); if (!sid || v.status === "Paid") continue; const k = `${sid}|${String(v.due_date).slice(0, 10)}`; levyDates.set(k, (levyDates.get(k) ?? 0) + 1); }
+    for (const v of lev.data ?? []) { const sid = lotScheme.get(v.lot_id as string); if (!sid || v.status === "Paid" || String(v.status) === "Void") continue; const k = `${sid}|${String(v.due_date).slice(0, 10)}`; levyDates.set(k, (levyDates.get(k) ?? 0) + 1); }
     const [contacts, agreements] = await Promise.all([
       supabase.from("loty_contacts").select("id, scheme_id, with_whom, summary, follow_up_on").not("follow_up_on", "is", null),
       supabase.from("loty_agreements").select("scheme_id, end_date, notice_days"),
@@ -111,6 +113,7 @@ export function ComplianceCalendar({ buildings, onOpen }: { buildings: AdminBuil
     </div>
     <ul className="mt-4 divide-y divide-border/60">
       {data.isLoading && <li className="py-3 text-sm text-muted-foreground">Loading…</li>}
+      {data.isError && <li className="py-3 text-sm text-destructive">Couldn't load this. Try refreshing the page.</li>}
       {data.isSuccess && items.length === 0 && <li className="py-3 text-sm text-muted-foreground">Nothing due in this period.</li>}
       {items.map(d => { const b = nameOf(buildings, d.schemeId); const left = daysUntil(d.date);
         return <li key={d.id}><button type="button" onClick={() => onOpen(d.schemeId, d.tab)} className="flex w-full flex-wrap items-center gap-3 py-3 text-left hover:opacity-80">
@@ -131,9 +134,11 @@ export function ArrearsFollowUp({ buildings, onOpen }: { buildings: AdminBuildin
   const ids = buildings.map(b => b.id);
   const data = useAcross("arrears", ids, async (ids) => {
     const lots = await supabase.from("lots").select("id, scheme_id, lot_number, owner_name, owner_email").in("scheme_id", ids);
+    if (lots.error) throw lots.error;
     const byLot = new Map((lots.data ?? []).map(l => [l.id as string, l]));
     if (!byLot.size) return [];
     const lev = await supabase.from("levies").select("id, lot_id, amount, due_date, status, label").in("lot_id", [...byLot.keys()]);
+    if (lev.error) throw lev.error;
     return (lev.data ?? []).filter(v => v.status !== "Paid" && String(v.status) !== "Void" && daysUntil(String(v.due_date)) < 0)
       .map(v => ({ ...v, lot: byLot.get(v.lot_id as string)! }));
   });
@@ -142,7 +147,7 @@ export function ArrearsFollowUp({ buildings, onOpen }: { buildings: AdminBuildin
     queryFn: async () => { const { data, error } = await supabase.from("loty_followups").select("*").order("created_at", { ascending: false }); return error ? [] as Followup[] : (data ?? []) as Followup[]; },
   });
   const [logging, setLogging] = useState<string | null>(null);
-  const rows = (data.data ?? []).sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));
+  const rows = [...(data.data ?? [])].sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));
   const total = rows.reduce((t, r) => t + Number(r.amount), 0);
   const log = async (levyId: string, schemeId: string, stage: string, note: string) => {
     const { error } = await supabase.from("loty_followups").insert({ levy_id: levyId, scheme_id: schemeId, stage, note: note.trim() || null });
@@ -159,6 +164,7 @@ export function ArrearsFollowUp({ buildings, onOpen }: { buildings: AdminBuildin
     <p className="mt-1 text-[13px] text-muted-foreground">{rows.length ? `${rows.length} overdue ${rows.length === 1 ? "levy" : "levies"} · ${money(total)} across your buildings.` : "Every overdue levy across your buildings, with each follow-up recorded."}</p>
     <ul className="mt-4 divide-y divide-border/60">
       {data.isLoading && <li className="py-3 text-sm text-muted-foreground">Loading…</li>}
+      {data.isError && <li className="py-3 text-sm text-destructive">Couldn't load this. Try refreshing the page.</li>}
       {data.isSuccess && rows.length === 0 && <li className="py-3 text-sm text-muted-foreground">No overdue levies. Nice.</li>}
       {rows.map(r => { const b = nameOf(buildings, r.lot.scheme_id as string); const hist = (follow.data ?? []).filter(f => f.levy_id === r.id); const last = hist[0];
         return <li key={r.id} className="py-3" data-arrears-row>
@@ -188,7 +194,8 @@ export function ArrearsFollowUp({ buildings, onOpen }: { buildings: AdminBuildin
 export function JobsResponse({ buildings, onOpen }: { buildings: AdminBuilding[]; onOpen: Open }) {
   const ids = buildings.map(b => b.id);
   const data = useAcross("jobs", ids, async (ids) => {
-    const { data } = await supabase.from("maintenance_requests").select("id, scheme_id, title, created_at, updated_at, closed_at, work_order_updates(created_at), work_order_quotes(created_at, status)").in("scheme_id", ids);
+    const { data, error } = await supabase.from("maintenance_requests").select("id, scheme_id, title, created_at, updated_at, closed_at, work_order_updates(created_at), work_order_quotes(created_at, status)").in("scheme_id", ids);
+    if (error) throw error;
     return (data ?? []).filter(w => !w.closed_at);
   });
   const now = Date.now();
@@ -207,6 +214,7 @@ export function JobsResponse({ buildings, onOpen }: { buildings: AdminBuilding[]
     <p className="mt-1 text-[13px] text-muted-foreground">{rows.length ? `${rows.length} open ${rows.length === 1 ? "job" : "jobs"}${stuck ? `, ${stuck} needing a nudge` : ""}. Flags jobs with no update in 7 days or a quote waiting more than 14 days.` : "Open jobs across your buildings, oldest and stuck first."}</p>
     <ul className="mt-4 divide-y divide-border/60">
       {data.isLoading && <li className="py-3 text-sm text-muted-foreground">Loading…</li>}
+      {data.isError && <li className="py-3 text-sm text-destructive">Couldn't load this. Try refreshing the page.</li>}
       {data.isSuccess && rows.length === 0 && <li className="py-3 text-sm text-muted-foreground">No open jobs.</li>}
       {rows.map(r => { const b = nameOf(buildings, r.scheme_id);
         return <li key={r.id}><button type="button" onClick={() => onOpen(r.scheme_id, "Work orders")} className="flex w-full flex-wrap items-center gap-3 py-3 text-left hover:opacity-80" data-job-row>
@@ -241,6 +249,7 @@ export function ActivityFeed({ buildings, initialBuilding }: { buildings: AdminB
     </div>
     <ul className="mt-4 divide-y divide-border/60">
       {data.isLoading && <li className="py-3 text-sm text-muted-foreground">Loading…</li>}
+      {data.isError && <li className="py-3 text-sm text-destructive">Couldn't load this. Try refreshing the page.</li>}
       {data.isSuccess && rows.length === 0 && <li className="py-3 text-sm text-muted-foreground">No Loty activity recorded yet.</li>}
       {rows.slice(0, 200).map(a => { const b = nameOf(buildings, a.scheme_id);
         return <li key={a.id} className="flex flex-wrap items-center gap-3 py-2.5 text-sm" data-activity-row>
@@ -272,6 +281,7 @@ export function ActivityPanel({ schemeId, buildingName, onClose }: { schemeId: s
       <p className="border-b border-border/70 px-5 py-2.5 text-[12px] text-muted-foreground">Every change the Loty team makes in this building, recorded automatically. The committee can see this too.</p>
       <ul className="flex-1 divide-y divide-border/60 overflow-y-auto px-5">
         {data.isLoading && <li className="py-3 text-sm text-muted-foreground">Loading…</li>}
+      {data.isError && <li className="py-3 text-sm text-destructive">Couldn't load this. Try refreshing the page.</li>}
         {data.isSuccess && rows.length === 0 && <li className="py-8 text-center text-[13px] text-muted-foreground">No Loty activity recorded in this building yet.</li>}
         {rows.map(a => <li key={a.id} className="py-3 text-sm" data-activity-row>
           <p><span className="font-medium">{a.actor_name ?? "Loty"}</span> {a.action} {a.summary}</p>
@@ -292,7 +302,7 @@ export function ContactLog({ buildings, userId }: { buildings: AdminBuilding[]; 
   const data = useLotyContacts();
   const [building, setBuilding] = useState("");
   const rows = (data.data ?? []).filter(c => !building || c.scheme_id === building);
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["loty-contacts"] });
+  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["loty-contacts"] }); void queryClient.invalidateQueries({ queryKey: ["loty-admin", "calendar"] }); };
   const add = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget; const f = new FormData(form);
@@ -350,7 +360,7 @@ export function Agreements({ buildings }: { buildings: AdminBuilding[] }) {
     const f = new FormData(e.currentTarget); const v = (k: string) => String(f.get(k) ?? "").trim() || null;
     const { error } = await supabase.from("loty_agreements").upsert({ scheme_id: editing.id, fee_amount: v("fee") ? Number(v("fee")) : null, fee_period: v("period") ?? "quarter", start_date: v("start"), end_date: v("end"), notice_days: Number(v("notice") ?? 60), scope: v("scope"), updated_at: new Date().toISOString() });
     if (error) { toast("Couldn't save", { description: /loty_agreements|schema cache/i.test(error.message) ? "Needs the Loty staff tools (round 3) set up in Supabase first." : error.message }); return; }
-    setEditing(null); void queryClient.invalidateQueries({ queryKey: ["loty-agreements"] }); toast("Agreement saved");
+    setEditing(null); void queryClient.invalidateQueries({ queryKey: ["loty-agreements"] }); void queryClient.invalidateQueries({ queryKey: ["loty-admin", "calendar"] }); toast("Agreement saved");
   };
   const a = editing ? of(editing.id) : undefined;
   return <section className="soft-shadow rounded-3xl border border-border/70 bg-card p-5 sm:p-7" data-admin-agreements>
@@ -386,7 +396,7 @@ export function Agreements({ buildings }: { buildings: AdminBuilding[] }) {
 
 // ── 8. Monthly reports ───────────────────────────────────────────────────────
 export function Reports({ buildings, summaries }: { buildings: AdminBuilding[]; summaries: Map<string, { name: string; address: string | null; cash: number }> }) {
-  const lastMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+  const lastMonth = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return localISO(d).slice(0, 7); })();
   const [month, setMonth] = useState(lastMonth);
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -437,9 +447,11 @@ export function BulkActions({ buildings, onChanged }: { buildings: AdminBuilding
     setBusy(true);
     const lots = await supabase.from("lots").select("id, scheme_id, lot_number, owner_name, owner_email").in("scheme_id", picked);
     const byLot = new Map((lots.data ?? []).map(l => [l.id as string, l]));
-    const lev = byLot.size ? await supabase.from("levies").select("id, lot_id, amount, due_date, status").in("lot_id", [...byLot.keys()]) : { data: [] };
+    const lev = byLot.size ? await supabase.from("levies").select("id, lot_id, amount, due_date, status").in("lot_id", [...byLot.keys()]) : { data: [], error: null };
     setBusy(false);
-    setReminders((lev.data ?? []).filter(v => v.status !== "Paid" && String(v.status) !== "Void" && daysUntil(String(v.due_date)) < 0).map(v => {
+    const err = lots.error ?? lev.error;
+    if (err) { toast("Couldn't look up overdue levies", { description: err.message }); return; }
+    setReminders((lev.data ?? []).filter(v => byLot.has(v.lot_id as string) && v.status !== "Paid" && String(v.status) !== "Void" && daysUntil(String(v.due_date)) < 0).map(v => {
       const l = byLot.get(v.lot_id as string)!;
       return { id: v.id as string, scheme: l.scheme_id as string, lot: l.lot_number as number, owner: l.owner_name as string | null, email: l.owner_email as string | null, amount: Number(v.amount), due: String(v.due_date) };
     }));
@@ -452,8 +464,10 @@ export function BulkActions({ buildings, onChanged }: { buildings: AdminBuilding
   const logAll = async () => {
     if (!reminders?.length) return;
     const prev = await supabase.from("loty_followups").select("levy_id, stage").in("levy_id", reminders.map(r => r.id));
+    if (prev.error) { toast("Couldn't log", { description: /loty_followups|schema cache/i.test(prev.error.message) ? "Needs the Loty staff tools (round 2) set up in Supabase first." : prev.error.message }); return; }
     const steps = ["Reminder 1", "Reminder 2", "Final notice"];
-    const rows = reminders.map(r => { const n = (prev.data ?? []).filter(p => p.levy_id === r.id && steps.includes(String(p.stage))).length; return { levy_id: r.id, scheme_id: r.scheme, stage: steps[Math.min(n, 2)]!, note: "Logged in bulk" }; });
+    // The next step after the furthest one already reached.
+    const rows = reminders.map(r => { const n = Math.max(-1, ...(prev.data ?? []).filter(p => p.levy_id === r.id).map(p => steps.indexOf(String(p.stage)))) + 1; return { levy_id: r.id, scheme_id: r.scheme, stage: steps[Math.min(n, 2)]!, note: "Logged in bulk" }; });
     const { error } = await supabase.from("loty_followups").insert(rows);
     if (error) { toast("Couldn't log", { description: /loty_followups|schema cache/i.test(error.message) ? "Needs the Loty staff tools (round 2) set up in Supabase first." : error.message }); return; }
     void queryClient.invalidateQueries({ queryKey: ["loty-followups"] }); toast(`Next reminder step logged for ${rows.length} ${rows.length === 1 ? "levy" : "levies"}`);

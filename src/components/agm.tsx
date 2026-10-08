@@ -87,7 +87,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 async function agmFolderId(schemeId: string) {
-  const { data } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", AGM_FOLDER).maybeSingle();
+  const { data, error: lookupError } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", AGM_FOLDER).maybeSingle();
+  if (lookupError) throw lookupError;
   if (data?.id) return data.id as string;
   const { data: made, error } = await supabase.from("document_folders").insert({ scheme_id: schemeId, name: AGM_FOLDER, icon: "Users", color: "blue" }).select("id").single();
   if (error) throw error;

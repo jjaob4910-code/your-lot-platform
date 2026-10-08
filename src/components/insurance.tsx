@@ -179,7 +179,8 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
 
   const insuranceFolderId = async () => {
     if (!schemeId) return null;
-    const { data } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", INSURANCE_FOLDER).maybeSingle();
+    const { data, error: lookupError } = await supabase.from("document_folders").select("id").eq("scheme_id", schemeId).eq("name", INSURANCE_FOLDER).maybeSingle();
+    if (lookupError) throw lookupError;
     if (data?.id) return data.id as string;
     const { data: made, error } = await supabase.from("document_folders")
       .insert({ scheme_id: schemeId, name: INSURANCE_FOLDER, icon: "ShieldCheck", color: "blue" }).select("id").single();

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { Help } from "@/components/help";
 import type { GlossaryKey } from "@/lib/glossary";
 import { currentPayment, paymentText } from "@/lib/payment";
-import { money, niceDate, daysUntil } from "@/lib/format";
+import { money, niceDate, daysUntil, localISO } from "@/lib/format";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -140,7 +140,7 @@ const IN_CATEGORIES = ["Levy contribution", "Interest", "Reimbursement", "Fee or
 const STATUSES = ["Paid", "Approved", "Planned"];
 
 const money2 = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const startYearOf = (iso: string) => { const d = new Date(iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
+const startYearOf = (iso: string) => { const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso); return d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1; };
 const fyLabel = (startYear: number) => `${startYear}/${String(startYear + 1).slice(2)}`;
 
 // Financial years run 1 July – 30 June. A picker instead of free text, so every budget
@@ -559,6 +559,18 @@ export function LineItemsEditor({ lines, setLines, funds, startYear, spentByLine
   </div>;
 }
 
+/** Entitlement shares must add up to 100%, or some (or all) of the budget is never billed. */
+export const entitlementTotal = (lots: FinLot[]) => Math.round(lots.reduce((t, l) => t + Number(l.entitlement_percent || 0), 0) * 100) / 100;
+export const entitlementBlocked = (lots: FinLot[], method: string) => method !== "Equal" && entitlementTotal(lots) <= 0;
+function EntitlementCheck({ lots, method, onEqual }: { lots: FinLot[]; method: string; onEqual: () => void }) {
+  const sum = entitlementTotal(lots);
+  if (method === "Equal" || lots.length === 0 || Math.abs(sum - 100) < 0.01) return null;
+  return <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-500/10 px-4 py-3 text-[13px] text-amber-900 dark:text-amber-200">
+    <span>{sum <= 0 ? "No lot has an entitlement yet, so every lot would be billed $0." : `Lot entitlements add up to ${sum}%, not 100%. ${sum < 100 ? "Part of the budget won't be billed." : "Lots would be billed more than the budget."}`}</span>
+    <Button type="button" size="sm" variant="outline" className="rounded-full" onClick={onEqual}>Split equally instead</Button>
+  </div>;
+}
+
 export function InvoicePreview({ lots, method, total }: { lots: FinLot[]; method: string; total: number }) {
   if (lots.length === 0) return <p className="text-[12px] text-muted-foreground">Add your lots first and this will show what each one will be billed.</p>;
   return <div className="divide-y divide-border/60 rounded-2xl border border-border/70">
@@ -637,7 +649,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
   open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; tx: FinanceTx | null; funds: BudgetFund[];
   defaultFundId?: string | undefined; lineItems: BudgetLineItem[]; onSaved: () => void; balances?: Record<string, number> | undefined; inGrace?: boolean;
 }) {
-  const [dateText, setDateText] = useState(tx?.occurred_on ?? new Date().toISOString().slice(0, 10));
+  const [dateText, setDateText] = useState(tx?.occurred_on ?? localISO());
   const [amountText, setAmountText] = useState(tx ? String(tx.amount) : "");
   const [direction, setDirection] = useState(tx?.direction ?? "out");
   const [fundId, setFundId] = useState(tx?.fund_id ?? defaultFundId ?? funds[0]?.id ?? "");
@@ -670,7 +682,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
       description: String(form.get("description") ?? "").trim(),
       supplier: text("supplier"),
       amount: Number(amountText) || 0,
-      occurred_on: text("occurred_on") ?? new Date().toISOString().slice(0, 10),
+      occurred_on: text("occurred_on") ?? localISO(),
       notes: text("notes"),
       budget_line_item_id: direction === "out" && budgetLineItemId !== "" ? budgetLineItemId : null,
     };
@@ -831,7 +843,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
     }
   };
 
-  return <form onSubmit={submit} className="space-y-4">
+  return <form onSubmit={submit} className="min-w-0 space-y-4">
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-2"><Label htmlFor="financial_year">Financial year</Label><FinancialYearSelect value={financialYear} onChange={setFinancialYear} /></div>
       <div className="space-y-2"><Label htmlFor="levy_due_date">Levy due date</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
@@ -850,13 +862,14 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
     </div>
     {lots.length > 0 && totals.total > 0 && <div className="space-y-2">
       <Label>Preview — what each lot will be billed</Label>
+      <EntitlementCheck lots={lots} method={method} onEqual={() => setMethod("Equal")} />
       <InvoicePreview lots={lots} method={method} total={totals.total} />
     </div>}
     {/* Levies go to each lot when the budget is locked in, so there must be lots to bill. */}
     {lots.length === 0 && <p className="rounded-2xl bg-amber-500/10 px-4 py-3 text-[13px] text-amber-800 dark:text-amber-300">Add your lots first. Levies are issued to each lot when you lock in the budget, so with no lots nobody would be billed.</p>}
     <div className="flex justify-end gap-2 pt-2">
       {onCancel && <Button type="button" variant="ghost" className="rounded-full" onClick={onCancel}>Cancel</Button>}
-      <Button type="submit" className="rounded-full" disabled={submitting || lots.length === 0}>{submitting ? "Locking in…" : (submitLabel ?? "Lock in budget and issue levies")}</Button>
+      <Button type="submit" className="rounded-full" disabled={submitting || lots.length === 0 || entitlementBlocked(lots, method)}>{submitting ? "Locking in…" : (submitLabel ?? "Lock in budget and issue levies")}</Button>
     </div>
   </form>;
 }
@@ -866,7 +879,7 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, funds, 
   initialLines?: DraftLine[] | undefined;
 }) {
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[640px]">
+    <DialogContent className="max-h-[88vh] overflow-y-auto overflow-x-hidden sm:max-w-5xl">
       <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Create a budget</DialogTitle><DialogDescription>Break the year into line items, and Loty issues a notice to every lot from the totals.</DialogDescription></DialogHeader>
       <BudgetBuilderForm schemeId={schemeId} lots={lots} funds={funds} initialLines={initialLines} onCancel={() => onOpenChange(false)}
         onCreated={() => { onOpenChange(false); onCreated(); }} submitLabel="Create and issue notices" />
@@ -1081,7 +1094,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     </div>;
   }
 
-  return <form onSubmit={submit} className="space-y-4">
+  return <form onSubmit={submit} className="min-w-0 space-y-4">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="max-w-2xl">
         <h2 className="font-display text-xl tracking-[-0.02em]">{isEdit ? `Budget for ${budget!.financial_year}` : `Build your ${financialYearHint} budget`}</h2>
@@ -1123,6 +1136,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     </div>}
     {lots.length > 0 && totals.total > 0 && <div className="space-y-2">
       <Label>{isEdit ? "Preview if recalculated — what each lot would be billed" : "Preview — what each lot will be billed"}</Label>
+      <EntitlementCheck lots={lots} method={method} onEqual={() => setMethod("Equal")} />
       <InvoicePreview lots={lots} method={method} total={totals.total} />
     </div>}
     {isEdit && <div className="space-y-2">
@@ -1148,7 +1162,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     </div>}
     <div className="flex justify-end gap-2 pt-2">
       {!isEdit && lots.length === 0 && <p className="mr-auto self-center text-[13px] text-amber-700 dark:text-amber-300">Add your lots first so the levies have someone to go to.</p>}
-      <Button type="submit" className="rounded-full" disabled={submitting || (!isEdit && lots.length === 0)}>{submitting ? "Saving…" : (isEdit ? "Save changes" : "Lock in budget and issue levies")}</Button>
+      <Button type="submit" className="rounded-full" disabled={submitting || (!isEdit && (lots.length === 0 || entitlementBlocked(lots, method)))}>{submitting ? "Saving…" : (isEdit ? "Save changes" : "Lock in budget and issue levies")}</Button>
     </div>
   </form>;
 }
@@ -1418,8 +1432,8 @@ function SendLevyDialog({ levies, funds, schemeId, onOpenChange, onSent }: {
 function MarkPaidDialog({ levy, funds, onOpenChange, onConfirm }: {
   levy: Levy | null; funds: BudgetFund[]; onOpenChange: (v: boolean) => void; onConfirm: (paidAt: string) => void;
 }) {
-  const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 10));
-  return <Dialog open={!!levy} onOpenChange={(o) => { if (o && levy) setPaidAt(new Date().toISOString().slice(0, 10)); onOpenChange(o); }}>
+  const [paidAt, setPaidAt] = useState(() => localISO());
+  return <Dialog open={!!levy} onOpenChange={(o) => { if (o && levy) setPaidAt(localISO()); onOpenChange(o); }}>
     <DialogContent>
       <DialogHeader>
         <DialogTitle className="font-display tracking-[-0.02em]">Mark this levy paid</DialogTitle>

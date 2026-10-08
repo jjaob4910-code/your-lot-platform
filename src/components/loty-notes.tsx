@@ -28,8 +28,8 @@ export function useLotyMeta(enabled: boolean) {
   return useQuery({
     queryKey: ["loty-meta"], enabled,
     queryFn: async () => {
-      const full = await supabase.from("loty_buildings").select("scheme_id, color, cover_path, cover_pos, assigned_to");
-      // Before the photo-framing and assignment columns are added, fall back to the basics.
+      const full = await supabase.from("loty_buildings").select("scheme_id, color, cover_path, cover_pos");
+      // Before the photo-framing column is added, fall back to the basics.
       const res = full.error ? await supabase.from("loty_buildings").select("scheme_id, color, cover_path") : full;
       const { data, error } = res as { data: unknown[] | null; error: unknown };
       if (error) return new Map<string, LotyMeta>();

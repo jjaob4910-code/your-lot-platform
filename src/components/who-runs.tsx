@@ -70,7 +70,7 @@ const DUTIES: [string, string][] = [
   ["Follow the building's rules", "And keep your lot in good repair, so it doesn't affect your neighbours or the common property."],
   ["Report problems early", "Leaks, damage or safety issues in the common areas: report them in Work orders."],
   ["Keep your details up to date", "So notices and levies reach you. Let the committee know if your email, phone or address changes."],
-  ["Have your say", "Come to the AGM or send a proxy, and vote when owners are asked to approve something."],
+  ["Have your say", "Come to the AGM and vote. If you can't make it, ask the committee about appointing a proxy."],
   ["Tell the committee if you sell or lease", "New owners and tenants need to be added so the records stay right."],
 ];
 
