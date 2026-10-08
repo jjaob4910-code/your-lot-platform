@@ -714,7 +714,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
 
   return <div>
     <PageHead eyebrow="Your property" title="Lots"
-      blurb={isCommittee ? "Who owns what and who lives there. Invite each owner so they can see their levies and the building's notices." : "Every lot in the building and its share of costs, and who runs the building. Other owners' contact details stay private."}
+      blurb={isCommittee ? "Who owns what and who lives there. Invite each owner so they can see their levies and the building's notices." : "Your lot and its share of the building's costs."}
       action={isCommittee ? <Button className="rounded-full" onClick={()=>{ setEditing(null); setOpen(true); }}><Plus/> Add a lot</Button> : undefined}/>
     {isCommittee && lots.length > 0 && <p role="status" className={`mt-6 rounded-2xl px-4 py-3 text-[13px] ${totalOk ? "bg-secondary/50 text-muted-foreground" : "bg-amber-500/10 text-amber-800 dark:text-amber-300"}`}>
       {totalOk ? "Lot entitlements add up to 100%." : `Lot entitlements add up to ${Number(total.toFixed(3))}%. They should total 100% so levies and votes are shared correctly. Check them against your plan of subdivision.`} <Help term="entitlement"/>
@@ -737,7 +737,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
         {visible.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">{isCommittee ? "No lots yet. Add your first lot to start billing levies." : "Your lot isn't linked to your account yet. Ask your committee to invite you, or to put your email on your lot."}</p>}
       </div>
     </Card>
-    <div className="mt-6"><WhoRunsCard schemeId={schemeId}/></div>
+    {isCommittee && <div className="mt-6"><WhoRunsCard schemeId={schemeId}/></div>}
     <Dialog open={!!viewing} onOpenChange={(o)=>{ if (!o) setViewing(null); }}>
       <DialogContent>
         <DialogHeader>

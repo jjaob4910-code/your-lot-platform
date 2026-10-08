@@ -390,13 +390,14 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
     {/* Stage bar and the one next action */}
     <Card className="p-4 sm:p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <ol className="flex flex-wrap items-center gap-1.5 text-[12px]">
+        {!isCommittee && <p className="text-[13px] text-muted-foreground">{stage === "Draft" ? "Draft agenda. It may change before the notice goes out." : stage === "Notice sent" ? `Notice sent${meeting.notice_sent_at ? ` ${niceDate(meeting.notice_sent_at)}` : ""}.` : stage === "Minutes" ? "Minutes are being written." : "Minutes published."}</p>}
+        {isCommittee && <ol className="flex flex-wrap items-center gap-1.5 text-[12px]">
           {STAGES.map((s, i) => <li key={s} className="flex items-center gap-1.5">
             <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-medium ${i < stageIndex ? "bg-primary/10 text-primary" : i === stageIndex ? "bg-foreground text-background" : "border border-border text-muted-foreground"}`}>
               {i < stageIndex && <Check className="size-3"/>}{STAGE_LABEL[s]}</span>
             {i < STAGES.length - 1 && <span className="h-px w-2 bg-border" aria-hidden/>}
           </li>)}
-        </ol>
+        </ol>}
         <div className="flex flex-wrap gap-2">
           {noticeDoc && <Button size="sm" variant="outline" className="rounded-full" onClick={() => void openDoc(noticeDoc)}><Download/> Notice PDF</Button>}
           {minutesDoc && <Button size="sm" variant="outline" className="rounded-full" onClick={() => void openDoc(minutesDoc)}><Download/> Minutes PDF</Button>}
@@ -416,7 +417,11 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
                 className="-mx-2 w-[calc(100%+1rem)] rounded-xl border border-dashed border-border bg-transparent px-2 py-1 font-display text-3xl tracking-[-0.03em] outline-none transition placeholder:text-muted-foreground/50 hover:border-primary/40 hover:bg-background/60 focus:border-solid focus:border-primary/60 focus:bg-background sm:text-4xl"/>
             </label>
           : <h2 className="font-display text-3xl tracking-[-0.03em] sm:text-4xl">{d.title || "Annual General Meeting"}</h2>}
-        <div className="mt-4 flex flex-wrap gap-2">
+        {!canEditDetails && <p className="mt-3 text-[15px] text-muted-foreground">
+          {[d.meeting_date ? new Date(`${d.meeting_date}T00:00:00`).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" }) : "Date to be confirmed", d.meeting_time, d.location].filter(Boolean).join(" · ")}
+          {d.video_link && <> · <a href={d.video_link} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline">Join online</a></>}
+        </p>}
+        {canEditDetails && <div className="mt-4 flex flex-wrap gap-2">
           {([
             ["agm_date", CalendarDays, "Date", <input key="d" id="agm_date" type="date" disabled={!canEditDetails} value={d.meeting_date ?? ""} onChange={e => change({ meeting_date: e.target.value })} className="min-w-0 bg-transparent outline-none disabled:opacity-100" aria-label="Date"/>],
             ["agm_time", Clock, "Time", <input key="t" id="agm_time" disabled={!canEditDetails} value={d.meeting_time ?? ""} onChange={e => change({ meeting_time: e.target.value })} placeholder="Time" className="w-24 min-w-0 bg-transparent outline-none placeholder:text-muted-foreground/60" aria-label="Time"/>],
@@ -426,7 +431,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
             className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/60 px-3 py-1.5 text-[13px] focus-within:border-primary/50">
             <Icon className="size-3.5 shrink-0 text-muted-foreground"/>{field}
           </label>)}
-        </div>
+        </div>}
       </div>
 
       {(stage === "Minutes" || stage === "Published") && lots.length > 0 && <AttendancePanel lots={lots} attendance={d.attendance} editable={canEditMinutes}
@@ -434,7 +439,7 @@ function MeetingNotebook({ meeting, scheme, lots, myLot, suggestions, documents,
 
       <div className="border-t border-border/70 px-5 py-6 sm:px-10">
         <div className="flex items-center gap-1"><SectionLabel>{stage === "Minutes" || stage === "Published" ? "Minutes" : "Agenda"}</SectionLabel><Help term={stage === "Minutes" || stage === "Published" ? "minutes" : "notice"}/></div>
-        <p className="mt-1 text-[13px] text-muted-foreground">{stage === "Draft" ? "What the meeting will cover. Owners see this once the notice goes out. Use the toolbar for lists, checklists, bold and highlights." : stage === "Notice sent" ? "The agenda as sent to owners." : "What was discussed and decided under each item."}</p>
+        <p className="mt-1 text-[13px] text-muted-foreground">{stage === "Draft" ? (isCommittee ? "Owners see the agenda once the notice is sent." : "What the meeting will cover.") : stage === "Notice sent" ? "The agenda as sent to owners." : "What was discussed and decided under each item."}</p>
         <ol className="mt-4 divide-y divide-border/60">
           {d.agenda.map((a, i) => {
             const suggestedBy = a.suggested_by_lot_id ? lots.find(l => l.id === a.suggested_by_lot_id) : undefined;
