@@ -4,7 +4,8 @@ import { Help } from "@/components/help";
 import type { GlossaryKey } from "@/lib/glossary";
 import { currentPayment, paymentText } from "@/lib/payment";
 import { money, niceDate, daysUntil, localISO } from "@/lib/format";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, MoreHorizontal, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -652,10 +653,13 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
   const [dateText, setDateText] = useState(tx?.occurred_on ?? localISO());
   const [amountText, setAmountText] = useState(tx ? String(tx.amount) : "");
   const [direction, setDirection] = useState(tx?.direction ?? "out");
-  const [fundId, setFundId] = useState(tx?.fund_id ?? defaultFundId ?? funds[0]?.id ?? "");
+  // New entries start from the fund and category used last time on this device.
+  const last = (() => { try { return JSON.parse(localStorage.getItem("loty-last-tx") ?? "{}") as { fundId?: string; category?: string; direction?: string }; } catch { return {}; } })();
+  const lastFund = !tx && !defaultFundId && last.fundId && funds.some(f => f.id === last.fundId) ? last.fundId : undefined;
+  const [fundId, setFundId] = useState(tx?.fund_id ?? defaultFundId ?? lastFund ?? funds[0]?.id ?? "");
   // A category outside the list was typed under "Other": load it back that way.
   const knownCategory = (c: string | null | undefined, dir: string) => !c || (dir === "in" ? IN_CATEGORIES : OUT_CATEGORIES).includes(c);
-  const [category, setCategory] = useState(tx?.category ? (knownCategory(tx.category, tx.direction) ? tx.category : "Other") : "");
+  const [category, setCategory] = useState(tx?.category ? (knownCategory(tx.category, tx.direction) ? tx.category : "Other") : (last.direction === (tx?.direction ?? "out") && last.category && knownCategory(last.category, last.direction) ? last.category : ""));
   const [otherCategory, setOtherCategory] = useState(tx?.category && !knownCategory(tx.category, tx.direction) ? tx.category : "");
   const [repeat, setRepeat] = useState(false);
   const [frequency, setFrequency] = useState("Monthly");
@@ -674,6 +678,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
     e.preventDefault();
     if (!schemeId) return;
     if (fundId === "") { toast("Choose a fund first"); return; }
+    if (!tx) { try { localStorage.setItem("loty-last-tx", JSON.stringify({ fundId, category, direction })); } catch { /* storage unavailable */ } }
     const form = new FormData(e.currentTarget);
     const text = (k: string) => { const v = String(form.get(k) ?? "").trim(); return v === "" ? null : v; };
     const payload = {
@@ -1244,6 +1249,12 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
   const [showPaid, setShowPaid] = useState(false);
   const [sending, setSending] = useState<Levy[] | null>(null);
   const [markingPaid, setMarkingPaid] = useState<Levy | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkPaidOpen, setBulkPaidOpen] = useState(false);
+  const [bulkPaidAt, setBulkPaidAt] = useState(() => localISO());
+  const toggleSelected = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  // Remember when an owner was last chased, so next week shows who's already been reminded.
+  const markReminded = (ids: string[]) => { if (ids.length) void supabase.from("levies").update({ reminded_at: new Date().toISOString() }).in("id", ids).then(({ error }) => { if (!error) onChanged(); }); };
 
   const years = Array.from(new Set(levies.map(l => l.budgets?.financial_year ?? "Unallocated")));
   const [year, setYear] = useState("All years");
@@ -1269,6 +1280,16 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
   const levyDocsFor = (id: string) => documents.filter(d => d.levy_id === id);
 
   const rows = showPaid ? [...unpaid, ...paid] : unpaid;
+  const picked = unpaid.filter(l => selected.includes(l.id));
+  const overdueIds = unpaid.filter(l => daysUntil(l.due_date) < 0).map(l => l.id);
+  const remindPicked = () => {
+    const emails = [...new Set(picked.map(l => l.lots?.owner_email).filter((e): e is string => !!e))];
+    if (!emails.length) { toast("No owner emails on file for these lots"); return; }
+    const body = "Hi,\n\nOur records show your levy is unpaid. You can see the amount and how to pay on Loty.\n\nIf you've already paid, let us know and we'll update our records.\n\nThanks,\nYour owners corporation committee";
+    window.location.href = `mailto:?bcc=${encodeURIComponent(emails.join(","))}&subject=${encodeURIComponent("Levy reminder")}&body=${encodeURIComponent(body)}`;
+    markReminded(picked.map(l => l.id));
+    toast(`Reminder opened for ${emails.length} ${emails.length === 1 ? "owner" : "owners"}`);
+  };
 
   return <div>
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -1296,6 +1317,17 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
         </div>)}
     </div>
 
+    {isCommittee && unpaid.length > 0 && <div className="mt-5 flex flex-wrap items-center gap-2 text-[13px]" data-levy-bulk>
+      {picked.length === 0
+        ? <>{overdueIds.length > 0 && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setSelected(overdueIds)}>Select overdue ({overdueIds.length})</Button>}
+            <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setSelected(unpaid.map(l => l.id))}>Select all unpaid</Button></>
+        : <><span className="font-medium">{picked.length} selected</span>
+            <Button size="sm" className="rounded-full" onClick={() => { setBulkPaidAt(localISO()); setBulkPaidOpen(true); }}>Mark paid</Button>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={remindPicked}>Remind</Button>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => setSending(picked)}>Send notice</Button>
+            <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setSelected([])}>Clear</Button></>}
+    </div>}
+
     <Card className="mt-5 overflow-hidden">
       <div className="divide-y divide-border/70">{rows.map(levy => {
         const status = effectiveLevyStatus(levy);
@@ -1308,10 +1340,13 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
         const stale = isLevyStale(levy);
         const sendState = status === "Paid" ? null
           : stale ? { tone: "bg-amber-100 text-amber-800", text: "Amount changed. Resend" }
+          : levy.reminded_at ? { tone: "bg-secondary text-muted-foreground", text: `Reminded ${niceDate(levy.reminded_at)}` }
           : levy.notified_at ? { tone: "bg-secondary text-muted-foreground", text: `Sent ${niceDate(levy.notified_at)}` }
           : { tone: "bg-secondary text-muted-foreground", text: "Not sent yet" };
         return <div key={levy.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
           <div className="flex min-w-0 items-start gap-3">
+            {isCommittee && status !== "Paid" && <input type="checkbox" className="mt-1 size-4 shrink-0 accent-[var(--primary)]" aria-label={`Select Lot ${levy.lots?.lot_number ?? ""}`}
+              checked={selected.includes(levy.id)} onChange={() => toggleSelected(levy.id)}/>}
             <div className="min-w-0">
               <p className="text-sm font-medium">{levy.lots ? `Lot ${levy.lots.lot_number}${levy.lots.owner_name ? ` · ${levy.lots.owner_name}` : ""}` : "Your levy"}</p>
               <p className="mt-1 text-[12px] text-muted-foreground">
@@ -1330,13 +1365,19 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
             <span className="font-display text-lg">{money(Number(levy.amount))}</span>
             {alert && <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${alert.tone}`}>{alert.text}</span>}
             <StatusPill status={status} />
-            <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setInvoice(levy)}>Invoice</Button>
-            {isCommittee && <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Attach payment proof">
-              <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attachProof(levy, f); e.currentTarget.value = ""; }} /></label>
-            </Button>}
-            {isCommittee && status !== "Paid" && <Button size="sm" variant={stale ? "default" : "ghost"} className="rounded-full" onClick={() => setSending([levy])}>{levy.notified_at ? "Send notice again" : "Send notice"}</Button>}
-            {isCommittee && status !== "Paid" && <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setReminder(levy)}>Send a reminder</Button>}
+            {!isCommittee && <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setInvoice(levy)}>Invoice</Button>}
+            {isCommittee && status !== "Paid" && stale && <Button size="sm" className="rounded-full" onClick={() => setSending([levy])}>Resend</Button>}
             {isCommittee && status !== "Paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setMarkingPaid(levy)}>Mark paid</Button>}
+            {isCommittee && <input id={`proof-${levy.id}`} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attachProof(levy, f); e.currentTarget.value = ""; }} />}
+            {isCommittee && <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button size="icon" variant="ghost" className="rounded-full" aria-label={`More for Lot ${levy.lots?.lot_number ?? ""}`}><MoreHorizontal className="size-4"/></Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setInvoice(levy)}>Invoice</DropdownMenuItem>
+                {status !== "Paid" && <DropdownMenuItem onSelect={() => setReminder(levy)}>Send a reminder</DropdownMenuItem>}
+                {status !== "Paid" && <DropdownMenuItem onSelect={() => setSending([levy])}>{levy.notified_at ? "Send notice again" : "Send notice"}</DropdownMenuItem>}
+                <DropdownMenuItem onSelect={() => document.getElementById(`proof-${levy.id}`)?.click()}><Paperclip className="size-3.5"/>Attach payment proof</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>}
             {isCommittee && status === "Paid" && <Button size="sm" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" onClick={() => { setReverseReason(""); setReversing(levy); }}><Undo2 className="size-3.5" />Undo payment</Button>}
           </div>
         </div>;
@@ -1398,11 +1439,13 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="ghost" className="rounded-full" onClick={() => {
               void navigator.clipboard.writeText(reminderText(reminder, effectiveLevyStatus(reminder)));
+              markReminded([reminder.id]);
               toast("Reminder copied");
             }}>Copy the message</Button>
             <Button type="button" className="rounded-full" disabled={!reminder.lots?.owner_email} onClick={() => {
               const subject = `Levy reminder for Lot ${reminder.lots?.lot_number ?? ""}`;
               window.location.href = `mailto:${reminder.lots?.owner_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(reminderText(reminder, effectiveLevyStatus(reminder)))}`;
+              markReminded([reminder.id]);
               setReminder(null);
               toast("Opened in your email app");
             }}>Open in email</Button>
@@ -1412,7 +1455,20 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
     </Dialog>
 
     {schemeId && <SendLevyDialog levies={sending} funds={funds} schemeId={schemeId} onOpenChange={(o) => { if (!o) setSending(null); }}
-      onSent={() => { setSending(null); onChanged(); }} />}
+      onSent={() => { setSending(null); setSelected([]); onChanged(); }} />}
+    <Dialog open={bulkPaidOpen} onOpenChange={setBulkPaidOpen}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle className="font-display tracking-[-0.02em]">Mark {picked.length} {picked.length === 1 ? "levy" : "levies"} paid</DialogTitle>
+          <DialogDescription>{money(picked.reduce((t, l) => t + Number(l.amount), 0))} in total. Each payment is recorded in Cashflow.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2"><Label htmlFor="bulk_paid_at">Payment date</Label><Input id="bulk_paid_at" type="date" value={bulkPaidAt} onChange={e => setBulkPaidAt(e.target.value)} /></div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" className="rounded-full" onClick={() => setBulkPaidOpen(false)}>Cancel</Button>
+          <Button type="button" className="rounded-full" onClick={() => { for (const l of picked) onPaid(l.id, bulkPaidAt); setSelected([]); setBulkPaidOpen(false); }}>Mark paid</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     <MarkPaidDialog levy={markingPaid} funds={funds} onOpenChange={(o) => { if (!o) setMarkingPaid(null); }}
       onConfirm={(paidAt) => { onPaid(markingPaid!.id, paidAt); setMarkingPaid(null); }} />
   </div>;
@@ -1782,13 +1838,15 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
             })()}>Open {newYearText.length === 4 ? fyLabel(Number(newYearText)) : ""}</Button>
             <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setAddingYear(false)}>Cancel</Button>
           </div>
-        : <Select value={String(year)} onValueChange={v => { if (v === "__add") { setAddingYear(true); return; } setYear(Number(v)); setEditingBudget(false); setMonthFilter(null); }}>
+        : <div className="flex flex-wrap items-center gap-2">
+        {isCommittee && <Button size="sm" className="h-9 rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Record expense</Button>}
+        <Select value={String(year)} onValueChange={v => { if (v === "__add") { setAddingYear(true); return; } setYear(Number(v)); setEditingBudget(false); setMonthFilter(null); }}>
         <SelectTrigger className="h-9 w-[190px] rounded-full text-xs" aria-label="Financial year"><SelectValue /></SelectTrigger>
         <SelectContent>
           {years.map(y => <SelectItem key={y} value={String(y)}>{fyLabel(y)}{y === currentFy ? " (this year)" : ""}</SelectItem>)}
           {isCommittee && <SelectItem value="__add">Add another year…</SelectItem>}
         </SelectContent>
-      </Select>} />
+      </Select></div>} />
     <HowItWorks page="finance" committee={isCommittee}/>
     {isCommittee && year !== currentFy && !addingYear && <div className="-mt-3 flex justify-end">
       <Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[12px] text-muted-foreground hover:text-destructive" onClick={() => void removeYear()}>

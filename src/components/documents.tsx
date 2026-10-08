@@ -258,7 +258,7 @@ export function DocumentsSection({ documents, isCommittee, schemeId, onChanged }
           <button className="rounded-full px-3 py-1.5 font-medium hover:bg-secondary" onClick={() => setPath(p => p.slice(0, index + 1))}>{folder.name}</button>
         </span>)}
       </div>
-      <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search folders and files" className="ml-auto h-9 w-full rounded-full sm:w-64"/>
+      <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search all documents" aria-label="Search documents" className="ml-auto h-10 w-full rounded-full sm:w-96"/>
     </div>
 
     {visibleFolders.length > 0 && <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

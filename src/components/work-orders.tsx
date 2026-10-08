@@ -895,6 +895,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
   };
 
   const awaitingApproval = steps.some(st => st.step_type === "approval" && !st.done_at);
+  const [confirmQuote, setConfirmQuote] = useState<WorkOrderQuote | null>(null);
   const acceptQuote = async (quote: WorkOrderQuote) => {
     setBusy(true);
     try {
@@ -1140,7 +1141,11 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
                     ? <p className="mt-3 text-[12px] text-muted-foreground">Can be marked paid once owners approve.</p>
                     : <Button size="sm" className="mt-3 rounded-full" onClick={() => setPayingQuote(q)}>Mark paid</Button>))}
                 {isCommittee && q.status === "Received" && <div className="mt-3 flex flex-wrap gap-2">
-                  {!accepted && <Button size="sm" variant="outline" className="rounded-full" disabled={busy} onClick={() => void acceptQuote(q)}><Check/> Accept</Button>}
+                  {!accepted && confirmQuote?.id !== q.id && <Button size="sm" variant="outline" className="rounded-full" disabled={busy} onClick={() => setConfirmQuote(q)}><Check/> Accept</Button>}
+                  {!accepted && confirmQuote?.id === q.id && <span className="flex flex-wrap items-center gap-2 rounded-2xl bg-secondary/60 px-3 py-1.5 text-[12px]">
+                    Accept {money(Number(q.amount))}? {quotes.length > 1 ? "The other quotes will be declined." : ""}
+                    <Button size="sm" className="h-7 rounded-full" disabled={busy} onClick={() => { setConfirmQuote(null); void acceptQuote(q); }}>Accept</Button>
+                    <Button size="sm" variant="ghost" className="h-7 rounded-full" onClick={() => setConfirmQuote(null)}>Cancel</Button></span>}
                   <Button size="sm" variant="ghost" className="rounded-full text-muted-foreground" onClick={() => void removeQuote(q)}>Remove</Button>
                 </div>}
               </div>;

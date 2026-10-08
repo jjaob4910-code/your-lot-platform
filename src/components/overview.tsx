@@ -120,6 +120,16 @@ function NoticesWidgetBody({ notices, noticeComments, schemeId, isCommittee, onC
   const [postOpen, setPostOpen] = useState(false);
   const [viewing, setViewing] = useState<Notice | null>(null);
   const [showAll, setShowAll] = useState(false);
+  // Replies are signed with the person's own name, so nobody has to type it.
+  const myName = useQuery({
+    queryKey: ["my-name"],
+    queryFn: async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth.user?.id; if (!uid) return null;
+      const { data } = await supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle();
+      return (data?.full_name as string | null | undefined)?.trim() || auth.user?.email?.split("@")[0] || null;
+    },
+  });
   const sorted = notices.slice().sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || b.created_at.localeCompare(a.created_at));
   const commentsFor = (id: string) => noticeComments.filter(c => c.notice_id === id);
 
@@ -144,7 +154,7 @@ function NoticesWidgetBody({ notices, noticeComments, schemeId, isCommittee, onC
     if (message === "") return;
     const { error } = await supabase.from("notice_comments").insert({
       notice_id: notice.id, scheme_id: schemeId,
-      author_name: String(form.get("author_name") ?? "").trim() || null, message,
+      author_name: myName.data ?? (isCommittee ? "Committee" : null), message,
     });
     if (error) { toast("Could not post your reply", { description: error.message }); return; }
     formEl.reset();
@@ -189,7 +199,7 @@ function NoticesWidgetBody({ notices, noticeComments, schemeId, isCommittee, onC
             {commentsFor(viewing.id).length === 0 && <p className="text-[12px] text-muted-foreground">No replies yet.</p>}
           </div>
           <form onSubmit={e => { void addComment(e, viewing); }} className="mt-3 space-y-2">
-            <Input name="author_name" placeholder="Your name (optional)" />
+            {myName.data && <p className="text-[11px] text-muted-foreground">Replying as {myName.data}</p>}
             <div className="flex gap-2"><Textarea name="message" rows={2} placeholder="Write a reply" required className="flex-1" /><Button type="submit" size="icon" className="shrink-0 rounded-full"><Send className="size-4" /></Button></div>
           </form>
         </>}
