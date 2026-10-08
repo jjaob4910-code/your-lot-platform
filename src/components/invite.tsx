@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
 /** Makes a one-use invite link (valid 30 days) for an owner's lot, a committee seat or a building manager, to copy or email. */
-export function InviteDialog({ open, onOpenChange, schemeId, role, lot, buildingName }: {
+export function InviteDialog({ open, onOpenChange, schemeId, role, lot, buildingName, onInvited }: {
   open: boolean; onOpenChange: (v: boolean) => void; schemeId?: string | undefined; role: "Owner" | "Committee" | "Manager";
-  lot?: { id: string; lot_number: number; owner_name: string | null; owner_email: string | null } | null; buildingName?: string | undefined;
+  lot?: { id: string; lot_number: number; owner_name: string | null; owner_email: string | null } | null; buildingName?: string | undefined; onInvited?: (() => void) | undefined;
 }) {
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -35,8 +35,11 @@ export function InviteDialog({ open, onOpenChange, schemeId, role, lot, building
     "", link ?? "", "", "The link works once and lasts 30 days.",
   ].join("\n");
 
+  // Remember when an owner was invited, so the Lots list can say so.
+  const markInvited = () => { if (lot?.id) void supabase.from("lots").update({ invited_at: new Date().toISOString() }).eq("id", lot.id).then(() => onInvited?.()); };
   const copy = async () => {
     if (!link) return;
+    markInvited();
     try { await navigator.clipboard.writeText(link); toast("Invite link copied"); }
     catch { toast("Select the link and copy it", { description: "Your browser didn't allow copying." }); }
   };
@@ -53,7 +56,7 @@ export function InviteDialog({ open, onOpenChange, schemeId, role, lot, building
             <div className="flex flex-wrap gap-2">
               <Button type="button" className="rounded-full" disabled={!link} onClick={() => void copy()}><Copy className="size-3.5"/>Copy link</Button>
               <Button type="button" variant="outline" className="rounded-full" disabled={!link} asChild={!!link}>
-                {link ? <a href={`mailto:${encodeURIComponent(lot?.owner_email ?? "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}><Mail className="size-3.5"/>Email it</a> : <span><Mail className="size-3.5"/>Email it</span>}
+                {link ? <a onClick={markInvited} href={`mailto:${encodeURIComponent(lot?.owner_email ?? "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}><Mail className="size-3.5"/>Email it</a> : <span><Mail className="size-3.5"/>Email it</span>}
               </Button>
             </div>
             {role === "Owner" && lot?.owner_email && <p className="text-[12px] text-muted-foreground">They can also just sign up with {lot.owner_email}; Loty links that email to the lot automatically.</p>}

@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Check, FileCheck2, ShieldCheck, WalletCards, Wrench } from "lucide-react";
+import { Building2, Check, FileCheck2, ShieldCheck, WalletCards } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -30,9 +30,7 @@ const STEPS = [
   { key: "building", label: "Building", icon: Building2 },
   { key: "lots", label: "Lots & owners", icon: Building2 },
   { key: "insurance", label: "Insurance", icon: ShieldCheck },
-  { key: "maintenance", label: "Maintenance", icon: Wrench },
-  { key: "finance", label: "Finance", icon: WalletCards },
-  { key: "levies", label: "Levies", icon: WalletCards },
+  { key: "finance", label: "Budget and levies", icon: WalletCards },
   { key: "done", label: "All set", icon: FileCheck2 },
 ] as const;
 
@@ -88,20 +86,29 @@ function BuildingStep({ onCreated }: { onCreated: (scheme: Scheme) => void }) {
   </form>;
 }
 
-function LotsStep({ schemeId, lots, onAdded }: { schemeId: string; lots: Lot[]; onAdded: () => void }) {
+// Plans of subdivision list each lot's unit entitlement as a number out of a plan total (e.g. 45 of 1,000).
+const PLAN_TOTAL_KEY = "loty-plan-total";
+function LotsStep({ schemeId, lots, totalLots, onAdded }: { schemeId: string; lots: Lot[]; totalLots: number; onAdded: () => void }) {
   const [submitting, setSubmitting] = useState(false);
+  const [planTotal, setPlanTotal] = useState(() => { try { return localStorage.getItem(PLAN_TOTAL_KEY) ?? ""; } catch { return ""; } });
+  const used = new Set(lots.map(l => l.lot_number));
+  let nextNumber = 1; while (used.has(nextNumber)) nextNumber++;
+  const percentSum = Math.round(lots.reduce((t, l) => t + Number(l.entitlement_percent || 0), 0) * 1000) / 1000;
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const lotNumber = Number(form.get("lot_number"));
     if (!lotNumber) { toast("Add a lot number first"); return; }
+    const unit = Number(form.get("unit_entitlement")) || 0;
+    const total = Number(planTotal) || 0;
+    if (unit > 0 && total <= 0) { toast("Add the plan's total entitlement first"); return; }
     setSubmitting(true);
     const { error } = await supabase.from("lots").insert({
       scheme_id: schemeId, lot_number: lotNumber,
       owner_name: String(form.get("owner_name") ?? "").trim() || null,
       owner_email: String(form.get("owner_email") ?? "").trim() || null,
       owner_phone: String(form.get("owner_phone") ?? "").trim() || null,
-      entitlement_percent: Number(form.get("entitlement_percent")) || 0,
+      entitlement_percent: unit > 0 ? Math.round((unit / total) * 100 * 1000) / 1000 : 0,
     });
     setSubmitting(false);
     if (error) { toast("Could not add that lot", { description: error.message }); return; }
@@ -109,6 +116,12 @@ function LotsStep({ schemeId, lots, onAdded }: { schemeId: string; lots: Lot[]; 
     onAdded();
   };
   return <div className="space-y-5">
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="space-y-2"><Label htmlFor="plan_total">Total unit entitlement on your plan</Label>
+        <Input id="plan_total" type="number" min="1" value={planTotal} placeholder="e.g. 1000" className="w-40"
+          onChange={e => { setPlanTotal(e.target.value); try { localStorage.setItem(PLAN_TOTAL_KEY, e.target.value); } catch { /* storage unavailable */ } }}/></div>
+      <p className="text-[13px] text-muted-foreground">{lots.length} of {totalLots} lots added · entitlements total {percentSum}%</p>
+    </div>
     {lots.length > 0 && <div className="divide-y divide-border/70 rounded-2xl border border-border/70">
       {lots.map(l => <div key={l.id} className="flex items-center justify-between px-4 py-2.5 text-[13px]">
         <span>Lot {l.lot_number}{l.owner_name ? ` · ${l.owner_name}` : ""}</span>
@@ -117,10 +130,10 @@ function LotsStep({ schemeId, lots, onAdded }: { schemeId: string; lots: Lot[]; 
     </div>}
     <form id="step-form" onSubmit={submit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input id="lot_number" name="lot_number" type="number" min="1" required/></div>
-        <div className="space-y-2"><Label htmlFor="entitlement_percent">Lot entitlement (%)</Label><Input id="entitlement_percent" name="entitlement_percent" type="number" min="0" step="0.001" placeholder="e.g. 12.5"/></div>
+        <div className="space-y-2"><Label htmlFor="lot_number">Lot number</Label><Input key={nextNumber} id="lot_number" name="lot_number" type="number" min="1" defaultValue={nextNumber} required/></div>
+        <div className="space-y-2"><Label htmlFor="unit_entitlement">Unit entitlement</Label><Input id="unit_entitlement" name="unit_entitlement" type="number" min="0" step="any" placeholder="e.g. 45"/></div>
         <div className="space-y-2"><Label htmlFor="owner_name">Owner name</Label><Input id="owner_name" name="owner_name"/></div>
-        <div className="space-y-2"><Label htmlFor="owner_email">Owner email</Label><Input id="owner_email" name="owner_email" type="email" placeholder="Needed for them to sign up and link to this lot"/></div>
+        <div className="space-y-2"><Label htmlFor="owner_email">Owner email</Label><Input id="owner_email" name="owner_email" type="email" placeholder="name@example.com"/><p className="text-[11px] text-muted-foreground">They sign up with this email to see their lot.</p></div>
         <div className="space-y-2"><Label htmlFor="owner_phone">Owner phone</Label><Input id="owner_phone" name="owner_phone" type="tel"/></div>
       </div>
       <Button type="submit" variant="outline" className="rounded-full" disabled={submitting}>{submitting ? "Adding…" : "Add this lot"}</Button>
@@ -175,42 +188,6 @@ function InsuranceStep({ schemeId, policies, onAdded }: { schemeId: string; poli
   </div>;
 }
 
-function MaintenanceStep({ schemeId, requests, onAdded }: { schemeId: string; requests: { id: string; title: string; kind: string }[]; onAdded: () => void }) {
-  const [submitting, setSubmitting] = useState(false);
-  const submit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    const title = String(form.get("title") ?? "").trim();
-    if (!title) { toast("Give it a short title first"); return; }
-    setSubmitting(true);
-    const { error } = await supabase.from("maintenance_requests").insert({
-      scheme_id: schemeId, title, kind: String(form.get("kind") ?? "Repair"),
-      description: String(form.get("description") ?? "").trim() || null,
-    });
-    setSubmitting(false);
-    if (error) { toast("Could not add that", { description: error.message }); return; }
-    (e.target as HTMLFormElement).reset();
-    onAdded();
-  };
-  return <div className="space-y-5">
-    {requests.length > 0 && <div className="divide-y divide-border/70 rounded-2xl border border-border/70">
-      {requests.map(r => <div key={r.id} className="flex items-center justify-between px-4 py-2.5 text-[13px]"><span>{r.title}</span><span className="text-muted-foreground">{r.kind}</span></div>)}
-    </div>}
-    <form id="step-form" onSubmit={submit} className="space-y-4">
-      <div className="space-y-2"><Label htmlFor="title">What needs doing</Label><Input id="title" name="title" placeholder="Leaking gutter above carport"/></div>
-      <div className="space-y-2">
-        <Label>Type</Label>
-        <Select name="kind" defaultValue="Repair">
-          <SelectTrigger className="w-full"><SelectValue/></SelectTrigger>
-          <SelectContent><SelectItem value="Repair">Repair</SelectItem><SelectItem value="Request">Request</SelectItem></SelectContent>
-        </Select>
-      </div>
-      <div className="space-y-2"><Label htmlFor="description">Details (optional)</Label><Input id="description" name="description"/></div>
-      <Button type="submit" variant="outline" className="rounded-full" disabled={submitting}>{submitting ? "Adding…" : "Add this item"}</Button>
-    </form>
-  </div>;
-}
-
 function OnboardingPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -219,7 +196,6 @@ function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [scheme, setScheme] = useState<Scheme | null>(null);
   const [budgetOpen, setBudgetOpen] = useState(false);
-  const [budgetCreated, setBudgetCreated] = useState(false);
   // Continue saves anything typed into the step's form before moving on, so it isn't lost.
   const continueAt = useRef(0);
   const continueStep = () => {
@@ -286,24 +262,16 @@ function OnboardingPage() {
     },
     enabled: !!schemeId,
   });
-  const requests = useQuery({
-    queryKey: ["onboarding-maintenance", schemeId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("maintenance_requests").select("id, title, kind").eq("scheme_id", schemeId!);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: !!schemeId,
-  });
   const levies = useQuery({
     queryKey: ["onboarding-levies", schemeId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("levies").select("id, amount, lots(lot_number, owner_name)").eq("lots.scheme_id", schemeId!);
+      const { data, error } = await supabase.from("levies").select("id, amount, lots!inner(lot_number, owner_name, scheme_id)").eq("lots.scheme_id", schemeId!);
       if (error) throw error;
       return (data ?? []) as unknown as Levy[];
     },
-    enabled: !!schemeId && budgetCreated,
+    enabled: !!schemeId,
   });
+  const hasLevies = (levies.data?.length ?? 0) > 0;
   const funds = useQuery({
     queryKey: ["onboarding-funds", schemeId],
     queryFn: async () => {
@@ -333,7 +301,7 @@ function OnboardingPage() {
 
   const defaultFundId = funds.data?.[0]?.id ?? "";
   const insuranceLines: DraftLine[] = (policies.data ?? []).map(p => ({
-    id: p.id, fundId: defaultFundId, occurrence: "Annually", costType: "Fixed", description: `${p.policy_type} insurance${p.insurer ? ` — ${p.insurer}` : ""}`,
+    id: p.id, fundId: defaultFundId, occurrence: "Annually", costType: "Fixed", description: `${p.policy_type} insurance${p.insurer ? ` (${p.insurer})` : ""}`,
     amount: p.premium != null ? String(p.premium) : "", month: "", file: null,
   }));
 
@@ -341,70 +309,56 @@ function OnboardingPage() {
     <Toaster/>
     <ProgressDots index={step}/>
 
-    {step === 0 && <StepShell index={0} title="Let's set up your building." blurb="This only takes a couple of minutes. You can skip anything and come back to it later from the normal dashboard."
+    {step === 0 && <StepShell index={0} title="Set up your building." blurb="Start with the basics. You can fill in the rest later."
       footer={<><span/><Button type="submit" form="building-form" className="rounded-full">Continue</Button></>}>
       <BuildingStep onCreated={(created)=>{ setScheme(created); queryClient.invalidateQueries({ queryKey: ["onboarding-scheme"] }); next(); }}/>
     </StepShell>}
 
-    {step === 1 && schemeId && <StepShell index={1} title="Who are the lot owners?" blurb="Add as many as you know now — you can add the rest anytime from the Lots tab. An owner's email lets them sign up and see just their own lot."
-      footer={<><BackButton index={1}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
-      <LotsStep schemeId={schemeId} lots={lots.data ?? []} onAdded={()=>added(["onboarding-lots", schemeId])}/>
+    {step === 1 && schemeId && <StepShell index={1} title="Who are the lot owners?" blurb="Add the lots you know. Your plan of subdivision lists each lot's unit entitlement."
+      footer={<><BackButton index={1}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
+      <LotsStep schemeId={schemeId} lots={lots.data ?? []} totalLots={Number(scheme?.total_lots) || 0} onAdded={()=>added(["onboarding-lots", schemeId])}/>
     </StepShell>}
 
-    {step === 2 && schemeId && <StepShell index={2} title="What's insured?" blurb="Building insurance is usually compulsory for an owners corporation. Add what you have on file — the renewal date goes into your calendar with a reminder 60 days out, and the premium is carried into your budget."
-      footer={<><BackButton index={2}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
+    {step === 2 && schemeId && <StepShell index={2} title="What's insured?" blurb="Add your building policy. We'll remind you 60 days before it renews."
+      footer={<><BackButton index={2}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
       <InsuranceStep schemeId={schemeId} policies={policies.data ?? []} onAdded={()=>added(["onboarding-insurance", schemeId])}/>
     </StepShell>}
 
-    {step === 3 && schemeId && <StepShell index={3} title="Any maintenance to log?" blurb="If there's a repair already on your mind — a leak, a broken gate — add it now. Most new buildings have nothing here yet, and that's fine."
-      footer={<><BackButton index={3}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Nothing to log yet</Button><Button className="rounded-full" onClick={continueStep}>Continue</Button></div></>}>
-      <MaintenanceStep schemeId={schemeId} requests={requests.data ?? []} onAdded={()=>added(["onboarding-maintenance", schemeId])}/>
-    </StepShell>}
-
-    {step === 4 && schemeId && <StepShell index={4} title="Work out this year's budget." blurb="This is the important one: add up what the building expects to spend and Loty works out what each lot owes, then issues the levies automatically."
-      footer={<><BackButton index={4}/><div className="flex gap-2"><Button variant="ghost" className="rounded-full" onClick={next}>Skip for now</Button><Button className="rounded-full" onClick={next}>{budgetCreated ? "Continue" : "Continue without a budget"}</Button></div></>}>
+    {step === 3 && schemeId && <StepShell index={3} title="This year's budget" blurb="List this year's expected costs. Each lot is billed its share."
+      footer={<><BackButton index={3}/><div className="flex gap-2">{!hasLevies && <Button variant="ghost" className="rounded-full" onClick={next}>Skip</Button>}
+        {hasLevies ? <Button className="rounded-full" onClick={next}>Continue</Button> : <Button className="rounded-full" onClick={()=>setBudgetOpen(true)}>Create budget</Button>}</div></>}>
       <div className="space-y-5">
-        <div className="rounded-2xl border border-border/70 bg-secondary/40 p-4 text-[13px] leading-6">
-          <p className="font-medium">A budget usually has two parts:</p>
-          <p className="mt-2"><span className="font-medium">Admin fund</span> — the day-to-day running costs: insurance, cleaning, common-area electricity, management fees.</p>
-          <p className="mt-1"><span className="font-medium">Maintenance fund</span> — bigger, less frequent repairs and capital works: roof repairs, repainting, lift servicing.</p>
-        </div>
-        {insuranceLines.length > 0 && !budgetCreated && <p className="text-sm text-muted-foreground">The {insuranceLines.length === 1 ? "insurance policy" : `${insuranceLines.length} insurance policies`} you added earlier will be pre-filled as a line item — adjust the amount if needed.</p>}
-        {budgetCreated
-          ? <p className="text-sm text-muted-foreground">Budget created — levies have been issued to every lot. You can review them on the next step.</p>
-          : <p className="text-sm text-muted-foreground">This uses the same budget tool as the Finance tab: line items for what you expect to spend, split by lot entitlement or equally.</p>}
-        <Button type="button" className="rounded-full" onClick={()=>setBudgetOpen(true)}>{budgetCreated ? "Create another budget" : "Create a budget"}</Button>
-      </div>
-    </StepShell>}
-
-    {step === 5 && <StepShell index={5} title="Levies, worked out for you." blurb="Once a budget exists, Loty splits it across every lot automatically — no separate step needed. Here's what's been issued so far."
-      footer={<><BackButton index={5}/><Button className="rounded-full" onClick={next}>Continue</Button></>}>
-      {budgetCreated && (levies.data?.length ?? 0) > 0
-        ? <div className="divide-y divide-border/70 rounded-2xl border border-border/70">
+        {!hasLevies && <div className="rounded-2xl border border-border/70 bg-secondary/40 p-4 text-[13px] leading-6">
+          <p><span className="font-medium">Admin fund</span>: day-to-day costs like insurance, cleaning, common-area power and management fees.</p>
+          <p className="mt-1"><span className="font-medium">Maintenance fund</span>: bigger, less frequent work like roof repairs, repainting and lift servicing.</p>
+        </div>}
+        {!hasLevies && insuranceLines.length > 0 && <p className="text-sm text-muted-foreground">Your insurance premium is already included.</p>}
+        {hasLevies && <>
+          <p className="text-sm font-medium">Levies issued to {new Set(levies.data!.map(l => l.lots?.lot_number)).size} lots</p>
+          <div className="divide-y divide-border/70 rounded-2xl border border-border/70">
             {levies.data!.map(l => <div key={l.id} className="flex items-center justify-between px-4 py-2.5 text-[13px]">
               <span>Lot {l.lots?.lot_number ?? "?"}{l.lots?.owner_name ? ` · ${l.lots.owner_name}` : ""}</span>
               <span className="font-medium tabular-nums">{money(Number(l.amount))}</span>
             </div>)}
           </div>
-        : <p className="text-sm text-muted-foreground">No levies yet — once you create a budget (on the previous step, or later from the Finance tab), each lot's share is issued automatically based on its entitlement.</p>}
+        </>}
+      </div>
     </StepShell>}
 
-    {step === 6 && <StepShell index={6} title="Here's what Loty does for you." blurb="You're set up. From here, Loty keeps track of the yearly work so your committee doesn't have to remember it."
-      footer={<><BackButton index={6}/><Button className="rounded-full" onClick={finish}><Check className="size-3.5"/>Go to my dashboard</Button></>}>
+    {step === 4 && <StepShell index={4} title="You're set up" blurb="Loty will remind you when levies, renewals and the AGM are due."
+      footer={<><BackButton index={4}/><Button className="rounded-full" onClick={finish}><Check className="size-3.5"/>Go to my dashboard</Button></>}>
       <div className="space-y-2 text-sm">
         {[
-          ["Levies", "Issued to every lot from your budget, with reminders when they fall due."],
-          ["Owners", "Invite each owner from the Lots tab so they can see their levies, notices and documents."],
-          ["Insurance", "Renewal dates go into the calendar, with a reminder 60 days out."],
-          ["AGM", "Build the agenda, send the notice, take the minutes and record votes in the AGM tab."],
-          ["Documents", "Everything filed in one place, shared with owners when you choose."],
+          ["Owners", "Invite each owner from the Lots tab."],
+          ["Repairs", "Log work orders and collect quotes in Work orders."],
+          ["AGM", "Build the agenda, send the notice and take the minutes."],
+          ["Documents", "Keep everything in one place and share it with owners."],
         ].map(([title, text]) =>
           <div key={title} className="flex items-start gap-3 rounded-2xl border border-border/70 px-4 py-3"><Check className="mt-0.5 size-3.5 shrink-0 text-primary"/><span><span className="font-medium">{title}.</span> <span className="text-muted-foreground">{text}</span></span></div>)}
-        <p className="pt-2 text-[13px] text-muted-foreground">Your dashboard shows a short "Getting started" list until the basics are done.</p>
       </div>
     </StepShell>}
 
     {schemeId && <CreateBudgetDialog key={`budget-${insuranceLines.length}`} open={budgetOpen} onOpenChange={setBudgetOpen} schemeId={schemeId} lots={lots.data ?? []} funds={funds.data ?? []} initialLines={insuranceLines.length > 0 ? insuranceLines : undefined}
-      onCreated={()=>{ setBudgetCreated(true); queryClient.invalidateQueries({ queryKey: ["onboarding-levies", schemeId] }); }}/>}
+      onCreated={()=>{ queryClient.invalidateQueries({ queryKey: ["onboarding-levies", schemeId] }); }}/>}
   </div>;
 }

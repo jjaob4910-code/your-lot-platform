@@ -289,13 +289,20 @@ export function InsuranceSection({ policies, documents, isCommittee, schemeId, o
             <Field label="Excess" value={money(policy.excess)} help="excess"/>
             <Field label="Cover starts" value={niceDate(policy.start_date)}/>
             <Field label="Renews" value={niceDate(policy.renewal_date)}/>
-            <Field label="Broker" value={policy.broker ?? "—"} help="broker"/>
-            <Field label="Broker contact" value={policy.broker_contact ?? "—"}/>
-            <Field label="Policy number" value={policy.policy_number ?? "—"}/>
+            {(isCommittee || policy.broker) && <Field label="Broker" value={policy.broker ?? "—"} help="broker"/>}
+            {(isCommittee || policy.broker_contact) && <Field label="Broker contact" value={policy.broker_contact ?? "—"}/>}
+            {(isCommittee || policy.policy_number) && <Field label="Policy number" value={policy.policy_number ?? "—"}/>}
           </div>
 
           {policy.notes && <p className="mt-5 text-[13px] leading-6 text-muted-foreground">{policy.notes}</p>}
 
+          {/* The certificate of currency is what owners usually come here for (for a bank or a tenant). */}
+          {!isCommittee && <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-secondary/50 px-4 py-3 text-[13px]">
+            <span className="font-medium">Certificate of currency</span>
+            {files.length > 0
+              ? <Button size="sm" variant="outline" className="rounded-full" onClick={() => { void openDoc(files.find(f => /currency|certificate|coc/i.test(f.name)) ?? files[0]!); }}>Open</Button>
+              : <span className="text-muted-foreground">Not uploaded yet. Ask the committee.</span>}
+          </div>}
           {files.length > 0 && <div className="mt-6 flex flex-wrap gap-3 border-t border-border/70 pt-6">
             {files.map(doc => <DocPreviewTile key={doc.id} doc={doc} canRemove={isCommittee}
               onOpen={d => { void openDoc(d); }} onRemove={d => { void removeDoc(d); }}/>)}

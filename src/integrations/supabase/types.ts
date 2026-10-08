@@ -143,6 +143,12 @@ export type Database = {
           },
         ]
       }
+      agm_rsvps: {
+        Row: { id: string; meeting_id: string; lot_id: string; status: string; proxy_name: string | null; responded_by: string | null; updated_at: string }
+        Insert: { id?: string; meeting_id: string; lot_id: string; status: string; proxy_name?: string | null; responded_by?: string | null; updated_at?: string }
+        Update: { id?: string; meeting_id?: string; lot_id?: string; status?: string; proxy_name?: string | null; responded_by?: string | null; updated_at?: string }
+        Relationships: []
+      }
       agm_suggestions: {
         Row: {
           created_at: string
@@ -400,6 +406,7 @@ export type Database = {
       }
       budgets: {
         Row: {
+          instalments: number
           allocation_method: string
           created_at: string
           financial_year: string
@@ -409,6 +416,7 @@ export type Database = {
           total_amount: number
         }
         Insert: {
+          instalments?: number
           allocation_method?: string
           created_at?: string
           financial_year: string
@@ -418,6 +426,7 @@ export type Database = {
           total_amount?: number
         }
         Update: {
+          instalments?: number
           allocation_method?: string
           created_at?: string
           financial_year?: string
@@ -1280,6 +1289,7 @@ export type Database = {
       }
       levies: {
         Row: {
+          reminded_at: string | null
           amount: number
           budget_id: string
           created_at: string
@@ -1294,6 +1304,7 @@ export type Database = {
           status: Database["public"]["Enums"]["levy_status"]
         }
         Insert: {
+          reminded_at?: string | null
           amount?: number
           budget_id: string
           created_at?: string
@@ -1308,6 +1319,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["levy_status"]
         }
         Update: {
+          reminded_at?: string | null
           amount?: number
           budget_id?: string
           created_at?: string
@@ -1385,6 +1397,7 @@ export type Database = {
       }
       lots: {
         Row: {
+          invited_at: string | null
           created_at: string
           entitlement_percent: number
           id: string
@@ -1398,6 +1411,7 @@ export type Database = {
           street_address: string | null
         }
         Insert: {
+          invited_at?: string | null
           created_at?: string
           entitlement_percent?: number
           id?: string
@@ -1411,6 +1425,7 @@ export type Database = {
           street_address?: string | null
         }
         Update: {
+          invited_at?: string | null
           created_at?: string
           entitlement_percent?: number
           id?: string

@@ -4,7 +4,8 @@ import { Help } from "@/components/help";
 import type { GlossaryKey } from "@/lib/glossary";
 import { currentPayment, paymentText } from "@/lib/payment";
 import { money, niceDate, daysUntil, localISO } from "@/lib/format";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Coins, Pencil, History, Lock, MoreHorizontal, Paperclip, Plus, Send, Settings2, Trash2, Undo2, X } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -113,7 +114,7 @@ export type BudgetLineItem = {
 };
 export type FinanceBudget = {
   id: string; financial_year: string; total_amount: number; budget_fund_totals: { fund_id: string; total: number }[];
-  allocation_method: string | null; levy_due_date: string;
+  allocation_method: string | null; levy_due_date: string; instalments?: number | null;
 };
 export type BudgetRevision = {
   id: string; budget_id: string; scheme_id: string; reason: string;
@@ -167,8 +168,8 @@ function FinancialYearSelect({ value, onChange, disabled }: { value: string; onC
 }
 
 const LEVY_EXPLAINER = (method: string) => method === "Equal"
-  ? "When you lock this in, every lot gets one levy for the budget total divided by the number of lots, due on the levy due date. Each levy is split across funds in the same proportions as the budget."
-  : "When you lock this in, every lot gets one levy for its entitlement percentage of the budget total, due on the levy due date. Each levy is split across funds in the same proportions as the budget.";
+  ? "Each lot pays an equal share of the total."
+  : "Each lot pays its entitlement share of the total.";
 export { budgetStartYear };
 const FY_MONTHS = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
 const monthName = (m: number) => new Date(2000, m - 1, 1).toLocaleDateString("en-AU", { month: "short" });
@@ -198,7 +199,7 @@ function StatusPill({ status }: { status: string }) {
   const tone = status === "Overdue" ? "bg-destructive/10 text-destructive"
     : status === "Paid" || status === "Complete" ? "bg-primary/10 text-primary"
     : "bg-secondary text-muted-foreground";
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${tone}`}>{status === "Pending" ? "To pay" : status}</span>;
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${tone}`}>{status === "Pending" ? "Unpaid" : status}</span>;
 }
 
 async function ensureFinanceFolder(schemeId: string) {
@@ -246,8 +247,8 @@ function reminderText(levy: Levy, status: string) {
   const howToPay = pay ? `\n\n${pay}` : "";
   const year = `${levy.label ? ` (${levy.label})` : ""}${levy.budgets?.financial_year ? ` for ${levy.budgets.financial_year}` : ""}`;
   return status === "Overdue"
-    ? `Hi ${who},\n\nA quick friendly note: the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} was due on ${niceDate(levy.due_date)} and is still showing as unpaid on our records.${howToPay}\n\nIf you have already paid, please ignore this and let us know so we can update the books. Otherwise, whenever you get a chance is fine.\n\nThanks,\nYour owners corporation committee`
-    : `Hi ${who},\n\nJust a friendly reminder that the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} is due on ${niceDate(levy.due_date)}.${howToPay}\n\nNo action needed if it is already on its way.\n\nThanks,\nYour owners corporation committee`;
+    ? `Hi ${who},\n\nOur records show the levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))}, due ${niceDate(levy.due_date)}, is unpaid.${howToPay}\n\nIf you've already paid, let us know and we'll update our records.\n\nThanks,\nYour owners corporation committee`
+    : `Hi ${who},\n\nYour levy${year} for Lot ${levy.lots?.lot_number ?? ""} of ${money(Number(levy.amount))} is due ${niceDate(levy.due_date)}.${howToPay}\n\nIgnore this if you've already paid.\n\nThanks,\nYour owners corporation committee`;
 }
 
 // A levy is "sent" purely from the Levies tab (never automatically from a budget save):
@@ -478,7 +479,7 @@ export function LineItemsEditor({ lines, setLines, funds, startYear, spentByLine
 
   return <div className="space-y-3">
     <p className="text-[11px] leading-5 text-muted-foreground">
-      <span className="font-medium">Fixed</span> — a known, recurring cost (insurance, a cleaning contract). <span className="font-medium">Variable</span> — a one-off or estimated cost (a repair quote). Type the amount per occurrence and we'll work out the annual figure that gets budgeted. <span className="font-medium">Date</span> — when you expect to pay it; leave blank if you're not sure yet.
+      <span className="font-medium">Fixed</span>: a known, recurring cost (insurance, a cleaning contract). <span className="font-medium">Variable</span>: a one-off or estimated cost (a repair quote). Enter the amount each time it happens; we work out the yearly total. <span className="font-medium">Date</span>: when you expect to pay it (optional).
     </p>
 
     {/* Mobile: stacked cards, one per line item */}
@@ -621,13 +622,13 @@ function ManageFundsDialog({ open, onOpenChange, schemeId, funds, onChanged }: {
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-[85vh] overflow-y-auto">
-      <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Manage funds</DialogTitle><DialogDescription>Your scheme's own list of funds — rename them, add more, or remove ones you don't use.</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Manage funds</DialogTitle><DialogDescription>Your building's funds. Rename, add or remove them.</DialogDescription></DialogHeader>
       <div className="space-y-3">
         {funds.map(f => <div key={f.id} className="flex items-center gap-2">
           <Input value={nameFor(f)} onChange={e => setNames(n => ({ ...n, [f.id]: e.target.value }))} onBlur={() => void rename(f)} className="h-9" />
           <Button type="button" size="icon" variant="ghost" className="rounded-full text-muted-foreground shrink-0" aria-label={`Remove ${f.name}`} onClick={() => void remove(f)}><Trash2 className="size-4" /></Button>
         </div>)}
-        {funds.length === 0 && <p className="text-[12px] text-muted-foreground">No funds yet — add your first one below.</p>}
+        {funds.length === 0 && <p className="text-[12px] text-muted-foreground">No funds yet. Add one below.</p>}
         <div className="flex items-center gap-2 border-t border-border/60 pt-3">
           <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Sinking Fund" className="h-9" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void add(); } }} />
           <Button type="button" size="sm" className="rounded-full shrink-0" disabled={busy || newName.trim() === ""} onClick={() => void add()}><Plus className="size-3.5" />Add</Button>
@@ -652,10 +653,13 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
   const [dateText, setDateText] = useState(tx?.occurred_on ?? localISO());
   const [amountText, setAmountText] = useState(tx ? String(tx.amount) : "");
   const [direction, setDirection] = useState(tx?.direction ?? "out");
-  const [fundId, setFundId] = useState(tx?.fund_id ?? defaultFundId ?? funds[0]?.id ?? "");
+  // New entries start from the fund and category used last time on this device.
+  const last = (() => { try { return JSON.parse(localStorage.getItem("loty-last-tx") ?? "{}") as { fundId?: string; category?: string; direction?: string }; } catch { return {}; } })();
+  const lastFund = !tx && !defaultFundId && last.fundId && funds.some(f => f.id === last.fundId) ? last.fundId : undefined;
+  const [fundId, setFundId] = useState(tx?.fund_id ?? defaultFundId ?? lastFund ?? funds[0]?.id ?? "");
   // A category outside the list was typed under "Other": load it back that way.
   const knownCategory = (c: string | null | undefined, dir: string) => !c || (dir === "in" ? IN_CATEGORIES : OUT_CATEGORIES).includes(c);
-  const [category, setCategory] = useState(tx?.category ? (knownCategory(tx.category, tx.direction) ? tx.category : "Other") : "");
+  const [category, setCategory] = useState(tx?.category ? (knownCategory(tx.category, tx.direction) ? tx.category : "Other") : (last.direction === (tx?.direction ?? "out") && last.category && knownCategory(last.category, last.direction) ? last.category : ""));
   const [otherCategory, setOtherCategory] = useState(tx?.category && !knownCategory(tx.category, tx.direction) ? tx.category : "");
   const [repeat, setRepeat] = useState(false);
   const [frequency, setFrequency] = useState("Monthly");
@@ -674,6 +678,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
     e.preventDefault();
     if (!schemeId) return;
     if (fundId === "") { toast("Choose a fund first"); return; }
+    if (!tx) { try { localStorage.setItem("loty-last-tx", JSON.stringify({ fundId, category, direction })); } catch { /* storage unavailable */ } }
     const form = new FormData(e.currentTarget);
     const text = (k: string) => { const v = String(form.get(k) ?? "").trim(); return v === "" ? null : v; };
     const payload = {
@@ -766,7 +771,7 @@ function TxDialog({ open, onOpenChange, schemeId, tx, funds, defaultFundId, line
               {matchableLines.map(l => <SelectItem key={l.id} value={l.id}>{l.description}{l.expected_month ? ` (${monthName(l.expected_month)})` : ""} — {money(l.amount)}</SelectItem>)}
             </SelectContent>
           </Select>
-          <p className="text-[11px] leading-5 text-muted-foreground">Matching this to a budget line lets Finance track spend against what was planned. Leave as "Not budgeted" for a cost that wasn't forecast — it'll be flagged for the AGM.</p>
+          <p className="text-[11px] leading-5 text-muted-foreground">Matching this to a budget line lets Finance track spend against what was planned. Leave as "Not budgeted" for a cost that wasn't planned. It's flagged for the AGM.</p>
         </div>}
         <div className="space-y-2"><Label htmlFor="notes">Notes</Label><Textarea id="notes" name="notes" rows={3} defaultValue={tx?.notes ?? ""} placeholder="Anything the committee should remember" /></div>
         {!tx && <div className="rounded-2xl border border-border/70 p-4">
@@ -801,6 +806,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
 }) {
   const [lines, setLines] = useState<DraftLine[]>(initialLines && initialLines.length > 0 ? initialLines : [emptyDraftLine(funds[0]?.id)]);
   const [method, setMethod] = useState("Entitlement");
+  const [instalments, setInstalments] = useState(1);
   const [financialYear, setFinancialYear] = useState(() => fyLabel(currentFinancialYearStart()));
   const [dueDate, setDueDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -815,6 +821,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
     setSubmitting(true);
     const { data: budget, error } = await supabase.from("budgets").insert({
       scheme_id: schemeId, financial_year: financialYear, total_amount: totals.total, allocation_method: method, levy_due_date: dueDate,
+      ...(instalments > 1 ? { instalments } : {}),
     }).select().single();
     if (error || !budget) { toast("Could not create the budget", { description: error?.message }); setSubmitting(false); return; }
     const failures: string[] = [];
@@ -846,7 +853,14 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
   return <form onSubmit={submit} className="min-w-0 space-y-4">
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-2"><Label htmlFor="financial_year">Financial year</Label><FinancialYearSelect value={financialYear} onChange={setFinancialYear} /></div>
-      <div className="space-y-2"><Label htmlFor="levy_due_date">Levy due date</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
+      <div className="space-y-2"><Label htmlFor="levy_due_date">{instalments > 1 ? "First levy due" : "Levy due date"}</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
+    </div>
+    <div className="space-y-2">
+      <Label>How often owners pay</Label>
+      <Select value={String(instalments)} onValueChange={v => setInstalments(Number(v))}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent><SelectItem value="1">Once a year</SelectItem><SelectItem value="4">Quarterly (4 instalments, 3 months apart)</SelectItem></SelectContent>
+      </Select>
     </div>
     <div className="space-y-2">
       <Label>How it is split</Label>
@@ -861,7 +875,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
       <LineItemsEditor lines={lines} setLines={setLines} funds={funds} startYear={startYear} />
     </div>
     {lots.length > 0 && totals.total > 0 && <div className="space-y-2">
-      <Label>Preview — what each lot will be billed</Label>
+      <Label>What each lot will be billed</Label>
       <EntitlementCheck lots={lots} method={method} onEqual={() => setMethod("Equal")} />
       <InvoicePreview lots={lots} method={method} total={totals.total} />
     </div>}
@@ -869,7 +883,7 @@ export function BudgetBuilderForm({ schemeId, lots, funds, onCreated, onCancel, 
     {lots.length === 0 && <p className="rounded-2xl bg-amber-500/10 px-4 py-3 text-[13px] text-amber-800 dark:text-amber-300">Add your lots first. Levies are issued to each lot when you lock in the budget, so with no lots nobody would be billed.</p>}
     <div className="flex justify-end gap-2 pt-2">
       {onCancel && <Button type="button" variant="ghost" className="rounded-full" onClick={onCancel}>Cancel</Button>}
-      <Button type="submit" className="rounded-full" disabled={submitting || lots.length === 0 || entitlementBlocked(lots, method)}>{submitting ? "Locking in…" : (submitLabel ?? "Lock in budget and issue levies")}</Button>
+      <Button type="submit" className="rounded-full" disabled={submitting || lots.length === 0 || entitlementBlocked(lots, method)}>{submitting ? "Creating…" : (submitLabel ?? "Create budget and issue levies")}</Button>
     </div>
   </form>;
 }
@@ -880,9 +894,9 @@ export function CreateBudgetDialog({ open, onOpenChange, schemeId, lots, funds, 
 }) {
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-[88vh] overflow-y-auto overflow-x-hidden sm:max-w-5xl">
-      <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Create a budget</DialogTitle><DialogDescription>Break the year into line items, and Loty issues a notice to every lot from the totals.</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle className="font-display tracking-[-0.02em]">Create a budget</DialogTitle><DialogDescription>List the year's costs. Each lot is billed its share.</DialogDescription></DialogHeader>
       <BudgetBuilderForm schemeId={schemeId} lots={lots} funds={funds} initialLines={initialLines} onCancel={() => onOpenChange(false)}
-        onCreated={() => { onOpenChange(false); onCreated(); }} submitLabel="Create and issue notices" />
+        onCreated={() => { onOpenChange(false); onCreated(); }} submitLabel="Create budget and issue levies" />
     </DialogContent>
   </Dialog>;
 }
@@ -907,6 +921,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
   const [method, setMethod] = useState(revertFrom ? revertFrom.previous_allocation_method : (budget?.allocation_method ?? "Entitlement"));
   const [financialYear, setFinancialYear] = useState(budget?.financial_year ?? financialYearHint);
   const [dueDate, setDueDate] = useState(revertFrom ? revertFrom.previous_levy_due_date : (budget?.levy_due_date ?? ""));
+  const [instalments, setInstalments] = useState(budget?.instalments ?? 1);
   const [reason, setReason] = useState(revertFrom ? `Reverted to the version from ${niceDate(revertFrom.created_at)}` : "");
   // What happens to levies when an issued budget changes. Once every levy is paid, an added
   // cost is best issued as its own levy rather than reworking what owners already paid.
@@ -932,6 +947,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     setSubmitting(true);
     const { data: newBudget, error } = await supabase.from("budgets").insert({
       scheme_id: schemeId, financial_year: financialYear, total_amount: totals.total, allocation_method: method, levy_due_date: dueDate,
+      ...(instalments > 1 ? { instalments } : {}),
     }).select().single();
     if (error || !newBudget) { toast("Could not create the budget", { description: error?.message }); setSubmitting(false); return; }
     const failures: string[] = [];
@@ -1039,15 +1055,21 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
       }
     }
     if (recalculate) {
-      const budgetLevies = levies.filter(l => l.budget_id === budget.id && !l.label);
+      // The budget's own levies: one per lot, or one per lot per quarterly instalment.
+      const parts = budget.instalments ?? 1;
+      const budgetLevies = levies.filter(l => l.budget_id === budget.id && (!l.label || /^Instalment \d+ of \d+$/.test(l.label)));
+      const lotCount = new Set(budgetLevies.map(l => l.lot_id)).size;
       for (const levy of budgetLevies) {
         const entitlement = Number(levy.lots?.entitlement_percent ?? 0);
-        const newAmount = shareAmount(method, entitlement, budgetLevies.length, totals.total);
+        const share = shareAmount(method, entitlement, lotCount, totals.total);
+        const part = Number(levy.label?.match(/^Instalment (\d+)/)?.[1] ?? 1);
+        const each = Math.round((share / parts) * 100) / 100;
+        const newAmount = parts > 1 && part === parts ? Math.round((share - each * (parts - 1)) * 100) / 100 : parts > 1 ? each : share;
         if (levy.status === "Paid") {
           const diff = Math.round((newAmount - Number(levy.amount)) * 100) / 100;
           if (diff !== 0) adjustments.push({ levy, oldAmount: Number(levy.amount), newAmount, diff });
         } else {
-          const { error } = await supabase.from("levies").update({ amount: newAmount, due_date: dueDate }).eq("id", levy.id);
+          const { error } = await supabase.from("levies").update(parts > 1 ? { amount: newAmount } : { amount: newAmount, due_date: dueDate }).eq("id", levy.id);
           if (error) failures.push(`Levy for Lot ${levy.lots?.lot_number ?? ""}`);
         }
       }
@@ -1102,7 +1124,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
           ? "Every line you budgeted, what's been spent against it so far, and what's left. Every edit needs a reason and is kept in this budget's history."
           : priorLineItems.length > 0
             ? "Started from last year's budget lines, so adjust the amounts for this year. Money left in each fund carries over automatically as Brought forward. Lock it in and Loty issues a levy to every lot."
-            : "We've started you off with the usual costs — adjust the amounts, add or remove lines, and say roughly when each one falls. Lock it in and Loty issues a levy notice to every lot."}</p>
+            : "We've added the usual costs. Adjust them, then issue levies."}</p>
       </div>
       {isEdit && <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={onOpenHistory}><History className="size-3.5" />History</Button>}
     </div>
@@ -1114,8 +1136,17 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
 
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="space-y-2"><Label htmlFor="financial_year">Financial year</Label><FinancialYearSelect value={financialYear} onChange={setFinancialYear} disabled={isEdit} /></div>
-      <div className="space-y-2"><Label htmlFor="levy_due_date">Levy due date</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
+      <div className="space-y-2"><Label htmlFor="levy_due_date">{instalments > 1 ? "First levy due" : "Levy due date"}</Label><Input id="levy_due_date" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} required /></div>
     </div>
+    {!isEdit && <>
+    <div className="space-y-2">
+      <Label>How often owners pay</Label>
+      <Select value={String(instalments)} onValueChange={v => setInstalments(Number(v))}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent><SelectItem value="1">Once a year</SelectItem><SelectItem value="4">Quarterly (4 instalments, 3 months apart)</SelectItem></SelectContent>
+      </Select>
+    </div>
+    </>}
     <div className="space-y-2">
       <Label>How it is split</Label>
       <Select value={method} onValueChange={setMethod}>
@@ -1135,7 +1166,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
       <div className="mt-1 flex justify-between text-[12px] text-muted-foreground"><span>Variable costs</span><span className="tabular-nums">{money(totals.variable)}</span></div>
     </div>}
     {lots.length > 0 && totals.total > 0 && <div className="space-y-2">
-      <Label>{isEdit ? "Preview if recalculated — what each lot would be billed" : "Preview — what each lot will be billed"}</Label>
+      <Label>{isEdit ? "What each lot would be billed if recalculated" : "What each lot will be billed"}</Label>
       <EntitlementCheck lots={lots} method={method} onEqual={() => setMethod("Equal")} />
       <InvoicePreview lots={lots} method={method} total={totals.total} />
     </div>}
@@ -1162,7 +1193,7 @@ function BudgetEditorForm({ schemeId, budget, lots, funds, levies, lineItems, sp
     </div>}
     <div className="flex justify-end gap-2 pt-2">
       {!isEdit && lots.length === 0 && <p className="mr-auto self-center text-[13px] text-amber-700 dark:text-amber-300">Add your lots first so the levies have someone to go to.</p>}
-      <Button type="submit" className="rounded-full" disabled={submitting || (!isEdit && (lots.length === 0 || entitlementBlocked(lots, method)))}>{submitting ? "Saving…" : (isEdit ? "Save changes" : "Lock in budget and issue levies")}</Button>
+      <Button type="submit" className="rounded-full" disabled={submitting || (!isEdit && (lots.length === 0 || entitlementBlocked(lots, method)))}>{submitting ? "Saving…" : (isEdit ? "Save changes" : "Create budget and issue levies")}</Button>
     </div>
   </form>;
 }
@@ -1218,6 +1249,12 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
   const [showPaid, setShowPaid] = useState(false);
   const [sending, setSending] = useState<Levy[] | null>(null);
   const [markingPaid, setMarkingPaid] = useState<Levy | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkPaidOpen, setBulkPaidOpen] = useState(false);
+  const [bulkPaidAt, setBulkPaidAt] = useState(() => localISO());
+  const toggleSelected = (id: string) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  // Remember when an owner was last chased, so next week shows who's already been reminded.
+  const markReminded = (ids: string[]) => { if (ids.length) void supabase.from("levies").update({ reminded_at: new Date().toISOString() }).in("id", ids).then(({ error }) => { if (!error) onChanged(); }); };
 
   const years = Array.from(new Set(levies.map(l => l.budgets?.financial_year ?? "Unallocated")));
   const [year, setYear] = useState("All years");
@@ -1243,10 +1280,20 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
   const levyDocsFor = (id: string) => documents.filter(d => d.levy_id === id);
 
   const rows = showPaid ? [...unpaid, ...paid] : unpaid;
+  const picked = unpaid.filter(l => selected.includes(l.id));
+  const overdueIds = unpaid.filter(l => daysUntil(l.due_date) < 0).map(l => l.id);
+  const remindPicked = () => {
+    const emails = [...new Set(picked.map(l => l.lots?.owner_email).filter((e): e is string => !!e))];
+    if (!emails.length) { toast("No owner emails on file for these lots"); return; }
+    const body = "Hi,\n\nOur records show your levy is unpaid. You can see the amount and how to pay on Loty.\n\nIf you've already paid, let us know and we'll update our records.\n\nThanks,\nYour owners corporation committee";
+    window.location.href = `mailto:?bcc=${encodeURIComponent(emails.join(","))}&subject=${encodeURIComponent("Levy reminder")}&body=${encodeURIComponent(body)}`;
+    markReminded(picked.map(l => l.id));
+    toast(`Reminder opened for ${emails.length} ${emails.length === 1 ? "owner" : "owners"}`);
+  };
 
   return <div>
     <div className="flex flex-wrap items-end justify-between gap-4">
-      <p className="max-w-2xl text-[13px] leading-6 text-muted-foreground">Who still owes and how close they are to their due date. Setting the budget above is what raises these levies <Help term="levy"/>.</p>
+      <p className="max-w-2xl text-[13px] leading-6 text-muted-foreground">Who still owes, and when it's due <Help term="levy"/>.</p>
     </div>
 
     <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -1255,7 +1302,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
           className={`rounded-full px-4 py-2 text-[12px] font-medium transition ${year === option ? "bg-primary text-primary-foreground" : "border border-border/70 bg-card text-muted-foreground hover:text-foreground"}`}>{option}</button>)}
       <button type="button" onClick={() => setShowPaid(v => !v)}
         className="ml-auto rounded-full border border-border/70 bg-card px-4 py-2 text-[12px] font-medium text-muted-foreground hover:text-foreground">
-        {showPaid ? "Hide the lots that have paid" : `Show the ${paid.length} lots that have paid`}
+        {showPaid ? "Hide paid" : `Show paid (${paid.length})`}
       </button>
     </div>
 
@@ -1270,6 +1317,17 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
         </div>)}
     </div>
 
+    {isCommittee && unpaid.length > 0 && <div className="mt-5 flex flex-wrap items-center gap-2 text-[13px]" data-levy-bulk>
+      {picked.length === 0
+        ? <>{overdueIds.length > 0 && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setSelected(overdueIds)}>Select overdue ({overdueIds.length})</Button>}
+            <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setSelected(unpaid.map(l => l.id))}>Select all unpaid</Button></>
+        : <><span className="font-medium">{picked.length} selected</span>
+            <Button size="sm" className="rounded-full" onClick={() => { setBulkPaidAt(localISO()); setBulkPaidOpen(true); }}>Mark paid</Button>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={remindPicked}>Remind</Button>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => setSending(picked)}>Send notice</Button>
+            <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setSelected([])}>Clear</Button></>}
+    </div>}
+
     <Card className="mt-5 overflow-hidden">
       <div className="divide-y divide-border/70">{rows.map(levy => {
         const status = effectiveLevyStatus(levy);
@@ -1281,11 +1339,14 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
         const docs = levyDocsFor(levy.id);
         const stale = isLevyStale(levy);
         const sendState = status === "Paid" ? null
-          : stale ? { tone: "bg-amber-100 text-amber-800", text: "Amount changed since sent — resend" }
+          : stale ? { tone: "bg-amber-100 text-amber-800", text: "Amount changed. Resend" }
+          : levy.reminded_at ? { tone: "bg-secondary text-muted-foreground", text: `Reminded ${niceDate(levy.reminded_at)}` }
           : levy.notified_at ? { tone: "bg-secondary text-muted-foreground", text: `Sent ${niceDate(levy.notified_at)}` }
           : { tone: "bg-secondary text-muted-foreground", text: "Not sent yet" };
         return <div key={levy.id} className="flex flex-wrap items-center justify-between gap-4 px-7 py-5">
           <div className="flex min-w-0 items-start gap-3">
+            {isCommittee && status !== "Paid" && <input type="checkbox" className="mt-1 size-4 shrink-0 accent-[var(--primary)]" aria-label={`Select Lot ${levy.lots?.lot_number ?? ""}`}
+              checked={selected.includes(levy.id)} onChange={() => toggleSelected(levy.id)}/>}
             <div className="min-w-0">
               <p className="text-sm font-medium">{levy.lots ? `Lot ${levy.lots.lot_number}${levy.lots.owner_name ? ` · ${levy.lots.owner_name}` : ""}` : "Your levy"}</p>
               <p className="mt-1 text-[12px] text-muted-foreground">
@@ -1304,13 +1365,19 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
             <span className="font-display text-lg">{money(Number(levy.amount))}</span>
             {alert && <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${alert.tone}`}>{alert.text}</span>}
             <StatusPill status={status} />
-            <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setInvoice(levy)}>Invoice</Button>
-            {isCommittee && <Button asChild size="icon" variant="ghost" className="rounded-full" aria-label="Attach payment proof">
-              <label><Paperclip className="size-4" /><input type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attachProof(levy, f); e.currentTarget.value = ""; }} /></label>
-            </Button>}
-            {isCommittee && status !== "Paid" && <Button size="sm" variant={stale ? "default" : "ghost"} className="rounded-full" onClick={() => setSending([levy])}>{levy.notified_at ? "Send notice again" : "Send notice"}</Button>}
-            {isCommittee && status !== "Paid" && <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setReminder(levy)}>Send a reminder</Button>}
+            {!isCommittee && <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setInvoice(levy)}>Invoice</Button>}
+            {isCommittee && status !== "Paid" && stale && <Button size="sm" className="rounded-full" onClick={() => setSending([levy])}>Resend</Button>}
             {isCommittee && status !== "Paid" && <Button size="sm" variant="outline" className="rounded-full" onClick={() => setMarkingPaid(levy)}>Mark paid</Button>}
+            {isCommittee && <input id={`proof-${levy.id}`} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void attachProof(levy, f); e.currentTarget.value = ""; }} />}
+            {isCommittee && <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button size="icon" variant="ghost" className="rounded-full" aria-label={`More for Lot ${levy.lots?.lot_number ?? ""}`}><MoreHorizontal className="size-4"/></Button></DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setInvoice(levy)}>Invoice</DropdownMenuItem>
+                {status !== "Paid" && <DropdownMenuItem onSelect={() => setReminder(levy)}>Send a reminder</DropdownMenuItem>}
+                {status !== "Paid" && <DropdownMenuItem onSelect={() => setSending([levy])}>{levy.notified_at ? "Send notice again" : "Send notice"}</DropdownMenuItem>}
+                <DropdownMenuItem onSelect={() => document.getElementById(`proof-${levy.id}`)?.click()}><Paperclip className="size-3.5"/>Attach payment proof</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>}
             {isCommittee && status === "Paid" && <Button size="sm" variant="ghost" className="rounded-full text-muted-foreground hover:text-destructive" onClick={() => { setReverseReason(""); setReversing(levy); }}><Undo2 className="size-3.5" />Undo payment</Button>}
           </div>
         </div>;
@@ -1348,7 +1415,7 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
               [isEqual(invoice) ? "This lot's share" : "Lot entitlement", isEqual(invoice) ? `1 of ${lotsInBudget(invoice)} lots` : `${Number(invoice.lots?.entitlement_percent ?? 0)}%`]]
               .map(([k, v]) => <div key={k} className="flex justify-between border-b border-border/60 pb-2 text-[13px]"><span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span></div>)}
             {funds.map(f => <div key={f.id} className="flex justify-between border-b border-border/60 pb-2 text-[13px]"><span className="text-muted-foreground">{f.name} fund share</span><span className="font-medium">{money(levyShareForFund(invoice, f.id))}</span></div>)}
-            {[["Due date", niceDate(invoice.due_date)], ["Status", effectiveLevyStatus(invoice) === "Pending" ? "To pay" : effectiveLevyStatus(invoice)]].map(([k, v]) =>
+            {[["Due date", niceDate(invoice.due_date)], ["Status", effectiveLevyStatus(invoice) === "Pending" ? "Unpaid" : effectiveLevyStatus(invoice)]].map(([k, v]) =>
               <div key={k} className="flex justify-between border-b border-border/60 pb-2 text-[13px]"><span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span></div>)}
             <div className="flex justify-between pt-2"><span className="font-medium">Total payable</span><span className="font-display text-xl">{money(Number(invoice.amount))}</span></div>
           </div>
@@ -1363,8 +1430,8 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
     <Dialog open={!!reminder} onOpenChange={(o) => { if (!o) setReminder(null); }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="font-display tracking-[-0.02em]">Send a friendly reminder</DialogTitle>
-          <DialogDescription>A polite note, ready to send to the owner.</DialogDescription>
+          <DialogTitle className="font-display tracking-[-0.02em]">Send a reminder</DialogTitle>
+          <DialogDescription>Ready to send to the owner.</DialogDescription>
         </DialogHeader>
         {reminder && <div className="space-y-4">
           <p className="text-[12px] text-muted-foreground">To {reminder.lots?.owner_email ?? "no email on file for this lot"}</p>
@@ -1372,13 +1439,15 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="ghost" className="rounded-full" onClick={() => {
               void navigator.clipboard.writeText(reminderText(reminder, effectiveLevyStatus(reminder)));
-              toast("Reminder copied", { description: "Paste it wherever you like." });
+              markReminded([reminder.id]);
+              toast("Reminder copied");
             }}>Copy the message</Button>
             <Button type="button" className="rounded-full" disabled={!reminder.lots?.owner_email} onClick={() => {
               const subject = `Levy reminder for Lot ${reminder.lots?.lot_number ?? ""}`;
               window.location.href = `mailto:${reminder.lots?.owner_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(reminderText(reminder, effectiveLevyStatus(reminder)))}`;
+              markReminded([reminder.id]);
               setReminder(null);
-              toast("Reminder ready", { description: "Your email app has it open." });
+              toast("Opened in your email app");
             }}>Open in email</Button>
           </div>
         </div>}
@@ -1386,7 +1455,20 @@ function LeviesTab({ levies, funds, documents, isCommittee, schemeId, onPaid, on
     </Dialog>
 
     {schemeId && <SendLevyDialog levies={sending} funds={funds} schemeId={schemeId} onOpenChange={(o) => { if (!o) setSending(null); }}
-      onSent={() => { setSending(null); onChanged(); }} />}
+      onSent={() => { setSending(null); setSelected([]); onChanged(); }} />}
+    <Dialog open={bulkPaidOpen} onOpenChange={setBulkPaidOpen}>
+      <DialogContent className="sm:max-w-[420px]">
+        <DialogHeader>
+          <DialogTitle className="font-display tracking-[-0.02em]">Mark {picked.length} {picked.length === 1 ? "levy" : "levies"} paid</DialogTitle>
+          <DialogDescription>{money(picked.reduce((t, l) => t + Number(l.amount), 0))} in total. Each payment is recorded in Cashflow.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2"><Label htmlFor="bulk_paid_at">Payment date</Label><Input id="bulk_paid_at" type="date" value={bulkPaidAt} onChange={e => setBulkPaidAt(e.target.value)} /></div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="ghost" className="rounded-full" onClick={() => setBulkPaidOpen(false)}>Cancel</Button>
+          <Button type="button" className="rounded-full" onClick={() => { for (const l of picked) onPaid(l.id, bulkPaidAt); setSelected([]); setBulkPaidOpen(false); }}>Mark paid</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     <MarkPaidDialog levy={markingPaid} funds={funds} onOpenChange={(o) => { if (!o) setMarkingPaid(null); }}
       onConfirm={(paidAt) => { onPaid(markingPaid!.id, paidAt); setMarkingPaid(null); }} />
   </div>;
@@ -1742,7 +1824,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
   const showEditor = !activeBudget || editingBudget;
 
   return <div className="space-y-6">
-    <PageHead eyebrow="Your property" title="Finance" blurb="Your budget, levies and cashflow for the year, on one page. Fold away what you don't need and open it again when you do."
+    <PageHead eyebrow="Your property" title="Finance" blurb="Budget, levies and cashflow for the year."
       action={addingYear
         ? <div className="flex items-center gap-2">
             <Input autoFocus inputMode="numeric" maxLength={4} value={newYearText} onChange={e => setNewYearText(e.target.value.replace(/\D/g, ""))} placeholder="Start year, e.g. 2019" aria-label="Start year" className="h-9 w-[170px] rounded-full text-xs" />
@@ -1756,13 +1838,15 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
             })()}>Open {newYearText.length === 4 ? fyLabel(Number(newYearText)) : ""}</Button>
             <Button size="sm" variant="ghost" className="rounded-full" onClick={() => setAddingYear(false)}>Cancel</Button>
           </div>
-        : <Select value={String(year)} onValueChange={v => { if (v === "__add") { setAddingYear(true); return; } setYear(Number(v)); setEditingBudget(false); setMonthFilter(null); }}>
+        : <div className="flex flex-wrap items-center gap-2">
+        {isCommittee && <Button size="sm" className="h-9 rounded-full" onClick={() => { setEditing(null); setRecordFundId(undefined); setTxOpen(true); }}><Plus />Record expense</Button>}
+        <Select value={String(year)} onValueChange={v => { if (v === "__add") { setAddingYear(true); return; } setYear(Number(v)); setEditingBudget(false); setMonthFilter(null); }}>
         <SelectTrigger className="h-9 w-[190px] rounded-full text-xs" aria-label="Financial year"><SelectValue /></SelectTrigger>
         <SelectContent>
           {years.map(y => <SelectItem key={y} value={String(y)}>{fyLabel(y)}{y === currentFy ? " (this year)" : ""}</SelectItem>)}
           {isCommittee && <SelectItem value="__add">Add another year…</SelectItem>}
         </SelectContent>
-      </Select>} />
+      </Select></div>} />
     <HowItWorks page="finance" committee={isCommittee}/>
     {isCommittee && year !== currentFy && !addingYear && <div className="-mt-3 flex justify-end">
       <Button size="sm" variant="ghost" className="h-7 rounded-full px-3 text-[12px] text-muted-foreground hover:text-destructive" onClick={() => void removeYear()}>
@@ -1879,7 +1963,7 @@ export function FinanceSection({ transactions, budgets, lineItems, levies, revis
             <h2 className="font-display text-xl tracking-[-0.02em]">Transactions</h2>
             <span className="text-[12px] text-muted-foreground">({visible.length})</span>
           </button>
-          <p className="mt-1 text-[13px] text-muted-foreground">Every expense and receipt, with the paperwork attached. Paid entries are locked; a mistake is voided <Help term="void"/> rather than deleted, and every change is kept in its history.</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">Paid entries are locked. Void <Help term="void"/> a mistake; the history is kept.</p>
           <p className="mt-1.5 text-[12px]">{treasurerName
             ? <span className="text-muted-foreground">Treasurer: <span className="font-medium text-foreground">{treasurerName}</span></span>
             : <span className="text-muted-foreground">No Treasurer <Help term="treasurer"/> set, so any committee member can change paid entries.{isCommittee && onOpenSettings && <> <button type="button" className="font-medium text-primary hover:underline" onClick={onOpenSettings}>Set one in Settings</button></>}</span>}</p>

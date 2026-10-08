@@ -43,8 +43,7 @@ export function WhoRunsCard({ schemeId, compact = false }: { schemeId?: string |
   return <section className="soft-shadow rounded-3xl border border-border/70 bg-card p-5 sm:p-7" data-who-runs>
     <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Who runs this building <Help term="oc"/></p>
     <p className="mt-2 max-w-2xl text-[13px] leading-6 text-muted-foreground">
-      Every lot owner, you included, is a member of the owners corporation, which owns and looks after the common property together.
-      The owners elect a committee at the AGM to make decisions for them{manager?.name === "Loty" ? ", and Loty manages the building day to day for them." : manager ? ", and the committee has appointed a manager to run things day to day." : ". The committee runs things day to day, led by the Chairperson."}
+      As an owner, you're part of the owners corporation. Owners elect a committee at the AGM to run the building{manager?.name === "Loty" ? ", and Loty manages it day to day." : manager ? ", and a manager runs it day to day." : "."}
     </p>
     <ul className="mt-4 divide-y divide-border/60">
       {list.map((c, i) => { const r = roleOf(c);
@@ -70,7 +69,7 @@ const DUTIES: [string, string][] = [
   ["Follow the building's rules", "And keep your lot in good repair, so it doesn't affect your neighbours or the common property."],
   ["Report problems early", "Leaks, damage or safety issues in the common areas: report them in Work orders."],
   ["Keep your details up to date", "So notices and levies reach you. Let the committee know if your email, phone or address changes."],
-  ["Have your say", "Come to the AGM and vote. If you can't make it, ask the committee about appointing a proxy."],
+  ["Have your say", "Reply to the AGM notice, then come and vote or appoint a proxy."],
   ["Tell the committee if you sell or lease", "New owners and tenants need to be added so the records stay right."],
 ];
 

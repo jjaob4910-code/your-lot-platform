@@ -65,7 +65,7 @@ export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems, pa
             <span className="flex items-center gap-3">
               <span className="tabular-nums">{money(Number(l.amount))}</span>
               <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${paid ? "bg-emerald-600/10 text-emerald-700 dark:text-emerald-400" : left < 0 ? "bg-destructive/10 text-destructive" : "bg-secondary text-muted-foreground"}`}>
-                {paid ? `Paid${l.paid_at ? ` ${niceDate(l.paid_at)}` : ""}` : left < 0 ? `${-left} days overdue` : "To pay"}</span>
+                {paid ? `Paid${l.paid_at ? ` ${niceDate(l.paid_at)}` : ""}` : left < 0 ? `${-left} days overdue` : "Unpaid"}</span>
             </span>
           </li>; })}
       </ul>}
@@ -79,7 +79,7 @@ export function OwnerFinance({ schemeId, levies, myLotId, budgets, lineItems, pa
               {payment.bsb && <PayRow label="Your reference" value={payment.reference} copy hint="Use this so the treasurer knows the payment is yours."/>}
               {payment.other && <div className="sm:col-span-2"><dt className="text-muted-foreground">Other ways to pay</dt><dd>{payment.other}</dd></div>}
             </dl>
-          : <p className="mt-1 text-[13px] text-muted-foreground">Your committee hasn't added payment details yet. Contact them to arrange payment.</p>}
+          : <p className="mt-1 text-[13px] text-muted-foreground">Payment details aren't here yet. Ask the committee how to pay.</p>}
         <p className="mt-3 text-[12px] text-muted-foreground">Your payment shows here as paid once the treasurer records it.</p>
       </div>
     </section>

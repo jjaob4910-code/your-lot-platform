@@ -31,6 +31,7 @@ function AuthPage() {
   const [mode, setMode] = useState<"signin" | "signup" | "reset">(() => (typeof window !== "undefined" && inviteFromUrl() ? "signup" : "signin"));
   const [busy, setBusy] = useState(false);
   const [resetSent, setResetSent] = useState<string | null>(null);
+  const [signupSent, setSignupSent] = useState<string | null>(null);
 
   const acceptAndGo = async () => {
     if (invite) {
@@ -72,7 +73,7 @@ function AuthPage() {
         });
         if (error) throw error;
         if (!data.session) {
-          toast("Check your email", { description: "Confirm your address to finish creating your account." });
+          setSignupSent(email);
           return;
         }
         navigate({ to: "/dashboard", replace: true });
@@ -93,7 +94,7 @@ function AuthPage() {
     ? "Enter your email and we'll send you a link to choose a new password."
     : mode === "signin"
       ? invite ? "Sign in to join the building you've been invited to." : "Sign in to see your levies, repairs and deadlines."
-      : invite ? "Create your account to join your building on Loty." : "Owners: use the email your committee has on file for your lot, or the invite link they sent you. Setting up a new building? Create an account and we'll walk you through it.";
+      : invite ? "Create your account to join your building on Loty." : "Owners: sign up with the email your committee has for you. New building? Create an account.";
 
   return (
     <div className="relative isolate flex min-h-screen flex-col bg-background">
@@ -108,7 +109,12 @@ function AuthPage() {
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center px-5 py-16">
         <h1 className="text-3xl font-medium tracking-[-0.035em] sm:text-4xl">{title}</h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">{blurb}</p>
-        {resetSent
+        {signupSent
+          ? <div className="soft-shadow mt-8 space-y-3 rounded-3xl border border-border/70 bg-card p-7 text-sm">
+              <p>We sent a link to <strong>{signupSent}</strong>. Open it to confirm your email and finish signing up.</p>
+              <button type="button" className="text-xs text-muted-foreground underline-offset-4 hover:underline" onClick={() => { setSignupSent(null); setMode("signin"); }}>Back to sign in</button>
+            </div>
+          : resetSent
           ? <div className="soft-shadow mt-8 space-y-3 rounded-3xl border border-border/70 bg-card p-7 text-sm">
               <p>We've sent a reset link to <strong>{resetSent}</strong>. Open it on this device to choose a new password.</p>
               <button type="button" className="text-xs text-muted-foreground underline-offset-4 hover:underline" onClick={() => { setResetSent(null); setMode("signin"); }}>Back to sign in</button>

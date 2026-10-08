@@ -65,7 +65,7 @@ const DEFAULT_TASK_STEPS = ["Plan", "Do", "Close out"];
 const niceStamp = (value: string) => new Date(value).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 const todayIso = () => new Date().toLocaleDateString("en-CA");
 const safeName = (name: string) => name.replace(/[^\w.-]/g, "_");
-const kindLabel = (kind: string) => (kind === "Repair" ? "Works" : "Task");
+const kindLabel = (kind: string) => (kind === "Repair" ? "Repair" : "Task");
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <section className={`soft-shadow rounded-3xl border border-border/70 bg-card ${className}`}>{children}</section>;
@@ -225,7 +225,7 @@ export function WorkOrderTable({ orders, lots = [], onOpen, isCommittee = false 
           {lotsLabel(order, lots)} · Logged {niceDate(order.created_at)}
           {order.priority !== "Normal" ? ` · ${order.priority} priority` : ""}
         </p>
-        <div className="mt-3 max-w-xs">{steps.length > 0 ? <StepProgress steps={steps}/> : <p className="text-[12px] text-muted-foreground">{isCommittee ? "Open to add the steps for this job" : "The committee has this and will add the next steps"}</p>}</div>
+        <div className="mt-3 max-w-xs">{steps.length > 0 ? <StepProgress steps={steps}/> : <p className="text-[12px] text-muted-foreground">{isCommittee ? "No steps yet" : "The committee has this and will add the next steps"}</p>}</div>
       </div>
       <div className="flex items-center gap-3">
         {complete ? <WorkOrderPill status="Complete"/> : next ? <span className="text-[12px] font-medium">Next: {next.label}</span> : <WorkOrderPill status={order.status}/>}
@@ -387,8 +387,8 @@ function NewWorkOrderDialog({ open, onOpenChange, lots, isCommittee, myLot, sche
       status_at_time: status, author_label: isCommittee ? "Committee" : "Owner",
     });
     setSaving(false);
-    if (problems.length) toast("Work order logged, with some issues", { description: problems.join(" ") });
-    else toast("Work order logged");
+    if (problems.length) toast(isCommittee ? "Work order logged, with some issues" : "Sent, with some issues", { description: problems.join(" ") });
+    else toast(isCommittee ? "Work order logged" : "Sent to the committee");
     reset(); onOpenChange(false);
     onCreated({ orderId: data.id, title, approvalLots });
   };
@@ -406,8 +406,8 @@ function NewWorkOrderDialog({ open, onOpenChange, lots, isCommittee, myLot, sche
           {isCommittee && <div className="space-y-2"><Label>Type</Label>
             <Select value={kind} onValueChange={v => setKind(v as "Repair" | "Request")}><SelectTrigger><SelectValue/></SelectTrigger>
               <SelectContent>
-                <SelectItem value="Repair">Works — quotes and payment</SelectItem>
-                <SelectItem value="Request">Task — your own steps</SelectItem>
+                <SelectItem value="Repair">Repair: quotes and payment</SelectItem>
+                <SelectItem value="Request">Task: your own steps</SelectItem>
               </SelectContent></Select></div>}
           <div className="space-y-2"><Label>Priority</Label>
             <Select value={priority} onValueChange={setPriority}><SelectTrigger><SelectValue/></SelectTrigger>
@@ -420,7 +420,7 @@ function NewWorkOrderDialog({ open, onOpenChange, lots, isCommittee, myLot, sche
           <StepBuilder steps={taskSteps} onChange={setTaskSteps}/>
         </div>}
 
-        <div className="space-y-2"><Label htmlFor="title">Work order description</Label><Input id="title" name="title" placeholder="e.g. Insurance renewal, Garden maintenance" required autoFocus/></div>
+        <div className="space-y-2"><Label htmlFor="title">{isCommittee ? "Work order description" : "What's the problem?"}</Label><Input id="title" name="title" placeholder={isCommittee ? "e.g. Insurance renewal, Garden maintenance" : "e.g. Leaking tap in the laundry"} required autoFocus/></div>
         <div className="space-y-2"><Label htmlFor="description">Details</Label><Textarea id="description" name="description" placeholder="Background, what has been noticed, and anything the committee should know"/></div>
         {isWorks && <div className="space-y-2"><Label htmlFor="scope_of_works">Scope of works</Label><Textarea id="scope_of_works" name="scope_of_works" rows={4} placeholder="What the contractor needs to do, materials, access, any standards to meet"/></div>}
 
@@ -465,13 +465,13 @@ function NewWorkOrderDialog({ open, onOpenChange, lots, isCommittee, myLot, sche
           </div>
         </> : <p className="text-[12px] text-muted-foreground">{myLot ? `Raised for Lot ${myLot.lot_number}.` : "Raised for the common property."}</p>}
 
-        <div className="space-y-2"><Label htmlFor="wo_files">Attachments</Label>
+        <div className="space-y-2"><Label htmlFor="wo_files">{isCommittee ? "Attachments" : "Photos (optional)"}</Label>
           <Input id="wo_files" type="file" multiple accept={isCommittee ? undefined : "image/*"} onChange={e => { const picked = Array.from(e.target.files ?? []); setFiles(picked); }}/>
-          <p className="text-[12px] text-muted-foreground">{files.length > 0 ? `${files.length} file${files.length > 1 ? "s" : ""} ready to upload` : "Photos, plans, reports or any other documents."}</p></div>
+          <p className="text-[12px] text-muted-foreground">{files.length > 0 ? `${files.length} file${files.length > 1 ? "s" : ""} ready to upload` : isCommittee ? "Photos, plans, reports or any other documents." : "A photo helps the committee see the problem."}</p></div>
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" className="rounded-full" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="submit" className="rounded-full" disabled={saving}>{saving ? "Saving…" : "Log work order"}</Button></div>
+          <Button type="submit" className="rounded-full" disabled={saving}>{saving ? "Sending…" : isCommittee ? "Log work order" : "Send to committee"}</Button></div>
       </form>
     </DialogContent>
   </Dialog>;
@@ -594,7 +594,7 @@ export function WorkOrdersSection({ orders, lots, isCommittee, myLot, schemeId, 
   const completed = orders.filter(isDone);
 
   return <div>
-    <PageHead eyebrow="Your property" title="Work orders" blurb={isCommittee ? "Log a repair, collect quotes, get owners' approval if it's needed, then pay it. Payments are recorded in Finance for you. For anything else the committee needs to see through, log a task with your own steps." : "Report a problem in your lot or the common areas, and follow repairs the committee is handling."}
+    <PageHead eyebrow="Your property" title="Work orders" blurb={isCommittee ? "Repairs from report to payment. Use a task for anything else." : "Report a problem in your lot or the common areas, and follow repairs the committee is handling."}
       action={<Button className="rounded-full" onClick={() => setOpen(true)}><Plus/> {isCommittee ? "New work order" : "Report a problem"}</Button>}/>
 
     <HowItWorks page="workOrders" committee={isCommittee}/>
@@ -895,6 +895,7 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
   };
 
   const awaitingApproval = steps.some(st => st.step_type === "approval" && !st.done_at);
+  const [confirmQuote, setConfirmQuote] = useState<WorkOrderQuote | null>(null);
   const acceptQuote = async (quote: WorkOrderQuote) => {
     setBusy(true);
     try {
@@ -1140,7 +1141,11 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
                     ? <p className="mt-3 text-[12px] text-muted-foreground">Can be marked paid once owners approve.</p>
                     : <Button size="sm" className="mt-3 rounded-full" onClick={() => setPayingQuote(q)}>Mark paid</Button>))}
                 {isCommittee && q.status === "Received" && <div className="mt-3 flex flex-wrap gap-2">
-                  {!accepted && <Button size="sm" variant="outline" className="rounded-full" disabled={busy} onClick={() => void acceptQuote(q)}><Check/> Accept</Button>}
+                  {!accepted && confirmQuote?.id !== q.id && <Button size="sm" variant="outline" className="rounded-full" disabled={busy} onClick={() => setConfirmQuote(q)}><Check/> Accept</Button>}
+                  {!accepted && confirmQuote?.id === q.id && <span className="flex flex-wrap items-center gap-2 rounded-2xl bg-secondary/60 px-3 py-1.5 text-[12px]">
+                    Accept {money(Number(q.amount))}? {quotes.length > 1 ? "The other quotes will be declined." : ""}
+                    <Button size="sm" className="h-7 rounded-full" disabled={busy} onClick={() => { setConfirmQuote(null); void acceptQuote(q); }}>Accept</Button>
+                    <Button size="sm" variant="ghost" className="h-7 rounded-full" onClick={() => setConfirmQuote(null)}>Cancel</Button></span>}
                   <Button size="sm" variant="ghost" className="rounded-full text-muted-foreground" onClick={() => void removeQuote(q)}>Remove</Button>
                 </div>}
               </div>;
@@ -1202,8 +1207,8 @@ export function WorkOrderDetail({ order, lots, isCommittee, myLot, schemeId, doc
       <div id="wo-sec-notes" className="scroll-mt-4">
         <SectionLabel>Progress notes</SectionLabel>
         <div className="mt-3 space-y-2">
-          <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Add an update: contractor booked, work started, issue found"/>
-          <div className="flex justify-end"><Button size="sm" className="rounded-full" onClick={() => void addNote()} disabled={!note.trim()}>Add update</Button></div>
+          <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder={isCommittee ? "Add an update: contractor booked, work started, issue found" : "Add a note for the committee"}/>
+          <div className="flex justify-end"><Button size="sm" className="rounded-full" onClick={() => void addNote()} disabled={!note.trim()}>{isCommittee ? "Add update" : "Send note"}</Button></div>
         </div>
         <ol className="mt-4 space-y-3 border-l border-border pl-4">
           {(updates.data ?? []).map(entry => <li key={entry.id}>

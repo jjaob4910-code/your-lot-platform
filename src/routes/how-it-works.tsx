@@ -28,7 +28,7 @@ const steps = [
   },
   {
     number: "02", icon: Users, title: "Add your lots and owners",
-    body: "Add each lot with its number, owner, entitlement and occupancy status. Committee members can add these one at a time, whenever the information is ready — there is no file to prepare first.",
+    body: "Add each lot with its number, owner, entitlement and occupancy status. Add them one at a time as you have the details.",
     visual: <div className="w-full max-w-[220px] space-y-2" aria-hidden="true">
       <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-[11px] font-medium"><Users className="size-3.5 text-primary" />Lot 1 · J. Smith</div>
       <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-[11px] text-muted-foreground"><Users className="size-3.5" />Lot 2 · —</div>
@@ -81,7 +81,7 @@ const features = [
   { icon: Building2, title: "Lots", blurb: "Who owns what and who lives there. Open a lot to see that owner's details." },
   { icon: WalletCards, title: "Levies", blurb: "Set what is to be paid and how it is split, then track exactly who still owes and how close they are to their due date." },
   { icon: Wrench, title: "Work orders", blurb: "Log a repair job or a general request, gather the owners' approval, then track every step to completion with photos and a dated trail." },
-  { icon: Coins, title: "Finance", blurb: "Fund balances, what is coming in against what is going out, and a forecast you can take to the next meeting — plus a month-by-month budget planner and an owner-ready report." },
+  { icon: Coins, title: "Finance", blurb: "Fund balances, what is coming in against what is going out, a forecast for the next meeting, a monthly budget planner and a report for owners." },
   { icon: ShieldCheck, title: "Insurance", blurb: "Every policy on your building in one place: who underwrites it, what it cost, the policy number and when it renews. Attach the certificate of currency and it files itself under Insurance in your documents." },
   { icon: FileCheck2, title: "Compliance", blurb: "The things the law expects each year, in plain English, with dates attached. Attach the paperwork and it files itself under Compliance in your documents." },
   { icon: CalendarDays, title: "Calendar", blurb: "Meetings, renewals, levies and repairs in one place. Drag anything to a new day, open it for the detail, and add your own events and reminders." },

@@ -427,18 +427,18 @@ function ClaimDetail({ claim, policies, lots, orders, funds, documents, isCommit
 
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
       <Stat label="Policy" value={policy ? `${policy.policy_type}${policy.insurer ? ` · ${policy.insurer}` : ""}` : "Not linked"}/>
-      <Stat label="Claim number" value={claim.claim_number ?? "—"}/>
-      <Stat label="Responsible person" value={responsibleLabel(claim, lots)}/>
+      {(isCommittee || claim.claim_number) && <Stat label="Claim number" value={claim.claim_number ?? "—"}/>}
+      {isCommittee && <Stat label="Responsible person" value={responsibleLabel(claim, lots)}/>}
       <Stat label="Incident" value={niceDate(claim.incident_date)}/>
       <Stat label="Lodged" value={niceDate(claim.lodged_date)}/>
       <Stat label="Decision" value={claim.decision_date ? niceDate(claim.decision_date) : "Pending"}/>
-      <div className="min-w-0">
+      {isCommittee && <div className="min-w-0">
         <SectionLabel>Insurer's rep</SectionLabel>
         <p className="mt-1.5 text-sm font-medium">{claim.insurer_contact_name ?? "—"}</p>
         {claim.insurer_contact_phone && <a className="block text-[12px] text-primary hover:underline" href={`tel:${claim.insurer_contact_phone}`}>{claim.insurer_contact_phone}</a>}
         {claim.insurer_contact_email && <a className="block break-all text-[12px] text-primary hover:underline" href={`mailto:${claim.insurer_contact_email}`}>{claim.insurer_contact_email}</a>}
-      </div>
-      <Stat label="Work order" value={order ? `${order.title} (${order.status})` : "None"}/>
+      </div>}
+      {(isCommittee || order) && <Stat label="Work order" value={order ? `${order.title} (${order.status})` : "None"}/>}
       {claim.payout_received_at && <Stat label="Payout received" value={niceDate(claim.payout_received_at)}/>}
     </div>
 
@@ -469,9 +469,9 @@ function ClaimDetail({ claim, policies, lots, orders, funds, documents, isCommit
     <div>
       <SectionLabel>Progress notes</SectionLabel>
       <div className="mt-3 flex gap-2">
-        <Input value={note} onChange={e => setNote(e.target.value)} placeholder="Add an update, e.g. assessor visited" aria-label="Add a note"
+        <Input value={note} onChange={e => setNote(e.target.value)} placeholder={isCommittee ? "Add an update, e.g. assessor visited" : "Add a note for the committee"} aria-label="Add a note"
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void addNote(); } }}/>
-        <Button size="sm" variant="outline" className="shrink-0 rounded-full" onClick={() => { void addNote(); }}>Add</Button>
+        <Button size="sm" variant="outline" className="shrink-0 rounded-full" onClick={() => { void addNote(); }}>{isCommittee ? "Add" : "Send"}</Button>
       </div>
       <ul className="mt-3 divide-y divide-border/70">
         {updates.map(u => <li key={u.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5 text-[13px]">
@@ -528,7 +528,7 @@ export function ClaimsSection({ claims, policies, lots, orders, funds, documents
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Claims</p>
         <h2 className="mt-2 font-display text-2xl tracking-[-0.02em]">Insurance claims</h2>
-        <p className="mt-2 max-w-xl text-[13px] text-muted-foreground">Follow each claim from lodgement to payout: who's handling it, the insurer's rep, what's claimed and what the building carries.</p>
+        <p className="mt-2 max-w-xl text-[13px] text-muted-foreground">Claims in progress and where each is up to.</p>
       </div>
       {isCommittee && <Button className="rounded-full" onClick={() => { setEditing(null); setFormOpen(true); }} disabled={!schemeId}><Plus/> Log a claim</Button>}
     </div>

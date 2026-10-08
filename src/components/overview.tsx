@@ -101,9 +101,10 @@ function WidgetCard({ title, icon: Icon, tone = "default", action, grip, menu, r
 
 function CashWidgetBody({ funds, balances, owner = false }: { funds: BudgetFund[]; balances: Record<string, number>; owner?: boolean }) {
   const total = funds.reduce((s, f) => s + (balances[f.id] ?? 0), 0);
+  if (owner && funds.every(f => !balances[f.id])) return <p className="text-[13px] text-muted-foreground">Not recorded yet.</p>;
   return <div>
     <p className={`font-display text-4xl font-medium tracking-[-0.03em] ${total < 0 ? "text-destructive" : ""}`}>{money(total)}</p>
-    <p className="mt-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">{owner ? "Held in the building's funds today" : "Across the building's funds today, as recorded in Finance"} <Help term="funds"/></p>
+    <p className="mt-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">{owner ? "In the building's accounts today" : "Across the building's funds today, as recorded in Finance"} <Help term="funds"/></p>
     <div className="mt-5 space-y-2 text-[13px]">
       {funds.map(f => { const b = balances[f.id] ?? 0; return <div key={f.id} className="flex justify-between gap-3 border-t border-border/60 pt-2 first:border-0 first:pt-0">
         <span className="truncate text-muted-foreground">{f.name}</span><span className={`font-medium tabular-nums ${b < 0 ? "text-destructive" : ""}`}>{money(b)}{b < 0 ? " overdrawn" : ""}</span>
@@ -118,6 +119,17 @@ function NoticesWidgetBody({ notices, noticeComments, schemeId, isCommittee, onC
 }) {
   const [postOpen, setPostOpen] = useState(false);
   const [viewing, setViewing] = useState<Notice | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  // Replies are signed with the person's own name, so nobody has to type it.
+  const myName = useQuery({
+    queryKey: ["my-name"],
+    queryFn: async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth.user?.id; if (!uid) return null;
+      const { data } = await supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle();
+      return (data?.full_name as string | null | undefined)?.trim() || auth.user?.email?.split("@")[0] || null;
+    },
+  });
   const sorted = notices.slice().sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || b.created_at.localeCompare(a.created_at));
   const commentsFor = (id: string) => noticeComments.filter(c => c.notice_id === id);
 
@@ -142,7 +154,7 @@ function NoticesWidgetBody({ notices, noticeComments, schemeId, isCommittee, onC
     if (message === "") return;
     const { error } = await supabase.from("notice_comments").insert({
       notice_id: notice.id, scheme_id: schemeId,
-      author_name: String(form.get("author_name") ?? "").trim() || null, message,
+      author_name: myName.data ?? (isCommittee ? "Committee" : null), message,
     });
     if (error) { toast("Could not post your reply", { description: error.message }); return; }
     formEl.reset();
@@ -163,7 +175,7 @@ function NoticesWidgetBody({ notices, noticeComments, schemeId, isCommittee, onC
       </DialogContent>
     </Dialog>}
     <div className="mt-4 space-y-3">
-      {sorted.slice(0, 4).map(n => <button key={n.id} type="button" onClick={() => setViewing(n)} className="block w-full rounded-2xl border border-border/70 p-3 text-left hover:bg-secondary/40">
+      {sorted.slice(0, showAll ? undefined : 4).map(n => <button key={n.id} type="button" onClick={() => setViewing(n)} className="block w-full rounded-2xl border border-border/70 p-3 text-left hover:bg-secondary/40">
         <div className="flex items-center gap-2">
           {n.pinned && <Pin className="size-3 text-primary" />}
           <p className="truncate text-[13px] font-medium">{n.title}</p>
@@ -171,6 +183,7 @@ function NoticesWidgetBody({ notices, noticeComments, schemeId, isCommittee, onC
         <p className="mt-1 truncate text-[12px] text-muted-foreground">{n.message}</p>
         <p className="mt-1 text-[11px] text-muted-foreground/70">{niceDate(n.created_at)} · {commentsFor(n.id).length} repl{commentsFor(n.id).length === 1 ? "y" : "ies"}</p>
       </button>)}
+      {sorted.length > 4 && <button type="button" onClick={() => setShowAll(v => !v)} className="text-[13px] font-medium text-primary hover:underline">{showAll ? "Show fewer" : `See all (${sorted.length})`}</button>}
       {sorted.length === 0 && <p className="py-6 text-center text-[13px] text-muted-foreground">No notices yet.</p>}
     </div>
     <Dialog open={!!viewing} onOpenChange={o => { if (!o) setViewing(null); }}>
@@ -186,7 +199,7 @@ function NoticesWidgetBody({ notices, noticeComments, schemeId, isCommittee, onC
             {commentsFor(viewing.id).length === 0 && <p className="text-[12px] text-muted-foreground">No replies yet.</p>}
           </div>
           <form onSubmit={e => { void addComment(e, viewing); }} className="mt-3 space-y-2">
-            <Input name="author_name" placeholder="Your name (optional)" />
+            {myName.data && <p className="text-[11px] text-muted-foreground">Replying as {myName.data}</p>}
             <div className="flex gap-2"><Textarea name="message" rows={2} placeholder="Write a reply" required className="flex-1" /><Button type="submit" size="icon" className="shrink-0 rounded-full"><Send className="size-4" /></Button></div>
           </form>
         </>}
@@ -296,21 +309,22 @@ function yearGlance({ budgets, levies, meetings, policies, scheme }: { budgets: 
   ];
 }
 
-type SetupLot = { id: string; entitlement_percent: number; owner_user_id: string | null };
+type SetupLot = { id: string; entitlement_percent: number; owner_user_id: string | null; invited_at?: string | null };
 
 // A short checklist for a new committee. It ticks itself off from what's been recorded and
 // disappears once everything is done. Hiding it folds it to a small button that brings it back.
-function GettingStarted({ lots, policies, budgets, scheme, goTo, hasPayment }: { lots: SetupLot[]; policies: OvPolicy[]; budgets: OvBudget[]; scheme: OvScheme | null; goTo: (s: string) => void; hasPayment: boolean }) {
+function GettingStarted({ lots, policies, budgets, scheme, goTo, hasPayment, noticeCount }: { lots: SetupLot[]; policies: OvPolicy[]; budgets: OvBudget[]; scheme: OvScheme | null; goTo: (s: string) => void; hasPayment: boolean; noticeCount: number }) {
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("loty-setup-dismissed") === "1"; } catch { return false; } });
   const fy = currentFinancialYearStart();
   const total = lots.reduce((t, l) => t + Number(l.entitlement_percent || 0), 0);
   const steps = [
     { label: "Add your lots", done: lots.length > 0, tab: "Lots" },
     { label: "Check entitlements add up to 100%", done: lots.length > 0 && Math.abs(total - 100) < 0.01, tab: "Lots" },
-    { label: "Invite your owners", done: lots.some(l => l.owner_user_id), tab: "Lots" },
+    { label: "Invite your owners", done: lots.some(l => l.owner_user_id || l.invited_at), tab: "Lots" },
     { label: "Add the building insurance policy", done: policies.length > 0, tab: "Insurance" },
     { label: `Set the ${fyLabel(fy)} budget`, done: budgets.some(b => budgetStartYear(b.financial_year) === fy), tab: "Finance/Budget" },
     { label: "Add how owners pay their levies", done: hasPayment, tab: "Settings" },
+    { label: "Post a first notice to owners", done: noticeCount > 0, tab: "Dashboard" },
     { label: "Schedule the AGM", done: !!scheme?.next_agm_date, tab: "AGM" },
   ];
   const doneCount = steps.filter(x => x.done).length;
@@ -428,7 +442,8 @@ export function OverviewSection({ firstName, lots = [], hasPayment = false, sche
   const seeded = useRef(false);
   const [seedFailed, setSeedFailed] = useState(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const canCustomise = !!userId || isCommittee;
+  // Owners who drop in a few times a year get a fixed dashboard, so the notice board can't be hidden by accident.
+  const canCustomise = isCommittee;
 
   // Each person has their own layout; rows without a user are the scheme's default,
   // copied for someone the first time they open the dashboard.
@@ -604,7 +619,7 @@ export function OverviewSection({ firstName, lots = [], hasPayment = false, sche
       <h1 className="mt-4 text-4xl font-medium leading-[1.02] tracking-[-0.04em] sm:text-6xl">{firstName ? `Hi ${firstName}, here's` : "Here's"} what's happening.</h1>
     </div>
 
-    {isCommittee && <GettingStarted lots={lots} policies={policies} budgets={budgets} scheme={scheme} goTo={goTo} hasPayment={hasPayment}/>}
+    {isCommittee && <GettingStarted lots={lots} policies={policies} budgets={budgets} scheme={scheme} goTo={goTo} hasPayment={hasPayment} noticeCount={notices.length}/>}
 
     {canCustomise && <div className="mt-6 flex flex-wrap items-center gap-2">
       {!customising

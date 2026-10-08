@@ -8,7 +8,7 @@
 export type BudgetFundTotal = { fund_id: string; total: number };
 export type Levy = {
   id: string; lot_id: string; budget_id: string; amount: number; due_date: string; status: string; paid_at: string | null;
-  notified_at: string | null; notified_amount: number | null;
+  notified_at: string | null; notified_amount: number | null; reminded_at?: string | null;
   /** An extra labelled charge (e.g. a cost added after levies were paid); when fund_id is set it belongs wholly to that fund. */
   label?: string | null; fund_id?: string | null;
   lots: { lot_number: number; owner_name: string | null; owner_email: string | null; entitlement_percent: number } | null;

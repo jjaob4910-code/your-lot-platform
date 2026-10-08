@@ -163,7 +163,7 @@ const toneDot: Record<Item["tone"], string> = {
 // coloured dots, and below it the month's entries as a readable list grouped by day.
 function PhoneCalendar({ className, cursor, setCursor, days, items, todayISO, onOpen, onAdd }: {
   className: string; cursor: Date; setCursor: (d: Date) => void; days: Date[]; items: Item[]; todayISO: string;
-  onOpen: (item: Item) => void; onAdd: (iso: string) => void;
+  onOpen: (item: Item) => void; onAdd?: ((iso: string) => void) | undefined;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const monthKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
@@ -196,7 +196,7 @@ function PhoneCalendar({ className, cursor, setCursor, days, items, todayISO, on
           const iso = toISO(day);
           const inMonth = day.getMonth() === cursor.getMonth();
           const dayItems = inMonth ? items.filter(i => i.date === iso) : [];
-          return <button key={iso} type="button" disabled={!inMonth} onClick={() => dayItems.length ? pick(iso) : onAdd(iso)}
+          return <button key={iso} type="button" disabled={!inMonth} onClick={() => dayItems.length ? pick(iso) : onAdd?.(iso)}
             aria-label={`${niceDate(iso)}${dayItems.length ? `, ${dayItems.length} item${dayItems.length === 1 ? "" : "s"}` : ""}`}
             className={`flex h-11 flex-col items-center justify-center rounded-xl ${!inMonth ? "opacity-0" : selected === iso ? "bg-primary/10" : ""}`}>
             <span className={`grid size-7 place-items-center rounded-full text-[13px] ${iso === todayISO ? "bg-primary text-primary-foreground" : ""}`}>{day.getDate()}</span>
@@ -204,7 +204,7 @@ function PhoneCalendar({ className, cursor, setCursor, days, items, todayISO, on
           </button>;
         })}
       </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">Tap a day with dots to jump to it, or an empty day to add something.</p>
+      <p className="mt-2 text-[11px] text-muted-foreground">{onAdd ? "Tap a day with dots to jump to it, or an empty day to add something." : "Tap a day with dots to see what's on."}</p>
     </Card>
 
     {groups.length === 0
@@ -307,7 +307,7 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo, 
       <div className="max-w-2xl">
         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Your property</p>
         <h1 className="mt-4 text-4xl font-medium tracking-[-0.035em] sm:text-5xl">Calendar</h1>
-        <p className="mt-5 text-[15px] leading-7 text-muted-foreground">{canEdit ? "Meetings, renewals, levies and repairs in one place. Drag anything to a new day, open it for the detail, and add your own events and reminders." : "Meetings, insurance renewals, levy due dates and repairs for your building. Open anything for the detail."}</p>
+        <p className="mt-5 text-[15px] leading-7 text-muted-foreground">{canEdit ? "Meetings, renewals, levies and repairs in one place. Drag anything to a new day, open it for the detail, and add your own events and reminders." : "What's coming up for your building."}</p>
       </div>
       <div className="flex items-center gap-2">
         <div className="hidden rounded-full border border-border/70 p-1 sm:flex">
@@ -320,7 +320,7 @@ export function CalendarSection({ scheme, tasks, widgets, levies, orders, goTo, 
 
     {/* Phones: a compact month strip with dots, then the month's entries grouped by day. */}
     <PhoneCalendar className="sm:hidden" cursor={cursor} setCursor={setCursor} days={days} items={items} todayISO={todayISO}
-      onOpen={setViewing} onAdd={setAdding}/>
+      onOpen={setViewing} onAdd={canEdit ? setAdding : undefined}/>
 
     <div className="hidden sm:block">
     {view === "calendar" ? <Card className="mt-10 overflow-hidden">

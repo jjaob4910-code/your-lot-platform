@@ -63,7 +63,7 @@ export type Scheme = { id: string; name: string; address: string; total_lots: nu
 export type Lot = {
   id: string; lot_number: number; owner_name: string | null; owner_email: string | null;
   owner_phone: string | null; street_address: string | null;
-  owner_user_id: string | null; entitlement_percent: number; occupied_status: string
+  owner_user_id: string | null; entitlement_percent: number; occupied_status: string; invited_at?: string | null
 };
 type Repair = WorkOrder;
 type Doc = DocFile;
@@ -74,7 +74,7 @@ const sections = [
   ["Documents", Files],
 ] as const;
 
-import { money } from "@/lib/format";
+import { money, niceDate } from "@/lib/format";
 export { money };
 
 function DashboardPage() {
@@ -408,7 +408,7 @@ function DashboardPage() {
       if (shares.length === 0) return;
       const { error: txError } = await supabase.from("finance_transactions").insert(shares.map(s => ({
         scheme_id: schemeId!, direction: "in", fund_id: s.fund_id, amount: s.amount, occurred_on: paidAt, status: "Paid",
-        category: "Levy contribution", description: `Levy — Lot ${levy.lots?.lot_number ?? "?"} (${levy.budgets?.financial_year ?? ""})`,
+        category: "Levy contribution", description: `Levy: Lot ${levy.lots?.lot_number ?? "?"} (${levy.budgets?.financial_year ?? ""})`,
         levy_id: levy.id,
       })));
       if (txError) throw Object.assign(txError, { levyMarked: true });
@@ -714,7 +714,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
 
   return <div>
     <PageHead eyebrow="Your property" title="Lots"
-      blurb={isCommittee ? "Who owns what and who lives there. Invite each owner so they can see their levies and the building's notices." : "Every lot in the building and its share of costs, and who runs the building. Other owners' contact details stay private."}
+      blurb={isCommittee ? "Who owns what and who lives there. Invite each owner so they can see their levies and the building's notices." : "Your lot and its share of the building's costs."}
       action={isCommittee ? <Button className="rounded-full" onClick={()=>{ setEditing(null); setOpen(true); }}><Plus/> Add a lot</Button> : undefined}/>
     {isCommittee && lots.length > 0 && <p role="status" className={`mt-6 rounded-2xl px-4 py-3 text-[13px] ${totalOk ? "bg-secondary/50 text-muted-foreground" : "bg-amber-500/10 text-amber-800 dark:text-amber-300"}`}>
       {totalOk ? "Lot entitlements add up to 100%." : `Lot entitlements add up to ${Number(total.toFixed(3))}%. They should total 100% so levies and votes are shared correctly. Check them against your plan of subdivision.`} <Help term="entitlement"/>
@@ -729,15 +729,15 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
           <div className="flex items-center gap-2">
             {isCommittee && (lot.owner_user_id
               ? <span className="rounded-full bg-emerald-600/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Joined</span>
-              : <><span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">Not joined yet</span>
-                  <Button type="button" size="sm" variant="outline" className="h-8 rounded-full" onClick={() => setInviting(lot)}>Invite</Button></>)}
+              : <><span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">{lot.invited_at ? `Invited ${niceDate(lot.invited_at)}` : "Not joined yet"}</span>
+                  <Button type="button" size="sm" variant="outline" className="h-8 rounded-full" onClick={() => setInviting(lot)}>{lot.invited_at ? "Invite again" : "Invite"}</Button></>)}
             {(isCommittee || lot.id === myLot?.id) && <Button type="button" size="sm" variant="ghost" className="h-8 rounded-full" onClick={()=>setViewing(lot)}>Details</Button>}
           </div>
         </div>)}
         {visible.length === 0 && <p className="px-7 py-10 text-center text-sm text-muted-foreground">{isCommittee ? "No lots yet. Add your first lot to start billing levies." : "Your lot isn't linked to your account yet. Ask your committee to invite you, or to put your email on your lot."}</p>}
       </div>
     </Card>
-    <div className="mt-6"><WhoRunsCard schemeId={schemeId}/></div>
+    {isCommittee && <div className="mt-6"><WhoRunsCard schemeId={schemeId}/></div>}
     <Dialog open={!!viewing} onOpenChange={(o)=>{ if (!o) setViewing(null); }}>
       <DialogContent>
         <DialogHeader>
@@ -768,7 +768,7 @@ function LotsSection({ lots, isCommittee, schemeId, onChanged, budget, myLot, bu
       </DialogContent>
     </Dialog>
     {open && <LotDialog open={open} onOpenChange={setOpen} schemeId={schemeId} lot={editing} onSaved={onChanged} budget={budget} lotCount={lots.length} key={editing?.id ?? "new"}/>}
-    <InviteDialog open={!!inviting} onOpenChange={o => { if (!o) setInviting(null); }} schemeId={schemeId} role="Owner" lot={inviting} buildingName={buildingName}/>
+    <InviteDialog open={!!inviting} onOpenChange={o => { if (!o) setInviting(null); }} schemeId={schemeId} role="Owner" lot={inviting} buildingName={buildingName} onInvited={onChanged}/>
   </div>;
 }
 
